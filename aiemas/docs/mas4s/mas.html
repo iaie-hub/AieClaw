@@ -1,0 +1,1014 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智能体协作平台</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
+
+  <style>
+    body,
+    html,
+    #app {
+      height: 100%;
+      margin: 0;
+      font-family: 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+      background-color: #f5f7fa;
+    }
+
+    [v-cloak] {
+      display: none !important;
+    }
+
+    .layout-container {
+      height: 100vh;
+      display: flex;
+    }
+
+    /* 1. 最左侧一级菜单（深色极简） */
+    .primary-sidebar {
+      width: 72px;
+      background-color: #001529;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 15px;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+
+    .logo-icon {
+      width: 40px;
+      height: 40px;
+      background-color: #1890ff;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+      font-size: 14px;
+    }
+
+    .nav-item {
+      width: 100%;
+      height: 60px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #a6adb4;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.3s;
+      margin-bottom: 5px;
+    }
+
+    .nav-item.active {
+      background-color: #1890ff;
+      color: #fff;
+    }
+
+    .nav-item:hover:not(.active) {
+      color: #fff;
+    }
+
+    .nav-item .el-icon {
+      font-size: 20px;
+      margin-bottom: 4px;
+    }
+
+    /* 2. 次级侧边栏（浅色列表，仅在工作台显示） */
+    .secondary-sidebar {
+      width: 260px;
+      background-color: #f8f9fa;
+      border-right: 1px solid #dcdfe6;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    .secondary-header {
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      font-weight: bold;
+      font-size: 16px;
+      border-bottom: 1px solid #dcdfe6;
+    }
+
+    .secondary-menu {
+      border-right: none;
+      background-color: transparent;
+    }
+
+    .secondary-menu .el-menu-item {
+      height: 50px;
+      line-height: 50px;
+    }
+
+    /* 3. 右侧主工作区 */
+    .main-workspace {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background-color: #f5f7fa;
+    }
+
+    /* 顶部通用 Header */
+    .main-header {
+      height: 60px;
+      background-color: #fff;
+      border-bottom: 1px solid #dcdfe6;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 20px;
+      flex-shrink: 0;
+    }
+
+    /* ========== 工作台聊天区样式 ========== */
+    .chat-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+    }
+
+    .chat-input-area {
+      padding: 15px 20px;
+      background-color: #ffffff;
+      border-top: 1px solid #dcdfe6;
+      flex-shrink: 0;
+    }
+
+    .message-row {
+      display: flex;
+      margin-bottom: 24px;
+      animation: fadeIn 0.3s;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .message-row.is-user {
+      justify-content: flex-end;
+    }
+
+    .message-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 12px;
+      margin: 0 12px;
+      flex-shrink: 0;
+    }
+
+    .avatar-user {
+      background-color: #409EFF;
+    }
+
+    .avatar-agent {
+      background-color: #67C23A;
+      border-radius: 8px;
+    }
+
+    .avatar-colleague {
+      background-color: #E6A23C;
+    }
+
+    .message-content {
+      max-width: 70%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .message-row.is-user .message-content {
+      align-items: flex-end;
+    }
+
+    .message-name {
+      font-size: 12px;
+      color: #909399;
+      margin-bottom: 4px;
+    }
+
+    .message-bubble {
+      padding: 10px 14px;
+      border-radius: 8px;
+      background-color: #ffffff;
+      border: 1px solid #e4e7ed;
+      line-height: 1.5;
+      color: #303133;
+      font-size: 14px;
+      word-break: break-all;
+    }
+
+    .message-row.is-user .message-bubble {
+      background-color: #cce5ff;
+      border-color: #b3d8ff;
+      color: #004085;
+    }
+
+    .pending-card {
+      margin-top: 10px;
+      border: 1px solid #F56C6C;
+      width: 100%;
+    }
+
+    .reasoning-box {
+      margin-bottom: 8px;
+      width: 100%;
+    }
+
+    .el-collapse-item__header {
+      height: 32px;
+      line-height: 32px;
+      font-size: 13px;
+      color: #909399;
+      background-color: transparent;
+      border-bottom: none;
+    }
+
+    .el-collapse {
+      border-top: none;
+      border-bottom: none;
+    }
+
+    .terminal-mock {
+      background-color: #1e1e1e;
+      color: #d4d4d4;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      margin-top: 5px;
+    }
+
+    /* ========== Usage 仪表盘样式 ========== */
+    .dashboard-container {
+      padding: 20px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .stat-card {
+      border-radius: 8px;
+      padding: 20px;
+      background: #fff;
+      box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.02);
+      height: 100%;
+      border: 1px solid #ebeef5;
+    }
+
+    .stat-title {
+      color: #909399;
+      font-size: 13px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .stat-value {
+      font-size: 28px;
+      font-weight: bold;
+      color: #303133;
+      margin-bottom: 5px;
+    }
+
+    .stat-sub {
+      font-size: 12px;
+      color: #C0C4CC;
+    }
+
+    /* ========== 智能体管理/列表样式 ========== */
+    .agent-list-container {
+      padding: 24px 32px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .agent-list-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    .agent-card {
+      border-radius: 8px;
+      border: none;
+      transition: all 0.3s;
+      cursor: pointer;
+    }
+
+    .agent-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+    }
+
+    .agent-card .el-card__body {
+      padding: 0;
+    }
+
+    .agent-card-main {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      min-height: 140px;
+    }
+
+    .agent-card-top {
+      display: flex;
+    }
+
+    .agent-card-icon {
+      width: 48px;
+      height: 48px;
+      background-color: #409EFF;
+      border-radius: 8px;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      flex-shrink: 0;
+      position: relative;
+    }
+
+    .agent-status-dot {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      width: 10px;
+      height: 10px;
+      background-color: #67C23A;
+      border-radius: 50%;
+      border: 2px solid #fff;
+    }
+
+    .agent-card-info {
+      margin-left: 16px;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .agent-card-name {
+      font-size: 16px;
+      font-weight: bold;
+      color: #303133;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .agent-card-desc {
+      font-size: 13px;
+      color: #909399;
+      margin-top: 6px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      line-height: 1.5;
+    }
+
+    .agent-card-stats {
+      margin-top: auto;
+      padding-top: 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: #909399;
+    }
+
+    .agent-card-footer {
+      border-top: 1px solid #f0f2f5;
+      padding: 12px 0;
+      text-align: center;
+      font-size: 13px;
+      color: #909399;
+      background-color: #fafafa;
+      border-radius: 0 0 8px 8px;
+    }
+
+    .agent-card:hover .agent-card-footer {
+      color: #409EFF;
+    }
+
+    /* ========== 智能体详情样式 ========== */
+    .agent-detail-container {
+      padding: 24px 32px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .agent-header-card {
+      margin-bottom: 20px;
+      padding: 20px;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.02);
+      border: none;
+    }
+
+    .agent-tabs-card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 20px;
+      min-height: 400px;
+      box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.02);
+      border: none;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app" v-cloak>
+    <div class="layout-container">
+
+      <div class="primary-sidebar">
+        <div class="logo-icon">AIE</div>
+        <div class="nav-item" :class="{active: activeMainMenu === 'workspace'}" @click="switchMenu('workspace')">
+          <el-icon>
+            <ChatDotRound />
+          </el-icon>工作台
+        </div>
+        <div class="nav-item" :class="{active: activeMainMenu === 'usage'}" @click="switchMenu('usage')">
+          <el-icon>
+            <DataLine />
+          </el-icon>使用情况
+        </div>
+        <div class="nav-item" :class="{active: activeMainMenu === 'agents'}" @click="switchMenu('agents')">
+          <el-icon>
+            <User />
+          </el-icon>智能体
+        </div>
+        <div class="nav-item" :class="{active: activeMainMenu === 'skills'}" @click="switchMenu('skills')">
+          <el-icon>
+            <SetUp />
+          </el-icon>Skills
+        </div>
+        <div class="nav-item" :class="{active: activeMainMenu === 'cron'}" @click="switchMenu('cron')">
+          <el-icon>
+            <Timer />
+          </el-icon>定时任务
+        </div>
+        <div class="nav-item" :class="{active: activeMainMenu === 'settings'}" @click="switchMenu('settings')">
+          <el-icon>
+            <Setting />
+          </el-icon>设置
+        </div>
+      </div>
+
+      <div class="secondary-sidebar" v-show="activeMainMenu === 'workspace'">
+
+        <div class="secondary-header">
+          <span>任务列表</span>
+          <el-dropdown @command="handleTaskAction" trigger="click">
+            <el-button size="small" type="primary" icon="Plus" circle></el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="create" icon="Plus">发起新任务</el-dropdown-item>
+                <el-dropdown-item command="join" icon="Link">加入协作任务</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
+
+        <el-menu :default-active="activeTaskId" class="secondary-menu" @select="handleTaskSelect"
+          :default-openeds="['group-1', 'group-2']">
+          <el-sub-menu index="group-1">
+            <template #title><el-icon>
+                <FolderOpened />
+              </el-icon>我发起的任务</template>
+            <el-menu-item v-for="task in initiatedTasks" :key="task.id" :index="task.id">
+              <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                :title="task.title">{{ task.title }}</span>
+              <el-badge v-if="task.hasNotification" is-dot class="item" type="danger"
+                style="margin-left:auto"></el-badge>
+            </el-menu-item>
+          </el-sub-menu>
+
+          <el-sub-menu index="group-2">
+            <template #title><el-icon>
+                <Connection />
+              </el-icon>我参与的协作</template>
+            <el-menu-item v-for="task in participatedTasks" :key="task.id" :index="task.id">
+              <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                :title="task.title">{{ task.title }}</span>
+              <el-badge v-if="task.notificationCount" :value="task.notificationCount" class="item" type="primary"
+                style="margin-left:auto"></el-badge>
+            </el-menu-item>
+          </el-sub-menu>
+        </el-menu>
+      </div>
+
+      <div class="main-workspace">
+
+        <div class="main-header" v-show="activeMainMenu !== 'agents'">
+          <div style="font-size: 16px; font-weight: bold; color: #303133; display: flex; align-items: center;">
+            <template v-if="activeMainMenu === 'workspace' && currentTask">
+              任务：{{ currentTask.title }}
+              <el-tag size="small" :type="currentTask.statusType" style="margin-left: 10px; margin-right: 15px;">{{
+                currentTask.status }}</el-tag>
+
+              <el-tooltip content="邀请协作者 / 生成链接" placement="bottom">
+                <el-button size="small" icon="Share" circle @click="inviteCollaborator"></el-button>
+              </el-tooltip>
+            </template>
+            <span v-else-if="activeMainMenu === 'usage'">使用情况 (Usage Overview)</span>
+            <span v-else>{{ activeMainMenu === 'skills' ? 'Skills' : (activeMainMenu === 'cron' ? '定时任务' : '设置')
+              }}</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 20px;">
+            <el-tooltip v-if="activeMainMenu === 'workspace'" content="全局审批通知" placement="bottom">
+              <el-badge :value="globalNotificationCount" type="danger" :hidden="globalNotificationCount === 0">
+                <el-button circle icon="Bell" @click="showGlobalNotification"></el-button>
+              </el-badge>
+            </el-tooltip>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <el-avatar size="small" style="background-color: #dcdfe6; color: #909399;">A</el-avatar>
+              <span style="font-size: 14px; color: #606266;">admin</span>
+            </div>
+          </div>
+        </div>
+
+        <template v-if="activeMainMenu === 'workspace'">
+          <template v-if="currentTask">
+            <div class="chat-container" id="chatBox">
+              <template v-for="(msg, index) in currentTask.messages" :key="index">
+                <div v-if="msg.type === 'user'" class="message-row is-user">
+                  <div class="message-content">
+                    <div class="message-name">{{ msg.sender }}</div>
+                    <div class="message-bubble">{{ msg.content }}</div>
+                  </div>
+                  <div class="message-avatar avatar-user">我</div>
+                </div>
+
+                <div v-else-if="msg.type === 'colleague'" class="message-row">
+                  <div class="message-avatar avatar-colleague">{{ msg.avatar }}</div>
+                  <div class="message-content">
+                    <div class="message-name">{{ msg.sender }}</div>
+                    <div class="message-bubble">{{ msg.content }}</div>
+                  </div>
+                </div>
+
+                <div v-else-if="msg.type === 'agent'" class="message-row">
+                  <div class="message-avatar avatar-agent"><el-icon>
+                      <Service />
+                    </el-icon></div>
+                  <div class="message-content">
+                    <div class="message-name">{{ msg.sender }} 🤖</div>
+                    <div v-if="msg.reasoning" class="reasoning-box">
+                      <el-collapse v-model="activeNames">
+                        <el-collapse-item :name="'reasoning-' + index">
+                          <template #title>
+                            <el-icon class="is-loading" style="margin-right: 5px;">
+                              <Loading />
+                            </el-icon> {{ msg.reasoning.title }}
+                          </template>
+                          <div class="terminal-mock">{{ msg.reasoning.terminal }}</div>
+                        </el-collapse-item>
+                      </el-collapse>
+                    </div>
+                    <div class="message-bubble">{{ msg.content }}</div>
+                  </div>
+                </div>
+
+                <div v-else-if="msg.type === 'pending'" class="message-row">
+                  <div class="message-avatar avatar-agent"><el-icon>
+                      <Warning />
+                    </el-icon></div>
+                  <div class="message-content">
+                    <div class="message-name">{{ msg.sender }} 🤖 (等待审批)</div>
+                    <el-card class="pending-card" shadow="never">
+                      <template #header>
+                        <div style="color: #F56C6C; font-weight: bold; display: flex; align-items: center; gap: 5px;">
+                          <el-icon>
+                            <WarningFilled />
+                          </el-icon> 流程挂起：重大变更需审批
+                        </div>
+                      </template>
+                      <p style="font-size: 13px; color: #606266; margin-top:0;">{{ msg.content }}</p>
+                      <div
+                        style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; font-size: 13px; color: #606266;">
+                        <strong>待执行：</strong> {{ msg.pendingData.tool }}<br>
+                        <strong>风险项：</strong> {{ msg.pendingData.risk }}
+                      </div>
+                      <div style="text-align: right; margin-top: 15px;">
+                        <el-button size="small" plain @click="handleReject(index)">驳回</el-button>
+                        <el-button size="small" plain type="primary" @click="handleModify(index)">修改参数</el-button>
+                        <el-button size="small" type="success" @click="handleApprove(index)">批准执行</el-button>
+                      </div>
+                    </el-card>
+                  </div>
+                </div>
+              </template>
+            </div>
+            <div class="chat-input-area">
+              <el-input v-model="inputText" type="textarea" :rows="2" placeholder="输入任务指令，探讨方案或 @特定专家/Agent..."
+                resize="none" @keyup.enter="sendMessage"></el-input>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                <div style="color: #909399; font-size: 12px;"><el-icon>
+                    <InfoFilled />
+                  </el-icon> Agent 会自动感知上下文进行协作流转。</div>
+                <el-button type="primary" icon="Position" @click="sendMessage">发送</el-button>
+              </div>
+            </div>
+          </template>
+          <div v-else style="flex: 1; display: flex; align-items: center; justify-content: center;">
+            <el-empty description="请选择或发起一个科研任务"></el-empty>
+          </div>
+        </template>
+
+        <template v-if="activeMainMenu === 'usage'">
+          <div class="dashboard-container">
+            <el-row :gutter="20">
+              <el-col :span="6">
+                <div class="stat-card">
+                  <div class="stat-title">Messages</div>
+                  <div class="stat-value">6</div>
+                  <div class="stat-sub">2 user · 4 assistant</div>
+                </div>
+              </el-col>
+              <el-col :span="6">
+                <div class="stat-card">
+                  <div class="stat-title">Tool Calls</div>
+                  <div class="stat-value">2</div>
+                  <div class="stat-sub">1 tools used</div>
+                </div>
+              </el-col>
+              <el-col :span="6">
+                <div class="stat-card">
+                  <div class="stat-title">Avg Tokens / Msg</div>
+                  <div class="stat-value">842</div>
+                  <div class="stat-sub">Across 6 messages</div>
+                </div>
+              </el-col>
+              <el-col :span="6">
+                <div class="stat-card">
+                  <div class="stat-title">Throughput</div>
+                  <div class="stat-value">1,240 tok/min</div>
+                  <div class="stat-sub">0 errors · 1m 44s avg session</div>
+                </div>
+              </el-col>
+            </el-row>
+            <el-row :gutter="20">
+              <el-col :span="8">
+                <el-card shadow="never" style="border-radius: 8px;">
+                  <template #header><span style="font-weight: bold;">Top Models</span></template>
+                  <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 10px;">
+                    <span>Qwen3.5-122B-A10B</span><span>4 msgs</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; font-size: 14px;">
+                    <span>Llama-3-70B</span><span>2 msgs</span>
+                  </div>
+                </el-card>
+              </el-col>
+              <el-col :span="8">
+                <el-card shadow="never" style="border-radius: 8px;">
+                  <template #header><span style="font-weight: bold;">Top Tools</span></template>
+                  <div style="display: flex; justify-content: space-between; font-size: 14px;">
+                    <span>Web_Search</span><span>2 calls</span>
+                  </div>
+                </el-card>
+              </el-col>
+              <el-col :span="8">
+                <el-card shadow="never" style="border-radius: 8px;">
+                  <template #header><span style="font-weight: bold;">Top Agents</span></template>
+                  <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 10px;">
+                    <span>检索 Agent</span><span>4 msgs</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; font-size: 14px;"><span>报告
+                      Agent</span><span>2 msgs</span></div>
+                </el-card>
+              </el-col>
+            </el-row>
+          </div>
+        </template>
+
+        <template v-if="activeMainMenu === 'agents'">
+          <div class="agent-list-container" v-if="currentAgentView === 'list'">
+            <div
+              style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; height: 40px;">
+              <div style="font-size: 20px; font-weight: bold; color: #303133;">智能体管理</div>
+              <div style="display: flex; align-items: center; gap: 20px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <el-icon size="18" style="color: #909399; cursor: pointer;">
+                    <Bell />
+                  </el-icon>
+                  <el-avatar size="small" style="background-color: #dcdfe6; color: #909399;">A</el-avatar>
+                  <span style="font-size: 14px; color: #606266;">admin</span>
+                </div>
+              </div>
+            </div>
+            <div class="agent-list-header">
+              <div></div>
+              <div>
+                <el-button plain icon="Refresh">同步 OpenClaw</el-button>
+                <el-button type="primary" icon="Plus">创建智能体</el-button>
+              </div>
+            </div>
+            <el-row :gutter="20">
+              <el-col :span="8" v-for="agent in agentList" :key="agent.id" style="margin-bottom: 20px;">
+                <el-card shadow="hover" class="agent-card" @click="goToAgentDetail(agent)">
+                  <div class="agent-card-main">
+                    <div class="agent-card-top">
+                      <div class="agent-card-icon">
+                        <el-icon>
+                          <Platform />
+                        </el-icon>
+                        <div class="agent-status-dot" v-if="agent.status === '活跃'"></div>
+                      </div>
+                      <div class="agent-card-info">
+                        <div class="agent-card-name">{{ agent.name }}</div>
+                        <div class="agent-card-desc">{{ agent.desc }}</div>
+                      </div>
+                    </div>
+                    <div class="agent-card-stats">
+                      <div>
+                        <el-tag size="small" type="success" effect="plain" v-if="agent.status === '活跃'">{{ agent.status
+                          }}</el-tag>
+                        <span style="margin-left: 8px;">技能: {{ agent.skills }}</span>
+                      </div>
+                      <div style="display: flex; align-items: center; color: #E6A23C;">
+                        <el-icon>
+                          <StarFilled />
+                        </el-icon> <span style="margin-left: 4px; color: #909399">{{ agent.rating }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="agent-card-footer">详 情</div>
+                </el-card>
+              </el-col>
+            </el-row>
+          </div>
+
+          <div class="agent-detail-container" v-else-if="currentAgentView === 'detail'">
+            <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 20px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <el-icon size="18" style="color: #909399; cursor: pointer;">
+                  <Bell />
+                </el-icon>
+                <el-avatar size="small" style="background-color: #dcdfe6; color: #909399;">A</el-avatar>
+                <span style="font-size: 14px; color: #606266;">admin</span>
+              </div>
+            </div>
+            <div class="agent-header-card">
+              <el-page-header @back="goBackToAgentList" title="返回" style="margin-bottom: 20px;">
+                <template #content>
+                  <span style="font-size: 18px; font-weight: bold; margin-right: 10px;">{{ selectedAgent.name }}</span>
+                  <el-tag size="small" type="success" effect="light" v-if="selectedAgent.status === '活跃'">活跃</el-tag>
+                </template>
+              </el-page-header>
+              <el-descriptions :column="4" border size="small">
+                <el-descriptions-item label="LLM 后端">openclaw</el-descriptions-item>
+                <el-descriptions-item label="累计惩罚">0.0</el-descriptions-item>
+                <el-descriptions-item label="创建时间">16:50</el-descriptions-item>
+                <el-descriptions-item label="版本">v1.0</el-descriptions-item>
+              </el-descriptions>
+            </div>
+            <div class="agent-tabs-card">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                <el-tabs v-model="agentActiveTab" style="flex: 1;">
+                  <el-tab-pane label="人设" name="persona"></el-tab-pane>
+                  <el-tab-pane label="思维模式" name="mindset"></el-tab-pane>
+                  <el-tab-pane label="技能" name="skills"></el-tab-pane>
+                  <el-tab-pane label="记忆" name="memory"></el-tab-pane>
+                  <el-tab-pane label="进化历史" name="history"></el-tab-pane>
+                </el-tabs>
+                <el-button type="primary" size="small" style="margin-top: 5px;">编辑人设</el-button>
+              </div>
+              <el-table :data="personaData" border style="width: 100%" v-if="agentActiveTab === 'persona'">
+                <el-table-column prop="key" label="属性" width="180" style="background-color: #f5f7fa;"></el-table-column>
+                <el-table-column prop="value" label="内容"></el-table-column>
+              </el-table>
+              <el-empty v-else description="暂无数据 / 功能开发中"></el-empty>
+            </div>
+          </div>
+        </template>
+
+        <template v-if="['skills', 'cron', 'settings'].includes(activeMainMenu)">
+          <div style="flex:1; display:flex; align-items:center; justify-content:center;">
+            <el-empty
+              :description="activeMainMenu === 'skills' ? 'Skills 模块开发中' : (activeMainMenu === 'cron' ? '定时任务模块开发中' : '设置模块开发中')"></el-empty>
+          </div>
+        </template>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://unpkg.com/element-plus"></script>
+  <script src="https://unpkg.com/@element-plus/icons-vue"></script>
+
+  <script>
+    const { createApp, ref, computed, nextTick, onMounted } = Vue;
+
+    const app = createApp({
+      setup() {
+        const activeMainMenu = ref('workspace');
+        const currentAgentView = ref('list');
+        const activeTaskId = ref('t-1');
+        const inputText = ref('');
+        const agentActiveTab = ref('persona');
+        const activeNames = ref(['reasoning-1']);
+
+        const agentList = ref([
+          { id: 'a1', name: 'DARWIN助手', desc: '你是一个友好的AI助手，善于回答各类问题。', status: '活跃', rating: '0.0', skills: 0 },
+          { id: 'a2', name: 'main', desc: '未设置角色', status: '活跃', rating: '0.0', skills: 0 },
+          { id: 'a3', name: 'Test DARWIN', desc: '未设置角色', status: '活跃', rating: '0.0', skills: 0 }
+        ]);
+        const selectedAgent = ref({});
+        const personaData = ref([
+          { key: '角色身份', value: '平台系统级助手，负责解答用户关于架构的疑问。' },
+          { key: '性格特质', value: '严谨、专业、高效' },
+          { key: '行为风格', value: '倾向于使用列表和代码块进行结构化输出' },
+          { key: '能力特长', value: 'Openclaw 框架解析、路由分发' },
+          { key: '行为约束', value: '不得提供系统内核级别的修改建议' }
+        ]);
+
+        const tasksData = ref([
+          {
+            id: 't-1',
+            title: '大模型推理过程可视化研究',
+            type: 'initiated',
+            status: '挂起审批中',
+            statusType: 'danger',
+            hasNotification: true,
+            messages: [
+              { type: 'user', sender: '我', content: '请帮我检索目前关于大模型推理过程可视化的开源方案，并整理报告。' },
+              { type: 'agent', sender: '检索 Agent', reasoning: { title: '正在拆解任务并调用外部工具...', terminal: '> Task Breakdown: \n1. Search keywords: "LLM inference visualization".\n> Tool Calling: Web_Search\n> Fetching results...' }, content: '我已经初步检索到了 LLM-Viewer 和 TensorBoard 的相关插件。正在清洗数据准备报告。' },
+              { type: 'colleague', sender: '李研究员', avatar: '李', content: '建议把 vLLM 后端的 KV Cache 分配状态也纳入报告，请 Agent 增加这部分数据。' },
+              { type: 'pending', sender: '报告 Agent', content: '协作者“李研究员”提出了新方向。接纳此建议将改变核心结构，并需要额外调用集群监控接口（高权限）。', pendingData: { tool: 'Generate_Report_Structure', risk: '调用私有云监控 API 读取实时显存数据' } }
+            ]
+          },
+          {
+            id: 't-2',
+            title: 'Ceph分布式存储集群部署方案',
+            type: 'initiated',
+            status: '规划中',
+            statusType: 'success',
+            hasNotification: false,
+            messages: [
+              { type: 'user', sender: '我', content: '我们需要设计一套高可用的 Ceph 存储方案支撑 AI 平台，请规划 RGW 和 RBD 的资源。' },
+              { type: 'agent', sender: '架构 Agent', reasoning: { title: '分析存储需求与网络拓扑...', terminal: '> Checking hardware inventory...\n> Calculating OSD requirements...' }, content: '根据现有节点，建议底层块存储采用 3 副本策略。关于 RGW（对象存储）高可用，您倾向于 HAProxy 还是 Keepalived？' }
+            ]
+          },
+          {
+            id: 't-3',
+            title: '多智能体底层路由算法评估',
+            type: 'participated',
+            status: '讨论中',
+            statusType: 'warning',
+            notificationCount: 2,
+            messages: [
+              { type: 'colleague', sender: '王架构师', avatar: '王', content: '目前星型拓扑路由在并发过高时，主控 Token 消耗太大，有什么优化可能？' },
+              { type: 'user', sender: '我', content: '建议引入轻量的意图分类器进行前置路由，拦截一部分常规请求。' },
+              { type: 'agent', sender: '总结 Agent', content: '已记录建议，正在生成路由算法对比模型 (星型 vs 混合前置路由)...' }
+            ]
+          }
+        ]);
+
+        const initiatedTasks = computed(() => tasksData.value.filter(t => t.type === 'initiated'));
+        const participatedTasks = computed(() => tasksData.value.filter(t => t.type === 'participated'));
+        const currentTask = computed(() => tasksData.value.find(t => t.id === activeTaskId.value));
+        const globalNotificationCount = computed(() => tasksData.value.filter(t => t.hasNotification).length);
+
+        const switchMenu = (menuName) => {
+          activeMainMenu.value = menuName;
+          if (menuName === 'agents') {
+            currentAgentView.value = 'list';
+          }
+        };
+
+        const goToAgentDetail = (agent) => {
+          selectedAgent.value = agent;
+          currentAgentView.value = 'detail';
+          agentActiveTab.value = 'persona';
+        };
+
+        const goBackToAgentList = () => {
+          currentAgentView.value = 'list';
+        };
+
+        const handleTaskSelect = (index) => {
+          activeTaskId.value = index;
+          scrollToBottom();
+        };
+
+        const sendMessage = () => {
+          if (!inputText.value.trim() || !currentTask.value) return;
+          currentTask.value.messages.push({ type: 'user', sender: '我', content: inputText.value });
+          inputText.value = '';
+          scrollToBottom();
+        };
+
+        // --- 【新增下拉菜单交互逻辑】---
+        const handleTaskAction = (command) => {
+          if (command === 'create') {
+            createNewTask();
+          } else if (command === 'join') {
+            joinTask();
+          }
+        };
+
+        const createNewTask = () => {
+          ElementPlus.ElMessage({ message: '发起新任务弹窗开发中...', type: 'info' });
+        };
+
+        const joinTask = () => {
+          ElementPlus.ElMessageBox.prompt('请输入协作链接或任务识别码', '加入协作任务', {
+            confirmButtonText: '加入',
+            cancelButtonText: '取消',
+            inputPattern: /\S+/,
+            inputErrorMessage: '链接或任务码不能为空'
+          }).then(({ value }) => {
+            ElementPlus.ElMessage({ type: 'success', message: `成功解析链接并加入任务` });
+          }).catch(() => { });
+        };
+
+        const inviteCollaborator = () => {
+          if (!currentTask.value) return;
+          ElementPlus.ElMessageBox.prompt('请输入协作者邮箱或复制以下协作链接：\nhttp://aie.platform/join?task=' + currentTask.value.id, '邀请协作者', {
+            confirmButtonText: '发送邀请',
+            cancelButtonText: '取消',
+          }).then(({ value }) => {
+            ElementPlus.ElMessage({ type: 'success', message: '邀请已发送' });
+          }).catch(() => { });
+        };
+
+        const handleApprove = (msgIndex) => {
+          ElementPlus.ElMessage({ message: '已批准执行。', type: 'success' });
+        };
+        const handleModify = (msgIndex) => {
+          ElementPlus.ElMessageBox.prompt('请输入修改后的参数', '手动修改', {
+            confirmButtonText: '提交', cancelButtonText: '取消',
+          }).then(({ value }) => {
+            ElementPlus.ElMessage({ type: 'success', message: '参数已提交' });
+          }).catch(() => { });
+        };
+        const handleReject = (msgIndex) => {
+          ElementPlus.ElMessage({ message: '已驳回', type: 'warning' });
+        };
+
+        const scrollToBottom = () => {
+          nextTick(() => {
+            const el = document.getElementById('chatBox');
+            if (el) el.scrollTop = el.scrollHeight;
+          });
+        };
+
+        const showGlobalNotification = () => {
+          ElementPlus.ElNotification({
+            title: '全局审批通知',
+            message: '您发起的任务中有流程挂起，请审核。',
+            type: 'warning', duration: 0
+          });
+        };
+
+        onMounted(() => { scrollToBottom(); });
+
+        return {
+          activeMainMenu, currentAgentView, activeTaskId, inputText, agentActiveTab, activeNames,
+          agentList, selectedAgent, personaData,
+          tasksData, initiatedTasks, participatedTasks, currentTask, globalNotificationCount,
+          switchMenu, goToAgentDetail, goBackToAgentList, handleTaskSelect, sendMessage,
+          handleTaskAction, createNewTask, joinTask, inviteCollaborator, // 暴露新增方法
+          handleApprove, handleModify, handleReject, showGlobalNotification
+        };
+      }
+    });
+
+    for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+      app.component(key, component);
+    }
+    app.use(ElementPlus);
+    app.mount('#app');
+  </script>
+</body>
+
+</html>

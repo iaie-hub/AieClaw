@@ -396,6 +396,27 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
     const resolved = parseExecApprovalResolved(evt.payload);
     if (resolved) {
       host.execApprovalQueue = removeExecApproval(host.execApprovalQueue, resolved.id);
+      // 找到对应的审核决策消息，追加系统处理结果
+      const messages = (host as unknown as { chatMessages: unknown[] }).chatMessages;
+      if (Array.isArray(messages)) {
+        const idx = messages.findLastIndex(
+          (m) => (m as Record<string, unknown>)._approvalId === resolved.id,
+        );
+        if (idx !== -1) {
+          const msg = messages[idx] as Record<string, unknown>;
+          const content = Array.isArray(msg.content) ? [...msg.content] : [];
+          const statusText =
+            resolved.decision === "deny"
+              ? "系统: 已拒绝执行"
+              : resolved.decision === "allow-always"
+                ? "系统: 已放行并加入白名单"
+                : "系统: 已放行（本次）";
+          content.push({ type: "text", text: statusText });
+          const updated = [...messages];
+          updated[idx] = { ...msg, content };
+          (host as unknown as { chatMessages: unknown[] }).chatMessages = updated;
+        }
+      }
     }
     return;
   }

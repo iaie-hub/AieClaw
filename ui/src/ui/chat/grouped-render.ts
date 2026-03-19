@@ -133,7 +133,9 @@ export function renderMessageGroup(
         ? assistantName
         : normalizedRole === "tool"
           ? "Tool"
-          : normalizedRole;
+          : normalizedRole === "approval"
+            ? (userLabel ?? "Exec approval")
+            : normalizedRole;
   const roleClass =
     normalizedRole === "user"
       ? "user"
@@ -141,7 +143,9 @@ export function renderMessageGroup(
         ? "assistant"
         : normalizedRole === "tool"
           ? "tool"
-          : "other";
+          : normalizedRole === "approval"
+            ? "approval"
+            : "other";
   const timestamp = new Date(group.timestamp).toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit",
@@ -642,6 +646,21 @@ function renderGroupedMessage(
   const m = message as Record<string, unknown>;
   const role = typeof m.role === "string" ? m.role : "unknown";
   const normalizedRole = normalizeRoleForGrouping(role);
+
+  // Approval decision messages: render as a compact two-line card
+  if (normalizedRole === "approval") {
+    const content = Array.isArray(m.content) ? (m.content as Array<Record<string, unknown>>) : [];
+    const decisionLine = content[0]?.text as string | undefined;
+    const statusLine = content[1]?.text as string | undefined;
+    const isDeny = typeof decisionLine === "string" && decisionLine.startsWith("✗");
+    return html`
+      <div class="chat-bubble chat-bubble--approval fade-in">
+        ${decisionLine ? html`<div class="chat-approval-decision">${decisionLine}</div>` : nothing}
+        ${statusLine ? html`<div class="chat-approval-status ${isDeny ? "deny" : "allow"}">${statusLine}</div>` : nothing}
+      </div>
+    `;
+  }
+
   const isToolResult =
     isToolResultMessage(message) ||
     role.toLowerCase() === "toolresult" ||

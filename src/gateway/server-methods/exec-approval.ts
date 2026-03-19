@@ -342,6 +342,9 @@ export function createExecApprovalHandlers(
         .catch((err) => {
           context.logGateway?.error?.(`exec approvals: forward resolve failed: ${String(err)}`);
         });
+      context.logGateway?.info?.(
+        `exec approval resolved: id=${approvalId} decision=${decision} command="${snapshot?.request?.command ?? ""}" resolvedBy=${resolvedBy ?? "unknown"}`,
+      );
       respond(true, { ok: true }, undefined);
     },
   };

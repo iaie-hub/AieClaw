@@ -90,6 +90,9 @@ export function normalizeRoleForGrouping(role: string): string {
   ) {
     return "tool";
   }
+  if (role === "approval") {
+    return "approval";
+  }
   return role;
 }
 

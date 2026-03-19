@@ -6,11 +6,11 @@
 
 OpenClaw 所有通信基于 WebSocket 上的 JSON-RPC 风格帧协议（定义于 `src/gateway/protocol/schema/frames.ts`）。客户端与网关之间只有三种顶级帧格式：
 
-| 帧类型 | `type` 字段 | 用途 |
-|--------|------------|------|
-| **请求帧** | `"req"` | UI → Gateway，发起 RPC 调用（如 `chat.send`）|
-| **响应帧** | `"res"` | Gateway → UI，返回调用结果（ACK 或错误）|
-| **事件帧** | `"event"` | Gateway → UI，单向推送（Agent 流式输出、tool 执行通知）|
+| 帧类型     | `type` 字段 | 用途                                                    |
+| ---------- | ----------- | ------------------------------------------------------- |
+| **请求帧** | `"req"`     | UI → Gateway，发起 RPC 调用（如 `chat.send`）           |
+| **响应帧** | `"res"`     | Gateway → UI，返回调用结果（ACK 或错误）                |
+| **事件帧** | `"event"`   | Gateway → UI，单向推送（Agent 流式输出、tool 执行通知） |
 
 ```typescript
 // src/gateway/protocol/schema/frames.ts
@@ -18,25 +18,25 @@ OpenClaw 所有通信基于 WebSocket 上的 JSON-RPC 风格帧协议（定义�
 // 请求帧: UI 发起一次 RPC
 const RequestFrameSchema = Type.Object({
   type: Type.Literal("req"),
-  id: NonEmptyString,              // UUID，用于找到对应的 Response
-  method: NonEmptyString,           // 方法路由，例如 "chat.send" / "connect"
-  params: Type.Optional(Type.Unknown()),  // 各 method 自己定义的参数体
+  id: NonEmptyString, // UUID，用于找到对应的 Response
+  method: NonEmptyString, // 方法路由，例如 "chat.send" / "connect"
+  params: Type.Optional(Type.Unknown()), // 各 method 自己定义的参数体
 });
 
 // 响应帧: Gateway 把 RPC 结果回给 UI
 const ResponseFrameSchema = Type.Object({
   type: Type.Literal("res"),
-  id: NonEmptyString,              // 对应 RequestFrame.id
-  ok: Type.Boolean(),              // 成功与否
-  payload: Type.Optional(Type.Unknown()),  // 响应体 (如 { runId, status: "started" })
-  error: Type.Optional(ErrorShapeSchema),  // ok=false 时携带强类型错误
+  id: NonEmptyString, // 对应 RequestFrame.id
+  ok: Type.Boolean(), // 成功与否
+  payload: Type.Optional(Type.Unknown()), // 响应体 (如 { runId, status: "started" })
+  error: Type.Optional(ErrorShapeSchema), // ok=false 时携带强类型错误
 });
 
 // 事件帧: Gateway 主动向 UI 推送消息，无需 UI 请求
 const EventFrameSchema = Type.Object({
   type: Type.Literal("event"),
-  event: NonEmptyString,           // 道名称，如 "chat" / "agent"
-  payload: Type.Optional(Type.Unknown()),  // 挂载的数据（delta 文本、tool 状态等）
+  event: NonEmptyString, // 道名称，如 "chat" / "agent"
+  payload: Type.Optional(Type.Unknown()), // 挂载的数据（delta 文本、tool 状态等）
   seq: Type.Optional(Type.Integer({ minimum: 0 })), // 序号，保证前端顺序播放
 });
 ```
@@ -56,38 +56,45 @@ UI 内部维护的消息使用统一的 Block 序列化结构，支持纯文本�
 export type NormalizedMessage = {
   id?: string;
   role: "user" | "assistant" | "system";
-  content: MessageContentItem[];  // Block 序列，支持混排
+  content: MessageContentItem[]; // Block 序列，支持混排
   timestamp: number;
 };
 
 export type MessageContentItem =
   | { type: "text"; text: string }
-  | { type: "image"; mimeType: string; data: string }  // base64 图片附件
-  | { type: "toolcall";   /* 工具调用 widget */ }
-  | { type: "toolresult"; /* 工具执行结果 widget */ };
+  | { type: "image"; mimeType: string; data: string } // base64 图片附件
+  | { type: "toolcall" /* 工具调用 widget */ }
+  | { type: "toolresult" /* 工具执行结果 widget */ };
 ```
 
 发包时，消息被封装为符合协议的 Request Frame 发出：
 
 ```typescript
 // ui/src/ui/controllers/chat.ts => sendChatMessage
-export async function sendChatMessage(state: ChatState, message: string, attachments?: ChatAttachment[]) {
+export async function sendChatMessage(
+  state: ChatState,
+  message: string,
+  attachments?: ChatAttachment[],
+) {
   // 1. 构建本地用户消息并乐观更新 UI
-  state.chatMessages = [...state.chatMessages, { role: "user", content: contentBlocks, timestamp: now }];
-  
+  state.chatMessages = [
+    ...state.chatMessages,
+    { role: "user", content: contentBlocks, timestamp: now },
+  ];
+
   // 2. 初始化本次运行的状态
   state.chatSending = true;
-  const runId = generateUUID();  // 生成唯一 idempotencyKey(runId)
+  const runId = generateUUID(); // 生成唯一 idempotencyKey(runId)
   state.chatRunId = runId;
   state.chatStream = "";
-  
+
   // 3. 通过 WebSocket 客户端封装为 Request Frame 发送
   // 底层发出：{ type: "req", id: uuid, method: "chat.send", params: {...} }
   await state.client.request("chat.send", {
     sessionKey: state.sessionKey,
     message: msg,
-    deliver: false,           // 声明为本地客户端，不向外部渠道投递
-    idempotencyKey: runId,    // 用于后端的幂等性及绑定 Agent 批次
+    deliver: false, // 声明为本地客户端，不向外部渠道投递
+    idempotencyKey: runId, // 用于后端的幂等性及绑定 Agent 批次
     attachments: apiAttachments,
   });
   return runId;
@@ -103,20 +110,20 @@ export async function sendChatMessage(state: ChatState, message: string, attachm
 ```typescript
 // src/gateway/server-methods/chat.ts (chatHandlers["chat.send"])
 async function handleChatSend(ctx, request) {
-  // 1. 获取对应的 SessionEntry 
+  // 1. 获取对应的 SessionEntry
   const { cfg, storePath, store, entry, canonicalKey } = await loadSessionEntry(params.sessionKey);
-  
+
   // 2. 幂等性控制（防止网络断开重连时重复触发 Agent）
   const dedupeKey = `chat.send:${canonicalKey}:${params.idempotencyKey}`;
   if (context.dedupe.has(dedupeKey)) return context.dedupe.get(dedupeKey);
-  
+
   // 3. 立即回复 Response Frame，作为 ACK（status: "started"），无需等 Agent 跑完
   context.respond(request.id, true, { runId: params.idempotencyKey, status: "started" });
   //     ↑ 这里就是 { type: "res", id: request.id, ok: true, payload: { runId, status:"started" } }
 
   // 4. 构建网关上下文 (MsgContext)
   const msgCtx = { Body: params.message, SessionKey: canonicalKey, ... }
-  
+
   // 5. 异步启动 Agent 调度，不阻塞当前 WebSocket 响应帧
   void dispatchInboundMessage({ ctx: msgCtx, cfg, dispatcher, replyOptions });
 }
@@ -126,13 +133,13 @@ async function handleChatSend(ctx, request) {
 
 网关对 WebSocket 连接从握手阶段就实施了多层防护（代码见 `src/gateway/server/ws-connection/message-handler.ts`）：
 
-| 防护机制 | 实现方式 |
-|---------|--------|
-| **包体大小限制** | 握手前用 `MAX_PREAUTH_PAYLOAD_BYTES` 防暴力包；连接后用 `MAX_PAYLOAD_BYTES` 防单帧过大 |
-| **幂等防抖** | `chat.send` 的 `idempotencyKey`（即 `runId`）在网关侧做 Dedupe，重连不会重复唤醒 Agent |
-| **Device 签名校验** | 连接时 `ConnectParams.device` 携带时间戳签名 + 一次性 nonce，由网关验证防伪装 |
-| **协议版本协商** | `minProtocol`/`maxProtocol` 不匹配时 1002 关闭连接，防旧版客户端乱连 |
-| **Origin 校验** | Control UI 和 WebChat 的连接强制做 Origin Header 检查，防 CSRF |
+| 防护机制            | 实现方式                                                                               |
+| ------------------- | -------------------------------------------------------------------------------------- |
+| **包体大小限制**    | 握手前用 `MAX_PREAUTH_PAYLOAD_BYTES` 防暴力包；连接后用 `MAX_PAYLOAD_BYTES` 防单帧过大 |
+| **幂等防抖**        | `chat.send` 的 `idempotencyKey`（即 `runId`）在网关侧做 Dedupe，重连不会重复唤醒 Agent |
+| **Device 签名校验** | 连接时 `ConnectParams.device` 携带时间戳签名 + 一次性 nonce，由网关验证防伪装          |
+| **协议版本协商**    | `minProtocol`/`maxProtocol` 不匹配时 1002 关闭连接，防旧版客户端乱连                   |
+| **Origin 校验**     | Control UI 和 WebChat 的连接强制做 Origin Header 检查，防 CSRF                         |
 
 ## 3. Agent 分发与执行 (Agent Dispatch & Execution)
 
@@ -148,7 +155,7 @@ emitAgentEvent(runId, { stream: "tool", data: { phase: "start"|"update"|"result"
 
 // 在 src/gateway/server-chat.ts 中捕获并使用 WebSocket 广播到前端：
 function emitChatDelta(...) {
-  // 根据节流机制 (150ms) 缓冲 Delta 
+  // 根据节流机制 (150ms) 缓冲 Delta
   broadcast("chat", { runId, sessionKey, state: "delta", message: { content: [{ type: "text", text }] }});
 }
 ```
@@ -209,14 +216,14 @@ UI WebSocket
 
 ```typescript
 // 进程内单例，所有 agent 运行共享
-const seqByRun = new Map<string, number>();   // 每个 runId 独立的单调序列号
+const seqByRun = new Map<string, number>(); // 每个 runId 独立的单调序列号
 const listeners = new Set<(evt: AgentEventPayload) => void>();
 const runContextById = new Map<string, AgentRunContext>();
 
 export type AgentEventPayload = {
   runId: string;
-  seq: number;       // 严格单调递增，按 runId 独立计数
-  stream: AgentEventStream;  // "lifecycle" | "tool" | "assistant" | "thinking" | "compaction" | "error"
+  seq: number; // 严格单调递增，按 runId 独立计数
+  stream: AgentEventStream; // "lifecycle" | "tool" | "assistant" | "thinking" | "compaction" | "error"
   ts: number;
   data: Record<string, unknown>;
   sessionKey?: string;
@@ -226,7 +233,7 @@ export type AgentRunContext = {
   sessionKey?: string;
   verboseLevel?: VerboseLevel;
   isHeartbeat?: boolean;
-  isControlUiVisible?: boolean;  // false 时不向 UI 发送 chat/agent 更新
+  isControlUiVisible?: boolean; // false 时不向 UI 发送 chat/agent 更新
 };
 
 export function emitAgentEvent(event: Omit<AgentEventPayload, "seq" | "ts">) {
@@ -234,7 +241,11 @@ export function emitAgentEvent(event: Omit<AgentEventPayload, "seq" | "ts">) {
   seqByRun.set(event.runId, nextSeq);
   const enriched: AgentEventPayload = { ...event, seq: nextSeq, ts: Date.now() };
   for (const listener of listeners) {
-    try { listener(enriched); } catch { /* ignore */ }
+    try {
+      listener(enriched);
+    } catch {
+      /* ignore */
+    }
   }
 }
 ```
@@ -250,10 +261,10 @@ if (now - last < 150) return;
 // 文本合并：优先用全量 text，有 delta 则追加，防乱序
 function resolveMergedAssistantText({ previousText, nextText, nextDelta }) {
   if (nextText && previousText) {
-    if (nextText.startsWith(previousText)) return nextText;  // 全量覆盖
-    if (previousText.startsWith(nextText) && !nextDelta) return previousText;  // 防回退
+    if (nextText.startsWith(previousText)) return nextText; // 全量覆盖
+    if (previousText.startsWith(nextText) && !nextDelta) return previousText; // 防回退
   }
-  if (nextDelta) return appendUniqueSuffix(previousText, nextDelta);  // 增量追加
+  if (nextDelta) return appendUniqueSuffix(previousText, nextDelta); // 增量追加
   return nextText || previousText;
 }
 
@@ -274,7 +285,10 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
     state.chatStream = next;
   } else if (payload.state === "final") {
     // 运行结束，将拼接好的流落盘到 state.chatMessages 中，清理流状态
-    state.chatMessages = [...state.chatMessages, { role: "assistant", content: [{ text: state.chatStream }] }];
+    state.chatMessages = [
+      ...state.chatMessages,
+      { role: "assistant", content: [{ text: state.chatStream }] },
+    ];
     state.chatStream = null;
     state.chatRunId = null;
   }
@@ -316,14 +330,14 @@ export function handleAgentEvent(host: ToolStreamHost, payload?: AgentEventPaylo
 
 ### 5.1 可视化事件流类型详解
 
-| stream | 触发时机 | data 关键字段 | UI 表现 |
-|--------|---------|--------------|---------|
-| `lifecycle` | 执行开始/结束/错误 | `phase: "start"\|"end"\|"error"`, `stopReason` | 转圈显示/隐藏 |
-| `assistant` | 每个 token 流出 | `text`（累积全文）, `delta`（增量片段）| 流式文字渲染 |
-| `tool` | 工具调用各阶段 | `phase: "start"\|"update"\|"result"`, `toolName`, `toolCallId`, `args`, `result` | 工具卡片 |
-| `thinking` | 推理模型思考流 | `text`, `delta` | 可折叠思考区域 |
-| `compaction` | 上下文压缩 | `phase: "start"\|"end"\|"retry"` | 压缩提示 |
-| `error` | 序列号异常 | `reason: "seq gap"`, `expected`, `received` | 诊断信息 |
+| stream       | 触发时机           | data 关键字段                                                                    | UI 表现        |
+| ------------ | ------------------ | -------------------------------------------------------------------------------- | -------------- |
+| `lifecycle`  | 执行开始/结束/错误 | `phase: "start"\|"end"\|"error"`, `stopReason`                                   | 转圈显示/隐藏  |
+| `assistant`  | 每个 token 流出    | `text`（累积全文）, `delta`（增量片段）                                          | 流式文字渲染   |
+| `tool`       | 工具调用各阶段     | `phase: "start"\|"update"\|"result"`, `toolName`, `toolCallId`, `args`, `result` | 工具卡片       |
+| `thinking`   | 推理模型思考流     | `text`, `delta`                                                                  | 可折叠思考区域 |
+| `compaction` | 上下文压缩         | `phase: "start"\|"end"\|"retry"`                                                 | 压缩提示       |
+| `error`      | 序列号异常         | `reason: "seq gap"`, `expected`, `received`                                      | 诊断信息       |
 
 ### 5.2 工具事件路由规则
 
@@ -345,19 +359,22 @@ if (isToolEvent) {
 ```
 
 客户端需在 `connect` 请求中声明：
+
 ```typescript
-{ caps: ["tool-events"] }
+{
+  caps: ["tool-events"];
+}
 ```
 
 ### 5.3 verbose 级别控制
 
 `verboseLevel` 控制工具事件的详细程度：
 
-| verboseLevel | 工具事件内容 | 发给 channel（Telegram/Discord 等）|
-|-------------|------------|----------------------------------|
-| `off`（默认）| 剥除 `result`/`partialResult`，只保留元数据 | 不发送 |
-| `on` | 发送工具摘要 | 发送摘要 |
-| `full` | 发送完整 result | 发送完整内容 |
+| verboseLevel  | 工具事件内容                                | 发给 channel（Telegram/Discord 等） |
+| ------------- | ------------------------------------------- | ----------------------------------- |
+| `off`（默认） | 剥除 `result`/`partialResult`，只保留元数据 | 不发送                              |
+| `on`          | 发送工具摘要                                | 发送摘要                            |
+| `full`        | 发送完整 result                             | 发送完整内容                        |
 
 ### 5.4 可视化机制关键点
 
@@ -405,7 +422,7 @@ if (isToolEvent) {
 // src/agents/agent-scope.ts => resolveSessionAgentId
 export function resolveSessionAgentId({ sessionKey, config }): string {
   // 1. 从 sessionKey 提取 Agent ID
-  const parsed = parseAgentSessionKey(sessionKey); 
+  const parsed = parseAgentSessionKey(sessionKey);
   if (parsed) return normalizeAgentId(parsed.agentId);
 
   // 2. 降级：如果没有指定或解析失败，使用配置文件里 default: true 的默认 Agent
@@ -424,7 +441,7 @@ export async function spawnSubagentDirect(params: SpawnSubagentParams, ctx: Spaw
   const callerDepth = getSubagentDepthFromSessionStore(requesterInternalKey);
   if (callerDepth >= maxSpawnDepth) return { status: "forbidden" };
 
-  // 2. 为子代理生成一个专属的隔离 SessionKey 
+  // 2. 为子代理生成一个专属的隔离 SessionKey
   const childSessionKey = `agent:${targetAgentId}:subagent:${crypto.randomUUID()}`;
 
   // 3. 继承与隔离：设置 System Prompt、工作区 (Workspace) 挂载
@@ -454,6 +471,7 @@ export async function spawnSubagentDirect(params: SpawnSubagentParams, ctx: Spaw
 ```
 
 **派生机制关键点：**
+
 1. **沙箱与安全深度 (Depth Limits):** 系统自带最大衍生层级的限制 `maxSpawnDepth` (防无限套娃) 和单次衍生上限 `maxChildrenPerAgent`。
 2. **生命周期拦截：** Subagent Spawned 是允许插件 (hooks) 去做外部拦截的，比如可以为 Subagent 把输出强行绑定为宿主通道里的一条 Reply Thread (Slack / Discord 等)。
 
@@ -467,9 +485,9 @@ export async function spawnSubagentDirect(params: SpawnSubagentParams, ctx: Spaw
 // src/agents/subagent-registry.ts
 
 // 子代理执行完毕、出错或超时，触发生命周期终态
-export async function completeSubagentRun(params: {runId, outcome, reason}) {
+export async function completeSubagentRun(params: { runId; outcome; reason }) {
   const entry = subagentRuns.get(params.runId);
-  
+
   // 1. 结果快照: 将子代理最后的一条 message (往往是 Result 摘要) 抓出来冻结
   await freezeRunResultAtCompletion(entry);
 
@@ -477,8 +495,8 @@ export async function completeSubagentRun(params: {runId, outcome, reason}) {
   entry.outcome = params.outcome;
   entry.endedReason = params.reason;
   persistSubagentRuns(); // 落盘防止意外宕机导致孤儿
-  
-  // 3. 去系统里 Announce 
+
+  // 3. 去系统里 Announce
   startSubagentAnnounceCleanupFlow(params.runId, entry);
 }
 
@@ -486,15 +504,16 @@ export async function completeSubagentRun(params: {runId, outcome, reason}) {
 function startSubagentAnnounceCleanupFlow(runId, entry) {
   runSubagentAnnounceFlow({
     childSessionKey: entry.childSessionKey,
-    requesterSessionKey: entry.requesterSessionKey, 
-    roundOneReply: entry.frozenResultText  // 用冻结内容直接送入宿主，作为宿主在沉睡期间的"新用户消息"
-  }).then(didAnnounce => {
+    requesterSessionKey: entry.requesterSessionKey,
+    roundOneReply: entry.frozenResultText, // 用冻结内容直接送入宿主，作为宿主在沉睡期间的"新用户消息"
+  }).then((didAnnounce) => {
     finalizeSubagentCleanup(runId, entry.cleanup, didAnnounce); // 回收该 Subagent 的垃圾会话数据
   });
 }
 ```
 
 **执行流程总结：**
+
 1. 父 Agent 发出 Tool Call（请求分配新兵子代理去干某件事）。
 2. `spawnSubagentDirect` 分发新的 `SessionKey` 并通过 Gateway 把任务发给新的 Agent 进行后台推理。
 3. 父 Agent 被告知 "Spawn Accepted"，然后父 Agent 立即结束自己当前回合（LLM 停机），进入休眠等待阶段，避免持续消耗。
@@ -503,287 +522,4 @@ function startSubagentAnnounceCleanupFlow(runId, entry) {
 
 ## 7. 人工审核机制（Exec Approvals）
 
-OpenClaw 对 `exec`（shell 命令执行）工具实现了完整的人工审核机制，在工具执行前阻塞等待用户决策。相关代码集中在 `src/infra/exec-approvals.ts`、`src/gateway/server-methods/exec-approval.ts`、`src/infra/exec-approval-forwarder.ts`。
-
-### 7.1 审核触发条件
-
-核心判断逻辑在 `src/infra/exec-approvals.ts` 的 `requiresExecApproval()`：
-
-```typescript
-export function requiresExecApproval(params: {
-  ask: ExecAsk;       // "off" | "on-miss" | "always"
-  security: ExecSecurity;  // "deny" | "allowlist" | "full"
-  analysisOk: boolean;
-  allowlistSatisfied: boolean;
-}): boolean {
-  return (
-    params.ask === "always" ||
-    (params.ask === "on-miss" &&
-      params.security === "allowlist" &&
-      (!params.analysisOk || !params.allowlistSatisfied))
-  );
-}
-```
-
-三种安全模式（`security`）：
-
-| 值 | 行为 |
-|----|------|
-| `deny` | 完全禁止 exec，无论 ask 设置（**系统默认**） |
-| `allowlist` | 只允许白名单命令；不在白名单则触发审核 |
-| `full` | 允许所有命令，不触发审核 |
-
-三种询问模式（`ask`）：
-
-| 值 | 行为 |
-|----|------|
-| `off` | 从不询问（白名单外直接拒绝） |
-| `on-miss` | 白名单未命中时询问（**系统默认**） |
-| `always` | 每次都询问 |
-
-以下情况也强制触发审核（即使白名单命中）：
-- heredoc 执行（命令含 `<<` 语法）
-- 检测到命令混淆（obfuscation）
-
-### 7.2 审核流程（阻塞式）
-
-审核请求会**阻塞** agent 执行，直到用户决策或超时（默认 120 秒）：
-
-```
-exec 工具调用
-    │
-    ▼
-src/agents/bash-tools.exec-host-gateway.ts
-    │  evaluateShellAllowlist() → 检查白名单
-    │  requiresExecApproval() → 判断是否需要审核
-    │
-    ▼（需要审核）
-src/agents/bash-tools.exec-host-shared.ts
-    │  createAndRegisterDefaultExecApprovalRequest()
-    │  → registerExecApprovalRequestForHostOrThrow()
-    │
-    ▼
-src/gateway/server-methods/exec-approval.ts  exec.approval.request handler
-    │  1. 创建 approval record（含 id、command、cwd、agentId、sessionKey、expiresAtMs）
-    │  2. manager.register(record, timeoutMs) → 返回 decisionPromise（阻塞等待）
-    │  3. broadcast("exec.approval.requested", { id, request, createdAtMs, expiresAtMs })
-    │     ↑ 仅发给有 operator.approvals scope 的 WS 客户端
-    │  4. opts.forwarder.handleRequested() → 转发到消息渠道（Telegram/Discord 等）
-    │  5. await decisionPromise  ← 阻塞，等待用户决策
-    │
-    ▼（用户决策）
-exec.approval.resolve handler
-    │  manager.resolve(approvalId, decision, resolvedBy)
-    │  broadcast("exec.approval.resolved", { id, decision, resolvedBy, ts })
-    │
-    ▼
-decisionPromise 解除阻塞
-    │  decision: "allow-once" | "allow-always" | "deny"
-    │
-    ▼
-evaluateSystemRunPolicy() → allowed: true/false
-    │
-    ▼（allowed）
-exec 工具继续执行
-```
-
-### 7.3 审核通知渠道
-
-`src/infra/exec-approval-forwarder.ts` 的 `createExecApprovalForwarder` 负责把审核请求转发到消息渠道：
-
-**转发目标解析优先级（`resolveForwardTargets`）：**
-1. `mode: "session"` — 当前 turn 的来源 channel（`turnSourceChannel`/`turnSourceTo`）
-2. `mode: "targets"` — 配置中显式指定的 `approvals.exec.targets`
-3. `mode: "both"` — 两者都发
-
-**各渠道的审核消息格式：**
-
-Web UI（通过 WS 事件）：
-```json
-{
-  "type": "event",
-  "event": "exec.approval.requested",
-  "payload": {
-    "id": "approval-uuid",
-    "request": {
-      "command": "rm -rf /tmp/test",
-      "cwd": "/home/user",
-      "agentId": "main",
-      "sessionKey": "agent:main:main",
-      "host": "gateway",
-      "security": "allowlist",
-      "ask": "on-miss"
-    },
-    "createdAtMs": 1710000000000,
-    "expiresAtMs": 1710000120000
-  }
-}
-```
-
-Telegram/Discord（文本消息，`src/infra/exec-approval-reply.ts`）：
-```
-Approval required.
-Run:
-```txt
-/approve abc123 allow-once
-```
-Pending command:
-```sh
-rm -rf /tmp/test
-```
-Other options:
-```txt
-/approve abc123 allow-always
-/approve abc123 deny
-```
-Host: gateway
-CWD: /home/user
-Expires in: 120s
-Full id: `approval-uuid`
-```
-
-### 7.4 超时 fallback 策略
-
-`askFallback` 配置决定审核超时后的行为（`src/node-host/exec-policy.ts`）：
-
-| `askFallback` | 超时后行为 |
-|---------------|-----------|
-| `deny`（默认）| 拒绝执行，返回错误 |
-| `allowlist` | 若命令在白名单则放行，否则拒绝 |
-
-超时后 agent 会收到 followup 消息通知用户：
-```
-Exec denied (gateway id=<approvalId>, approval-timeout): <command>
-```
-
-### 7.5 决策选项
-
-| 决策 | 含义 |
-|------|------|
-| `allow-once` | 本次允许，下次同样命令仍需审核 |
-| `allow-always` | 允许并将命令模式加入白名单（持久化到 `~/.openclaw/exec-approvals.json`） |
-| `deny` | 拒绝执行 |
-
-`allow-always` 会调用 `addAllowlistEntry()` 将命令模式写入 `~/.openclaw/exec-approvals.json`，后续相同命令自动放行。
-
-### 7.6 审核请求的 WS 事件 scope 控制
-
-审核相关事件受 scope 保护（`src/gateway/server-broadcast.ts`）：
-
-```typescript
-const EVENT_SCOPE_GUARDS: Record<string, string[]> = {
-  "exec.approval.requested": ["operator.approvals"],
-  "exec.approval.resolved": ["operator.approvals"],
-};
-```
-
-客户端需在 `connect` 请求中声明 `scopes: ["operator.approvals"]` 或 `scopes: ["operator.admin"]` 才能收到审核事件。
-
-对应的 RPC 方法也受同样的 scope 保护（`src/gateway/method-scopes.ts`）：
-- `exec.approval.request` — 发起审核请求
-- `exec.approval.waitDecision` — 等待审核决策
-- `exec.approval.resolve` — 提交审核决策
-
-### 7.7 子 Agent（sessions_spawn）的审核
-
-子 agent 本身没有独立的审核门，但有两层间接控制：
-
-1. `sessions_spawn` 被列在 `DANGEROUS_ACP_TOOLS`（`src/security/dangerous-tools.ts`），在 ACP（自动化控制平面）场景下强制要求用户确认，不允许静默通过：
-
-```typescript
-// src/security/dangerous-tools.ts
-export const DANGEROUS_ACP_TOOL_NAMES = [
-  "exec", "spawn", "shell",
-  "sessions_spawn", "sessions_send",
-  "gateway",
-  "fs_write", "fs_delete", "fs_move",
-  "apply_patch",
-] as const;
-
-export const DANGEROUS_ACP_TOOLS = new Set<string>(DANGEROUS_ACP_TOOL_NAMES);
-```
-
-2. 子 agent 执行的 exec 命令同样走上述审核流程，所以子 agent 执行危险命令时仍会触发人工审核。
-
-### 7.8 审核配置示例
-
-```json
-// ~/.openclaw/exec-approvals.json
-{
-  "version": 1,
-  "socket": {
-    "path": "~/.openclaw/exec-approvals.sock",
-    "token": "<auto-generated>"
-  },
-  "defaults": {
-    "security": "allowlist",
-    "ask": "on-miss",
-    "askFallback": "deny",
-    "autoAllowSkills": false
-  },
-  "agents": {
-    "main": {
-      "allowlist": [
-        { "id": "uuid-1", "pattern": "git *", "lastUsedAt": 1710000000000 },
-        { "id": "uuid-2", "pattern": "npm test" }
-      ]
-    }
-  }
-}
-```
-
-Telegram 审核配置（`openclaw.json`）：
-```json
-{
-  "channels": {
-    "telegram": {
-      "execApprovals": {
-        "enabled": true,
-        "approvers": [123456789],
-        "agentFilter": ["main"],
-        "sessionFilter": ["agent:main:*"]
-      }
-    }
-  },
-  "approvals": {
-    "exec": {
-      "enabled": true,
-      "mode": "session",
-      "targets": [
-        { "channel": "telegram", "to": "123456789" }
-      ]
-    }
-  }
-}
-```
-
-### 7.9 审核完整时序图
-
-```
-Agent                    Gateway                    UI/Telegram
-  │                         │                           │
-  │── exec tool call ──────►│                           │
-  │                         │── 检查白名单 ─────────────│
-  │                         │   requiresExecApproval()  │
-  │                         │                           │
-  │                         │── broadcast ─────────────►│
-  │                         │   "exec.approval.requested"│
-  │                         │   { id, command, expiresAtMs }
-  │                         │                           │
-  │                         │── forwarder ─────────────►│ Telegram 消息
-  │                         │   handleRequested()       │ "Approval required..."
-  │                         │                           │
-  │   (阻塞等待，最长 120s)  │                           │
-  │                         │                           │
-  │                         │◄── exec.approval.resolve ─│ 用户回复 /approve
-  │                         │    { id, decision }       │
-  │                         │                           │
-  │                         │── broadcast ─────────────►│
-  │                         │   "exec.approval.resolved"│
-  │                         │   { id, decision, resolvedBy }
-  │                         │                           │
-  │◄── decision resolved ───│                           │
-  │    allow-once/deny       │                           │
-  │                         │                           │
-  │── 继续执行 or 返回错误 ──│                           │
-```
+> 详见 [human-in-the-loop.md](./human-in-the-loop.md)

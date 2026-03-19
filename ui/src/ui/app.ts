@@ -663,6 +663,28 @@ export class OpenClawApp extends LitElement {
         decision,
       });
       this.execApprovalQueue = this.execApprovalQueue.filter((entry) => entry.id !== active.id);
+      // 追加审核决策消息到对话历史，收到 exec.approval.resolved 广播后补充系统结果
+      const decisionLabel =
+        decision === "allow-once"
+          ? "✓ Allow once"
+          : decision === "allow-always"
+            ? "✓ Always allow"
+            : "✗ Deny";
+      this.chatMessages = [
+        ...this.chatMessages,
+        {
+          role: "approval",
+          senderLabel: "Exec approval",
+          _approvalId: active.id,
+          content: [
+            {
+              type: "text",
+              text: `${decisionLabel}: \`${active.request.command}\``,
+            },
+          ],
+          timestamp: Date.now(),
+        },
+      ];
     } catch (err) {
       this.execApprovalError = `Exec approval failed: ${String(err)}`;
     } finally {
