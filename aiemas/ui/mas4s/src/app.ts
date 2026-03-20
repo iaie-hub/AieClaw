@@ -50,7 +50,9 @@ export class Mas4sApp extends LitElement {
   `;
 
   connectedCallback() {
-    console.debug("[mas4s:app] connectedCallback → registering event handlers, checking system status");
+    console.debug(
+      "[mas4s:app] connectedCallback → registering event handlers, checking system status",
+    );
     super.connectedCallback();
     registerEventHandlers();
     void this._checkSystemStatus();
@@ -60,7 +62,7 @@ export class Mas4sApp extends LitElement {
     console.debug("[mas4s:app] _checkSystemStatus → url=%s", this._gatewayUrl);
     try {
       const client = getClient({ url: this._gatewayUrl });
-      const res = (await client.request("system.status")) as { initialized: boolean };
+      const res = await client.request("system.status");
       console.debug("[mas4s:app] _checkSystemStatus ← system.status res=%o", res);
       if (!res.initialized) {
         this._masAuthState = "init";
@@ -92,7 +94,11 @@ export class Mas4sApp extends LitElement {
         this._connected = true;
       },
       onClose: (info) => {
-        console.debug("[mas4s:app] _doConnect ← onClose: code=%s reason=%s", info.code, info.reason);
+        console.debug(
+          "[mas4s:app] _doConnect ← onClose: code=%s reason=%s",
+          info.code,
+          info.reason,
+        );
         const wasConnected = this._connected;
         this._connected = false;
 
@@ -100,7 +106,10 @@ export class Mas4sApp extends LitElement {
           info.reason &&
           (info.reason.includes("TOKEN_EXPIRED") || info.reason.includes("MAS_AUTH_FAILED"))
         ) {
-          console.warn("[mas4s:app] _doConnect ← auth error (%s), redirecting to login", info.reason);
+          console.warn(
+            "[mas4s:app] _doConnect ← auth error (%s), redirecting to login",
+            info.reason,
+          );
           localStorage.removeItem("mas4s_auth_token");
           this._masAuthState = "login";
           resetClient();
@@ -164,7 +173,11 @@ export class Mas4sApp extends LitElement {
   private _onSendMessage = async (e: CustomEvent<{ text: string }>) => {
     const store = this._ctrl.store;
     const session = store.activeSession;
-    console.debug("[mas4s:app] _onSendMessage → sessionKey=%s text.length=%d", session?.key, e.detail.text.length);
+    console.debug(
+      "[mas4s:app] _onSendMessage → sessionKey=%s text.length=%d",
+      session?.key,
+      e.detail.text.length,
+    );
     if (!session) {
       console.warn("[mas4s:app] _onSendMessage ← no active session, aborting");
       return;
@@ -184,7 +197,11 @@ export class Mas4sApp extends LitElement {
   // ── 审批操作 ──────────────────────────────────────
 
   private _onResolveApproval = async (e: CustomEvent<{ id: string; decision: string }>) => {
-    console.debug("[mas4s:app] _onResolveApproval → id=%s decision=%s", e.detail.id, e.detail.decision);
+    console.debug(
+      "[mas4s:app] _onResolveApproval → id=%s decision=%s",
+      e.detail.id,
+      e.detail.decision,
+    );
     const client = getClient();
     try {
       await client.request("exec.approval.resolve", {
