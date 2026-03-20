@@ -141,6 +141,18 @@ export async function handleGatewayRequest(
     );
     return;
   }
+  // Optional mas4s pre-request hook (RBAC + session access check)
+  if (context.onBeforeRequest) {
+    const check = context.onBeforeRequest(
+      req.method,
+      (req.params ?? {}) as Record<string, unknown>,
+      client,
+    );
+    if (!check.allowed) {
+      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, check.message));
+      return;
+    }
+  }
   const invokeHandler = () =>
     handler({
       req,

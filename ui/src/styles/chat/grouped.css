@@ -342,7 +342,6 @@ img.chat-avatar {
 }
 
 @keyframes pulsing-border {
-
   0%,
   100% {
     border-color: var(--border);

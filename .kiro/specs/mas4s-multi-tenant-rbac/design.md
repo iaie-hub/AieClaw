@@ -975,6 +975,24 @@ flowchart TD
 - **单元测试**：验证具体示例、边界条件、错误路径
 - **属性测试**：验证跨所有输入的通用属性，使用 `fast-check` 库
 
+### 测试运行方式
+
+`aiemas/src/` 没有独立的 `package.json`，其代码由 gateway（`src/gateway/`）直接调用，因此测试统一在**根目录 vitest 单元测试通道**下运行。
+
+使用项目规定的 wrapper 脚本（不得直接用 `pnpm vitest run`，会绕过 wrapper 的 config/profile/pool 路由）：
+
+```bash
+# 在 AieClaw/ 根目录执行，运行 aiemas/src 下所有测试
+pnpm test -- aiemas/src
+
+# 运行单个文件
+pnpm test -- aiemas/src/store/database.test.ts
+```
+
+`aiemas/src/**/*.test.ts` 已加入 `vitest.unit-paths.mjs` 的 `unitTestIncludePatterns`，由 `unit-fast` 通道（`vitest.unit.config.ts`）处理。`aiemas/` 目录下不需要也不应有独立的 `vitest.config.ts`。
+
+`aiemas/src/` 中的代码通过相对路径 `../../../src/memory/sqlite.js` 引用根目录的 `requireNodeSqlite()`，根 vitest 可直接解析，无需额外别名配置。
+
 ### 属性测试配置
 
 - 库：`fast-check`（TypeScript 生态最成熟的 PBT 库）

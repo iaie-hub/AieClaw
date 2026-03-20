@@ -3,6 +3,16 @@ import type { ApprovalRequest } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
 import type { MasSession } from "../types/session-types.js";
 
+export type GlobalRole = "admin" | "member" | "viewer";
+
+export interface CurrentUser {
+  userId: string;
+  username: string;
+  displayName: string;
+  role: GlobalRole;
+  tenantId: string;
+}
+
 /** 子 Agent 启动确认项（第三期，Prompt Engineering 方案） */
 export interface PendingSpawnConfirm {
   sessionKey: string;
@@ -17,6 +27,25 @@ export class AppStore {
   /** 全局单例 */
   static get instance(): AppStore {
     return (AppStore._instance ??= new AppStore());
+  }
+
+  // ── 当前用户 ──────────────────────────────────────
+  currentUser: CurrentUser | null = null;
+
+  setCurrentUser(user: CurrentUser): void {
+    this.currentUser = user;
+    this.notify();
+  }
+
+  clearCurrentUser(): void {
+    this.currentUser = null;
+    this.notify();
+  }
+
+  logout(): void {
+    localStorage.removeItem("mas4s_auth_token");
+    this.currentUser = null;
+    this.notify();
   }
 
   // ── 会话列表 ──────────────────────────────────────
@@ -68,6 +97,14 @@ export class AppStore {
 
   addSession(session: MasSession): void {
     this.sessions = [...this.sessions, session];
+    this.notify();
+  }
+
+  removeSession(sessionKey: string): void {
+    this.sessions = this.sessions.filter((s) => s.key !== sessionKey);
+    if (this.activeSessionId === sessionKey) {
+      this.activeSessionId = null;
+    }
     this.notify();
   }
 

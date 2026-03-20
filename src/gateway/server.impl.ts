@@ -77,6 +77,7 @@ import {
   type GatewayUpdateAvailableEventPayload,
 } from "./events.js";
 import { ExecApprovalManager } from "./exec-approval-manager.js";
+import { initMas4sIntegration } from "./mas4s-integration.js";
 import { startGatewayModelPricingRefresh } from "./model-pricing-cache.js";
 import { NodeRegistry } from "./node-registry.js";
 import type { startBrowserControlServerIfEnabled } from "./server-browser.js";
@@ -119,6 +120,7 @@ import {
 import { resolveHookClientIpConfig } from "./server/hooks.js";
 import { createReadinessChecker } from "./server/readiness.js";
 import { loadGatewayTlsRuntime } from "./server/tls.js";
+import type { GatewayWsClient } from "./server/ws-types.js";
 import { resolveSessionKeyForTranscriptFile } from "./session-transcript-key.js";
 import {
   attachOpenClawTranscriptMeta,
@@ -1102,6 +1104,54 @@ export async function startGatewayServer(
   // scope is set via AsyncLocalStorage.
   setFallbackGatewayContext(gatewayRequestContext);
 
+  // Initialize mas4s multi-tenant plugin (opt-in, noop if unavailable)
+  const mas4s = await initMas4sIntegration(log);
+  if (mas4s.onSessionCreated) {
+    const masOnSessionCreated = mas4s.onSessionCreated;
+    gatewayRequestContext.onSessionCreated = (sessionKey, label, client) => {
+      masOnSessionCreated(sessionKey, label, client as unknown as GatewayWsClient);
+    };
+  }
+
+  // Wire mas4s pre-request interceptor (RBAC + session access)
+  if (mas4s.interceptRequest) {
+    const masIntercept = mas4s.interceptRequest;
+    gatewayRequestContext.onBeforeRequest = (method, params, client) =>
+      masIntercept(method, params, client as GatewayWsClient | null);
+  }
+
+  // Wire mas4s sessions.list filter (membership-based session isolation)
+  if (mas4s.filterSessionsList) {
+    const masFilter = mas4s.filterSessionsList;
+    gatewayRequestContext.filterSessionsList = (sessions, client) =>
+      masFilter(sessions, client as GatewayWsClient | null);
+  }
+
+  // Keep mas4s clients reference in sync so push notifications work
+  const mas4sWithClients = mas4s as typeof mas4s & {
+    _setActiveClients?: (c: Set<GatewayWsClient>) => void;
+  };
+  if (mas4sWithClients._setActiveClients) {
+    mas4sWithClients._setActiveClients(clients);
+  }
+
+  // Wrap broadcast to apply mas4s event filtering (session membership isolation)
+  const masFilterBroadcast = mas4s.filterBroadcast;
+  const filteredBroadcast: typeof broadcast = (event, payload, opts) => {
+    const targetConnIds = masFilterBroadcast(event, payload, clients);
+    if (targetConnIds !== null) {
+      if (targetConnIds.size > 0) {
+        broadcastToConnIds(event, payload, targetConnIds, opts);
+      }
+      // If targetConnIds is empty, no one should receive this event — drop it.
+      return;
+    }
+    broadcast(event, payload, opts);
+  };
+
+  // Patch context to use filtered broadcast so agent/chat events respect session membership
+  gatewayRequestContext.broadcast = filteredBroadcast;
+
   attachGatewayWsHandlers({
     wss,
     clients,
@@ -1121,9 +1171,12 @@ export async function startGatewayServer(
       ...pluginRegistry.gatewayHandlers,
       ...execApprovalHandlers,
       ...secretsHandlers,
+      ...mas4s.extraHandlers,
     },
-    broadcast,
+    broadcast: filteredBroadcast,
     context: gatewayRequestContext,
+    onClientConnected: mas4s.onClientConnected,
+    onSessionCreated: mas4s.onSessionCreated,
   });
   logGatewayStartup({
     cfg: cfgAtStart,

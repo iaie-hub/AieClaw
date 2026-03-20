@@ -2,30 +2,17 @@ import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { getClient, resetClient } from "./gateway/client.js";
 import { registerEventHandlers } from "./gateway/event-handler.js";
-import { joinSessionFromInvite, parseInviteFromUrl } from "./gateway/session-invite.js";
 import { createSession } from "./gateway/session-manager.js";
-import { AppStoreController } from "./store/app-store.js";
-import type { MasSession } from "./types/session-types.js";
+import { AppStore, AppStoreController } from "./store/app-store.js";
 import { buildGroupMessage, buildChatSendParams } from "./utils/message-format.js";
 // 组件注册（副作用导入）
 import "./components/primary-sidebar.js";
 import "./components/session-sidebar.js";
 import "./components/main-workspace.js";
 import "./components/invite-dialog.js";
-import "./components/join-session-dialog.js";
-import "./components/join-confirm-dialog.js";
+import "./views/login-view.js";
 
-type DialogState =
-  | { kind: "none" }
-  | { kind: "invite" }
-  | { kind: "join-input" }
-  | {
-      kind: "join-confirm";
-      sessionKey: string;
-      session: MasSession | null;
-      loading: boolean;
-      error: string;
-    };
+type DialogState = { kind: "none" } | { kind: "invite" };
 
 type NavItem = "workspace" | "usage" | "agents" | "skills" | "cron" | "settings";
 
@@ -43,6 +30,7 @@ export class Mas4sApp extends LitElement {
   @state() private _gatewayUrl = localStorage.getItem("mas4s_ws_url") || "ws://localhost:18789";
   @state() private _gatewayToken = localStorage.getItem("mas4s_ws_token") || "";
   @state() private _connectError = "";
+  @state() private _masAuthState: "checking" | "init" | "login" | "authenticated" = "checking";
 
   static styles = css`
     :host {
@@ -51,10 +39,6 @@ export class Mas4sApp extends LitElement {
       overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: #f8fafc;
-    }
-
-    .session-sidebar-wrap {
-      display: contents;
     }
 
     .workspace-wrap {
@@ -66,24 +50,37 @@ export class Mas4sApp extends LitElement {
   `;
 
   connectedCallback() {
+    console.debug("[mas4s:app] connectedCallback → registering event handlers, checking system status");
     super.connectedCallback();
     registerEventHandlers();
+    void this._checkSystemStatus();
+  }
 
-    if (this._gatewayUrl) {
-      this._doConnect();
-    }
-
-    // 检测 URL 中的 ?join= 参数
-    const inviteKey = parseInviteFromUrl();
-    if (inviteKey) {
-      void this._startJoinConfirm(inviteKey);
+  private async _checkSystemStatus() {
+    console.debug("[mas4s:app] _checkSystemStatus → url=%s", this._gatewayUrl);
+    try {
+      const client = getClient({ url: this._gatewayUrl });
+      const res = (await client.request("system.status")) as { initialized: boolean };
+      console.debug("[mas4s:app] _checkSystemStatus ← system.status res=%o", res);
+      if (!res.initialized) {
+        this._masAuthState = "init";
+      } else if (localStorage.getItem("mas4s_auth_token")) {
+        this._masAuthState = "authenticated";
+        this._doConnect();
+      } else {
+        this._masAuthState = "login";
+      }
+      console.debug("[mas4s:app] _checkSystemStatus ← masAuthState=%s", this._masAuthState);
+    } catch (err) {
+      console.warn("[mas4s:app] _checkSystemStatus ← error, falling back to login:", err);
+      this._masAuthState = "login";
     }
   }
 
   private _doConnect = () => {
+    console.debug("[mas4s:app] _doConnect → url=%s", this._gatewayUrl);
     this._connectError = "";
     localStorage.setItem("mas4s_ws_url", this._gatewayUrl);
-    // Don't save empty string to local storage if user inputs space or clears it, wait, it's fine.
     localStorage.setItem("mas4s_ws_token", this._gatewayToken);
 
     resetClient();
@@ -91,28 +88,58 @@ export class Mas4sApp extends LitElement {
       url: this._gatewayUrl,
       token: this._gatewayToken || undefined,
       onHello: () => {
+        console.debug("[mas4s:app] _doConnect ← onHello: connected=true");
         this._connected = true;
       },
       onClose: (info) => {
+        console.debug("[mas4s:app] _doConnect ← onClose: code=%s reason=%s", info.code, info.reason);
         const wasConnected = this._connected;
         this._connected = false;
-        this._connectError = `连接断开 (${info.code}): ${info.reason || "目标地址拒绝连接或无效"}`;
 
-        // 如果从未建立过成功连接（即刚点连接就遭遇了底层的 Transport Failed 或者无效地址断开），
-        // 那么就直接销毁当前 client，停止背后的无限退避重试，让用户在界面上手动重新发起。
+        if (
+          info.reason &&
+          (info.reason.includes("TOKEN_EXPIRED") || info.reason.includes("MAS_AUTH_FAILED"))
+        ) {
+          console.warn("[mas4s:app] _doConnect ← auth error (%s), redirecting to login", info.reason);
+          localStorage.removeItem("mas4s_auth_token");
+          this._masAuthState = "login";
+          resetClient();
+          return;
+        }
+
+        this._connectError = `连接断开 (${info.code}): ${info.reason || "目标地址拒绝连接或无效"}`;
         if (!wasConnected) {
           resetClient();
         }
       },
     });
+    console.debug("[mas4s:app] _doConnect → client created, awaiting hello");
+  };
+
+  private _onLoginSuccess = () => {
+    console.debug("[mas4s:app] _onLoginSuccess → masAuthState=authenticated, initiating connect");
+    this._masAuthState = "authenticated";
+    this._doConnect();
+    console.debug("[mas4s:app] _onLoginSuccess ← done");
+  };
+
+  private _onLogout = () => {
+    console.debug("[mas4s:app] _onLogout → clearing session state");
+    AppStore.instance.logout();
+    resetClient();
+    this._connected = false;
+    this._masAuthState = "login";
+    console.debug("[mas4s:app] _onLogout ← masAuthState=login");
   };
 
   // ── 会话操作 ──────────────────────────────────────
 
   private _onSessionCreate = async (e: CustomEvent<{ label: string }>) => {
+    console.debug("[mas4s:app] _onSessionCreate → label=%s", e.detail.label);
     const client = getClient();
     try {
       const session = await createSession(client, { label: e.detail.label });
+      console.debug("[mas4s:app] _onSessionCreate ← session created: key=%s", session.key);
       this._ctrl.store.addSession(session);
       this._ctrl.store.setActiveSession(session.key);
     } catch (err) {
@@ -120,62 +147,16 @@ export class Mas4sApp extends LitElement {
     }
   };
 
-  private _onSessionJoinInput = () => {
-    this._dialog = { kind: "join-input" };
-  };
-
-  private _onJoinFromInput = async (e: CustomEvent<{ sessionKey: string }>) => {
-    const { sessionKey } = e.detail;
-    this._dialog = { kind: "none" };
-    await this._doJoin(sessionKey);
-  };
-
-  private async _startJoinConfirm(sessionKey: string) {
-    this._dialog = { kind: "join-confirm", sessionKey, session: null, loading: true, error: "" };
-    // 预加载会话信息
-    try {
-      const client = getClient();
-      const session = await joinSessionFromInvite(client, sessionKey);
-      this._dialog = { kind: "join-confirm", sessionKey, session, loading: false, error: "" };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "获取会话信息失败";
-      this._dialog = {
-        kind: "join-confirm",
-        sessionKey,
-        session: null,
-        loading: false,
-        error: msg,
-      };
-    }
-  }
-
-  private _onJoinConfirm = async (e: CustomEvent<{ sessionKey: string }>) => {
-    const { sessionKey } = e.detail;
-    this._dialog = { kind: "none" };
-    // 清除 URL 中的 ?join= 参数，避免刷新后重复弹窗
-    const url = new URL(window.location.href);
-    url.searchParams.delete("join");
-    window.history.replaceState(null, "", url.toString());
-    await this._doJoin(sessionKey);
-  };
-
-  private async _doJoin(sessionKey: string) {
-    const client = getClient();
-    try {
-      const session = await joinSessionFromInvite(client, sessionKey);
-      this._ctrl.store.addSession(session);
-      this._ctrl.store.setActiveSession(session.key);
-    } catch (err) {
-      console.error("[mas4s] joinSession failed:", err);
-    }
-  }
-
   private _onSessionSelect = (e: CustomEvent<{ sessionKey: string }>) => {
+    console.debug("[mas4s:app] _onSessionSelect → sessionKey=%s", e.detail.sessionKey);
     this._ctrl.store.setActiveSession(e.detail.sessionKey);
+    console.debug("[mas4s:app] _onSessionSelect ← activeSession set");
   };
 
   private _onNavChange = (e: CustomEvent<{ nav: NavItem }>) => {
+    console.debug("[mas4s:app] _onNavChange → nav=%s", e.detail.nav);
     this._activeNav = e.detail.nav;
+    console.debug("[mas4s:app] _onNavChange ← activeNav=%s", this._activeNav);
   };
 
   // ── 消息发送 ──────────────────────────────────────
@@ -183,21 +164,18 @@ export class Mas4sApp extends LitElement {
   private _onSendMessage = async (e: CustomEvent<{ text: string }>) => {
     const store = this._ctrl.store;
     const session = store.activeSession;
+    console.debug("[mas4s:app] _onSendMessage → sessionKey=%s text.length=%d", session?.key, e.detail.text.length);
     if (!session) {
+      console.warn("[mas4s:app] _onSendMessage ← no active session, aborting");
       return;
     }
 
     const client = getClient();
-    // 用户名暂用 "我"，第二期接入身份信息
-    const message = buildGroupMessage("我", e.detail.text);
+    const displayName = this._ctrl.store.currentUser?.displayName ?? "我";
+    const message = buildGroupMessage(displayName, e.detail.text);
     try {
-      await client.request(
-        "chat.send",
-        buildChatSendParams({
-          sessionKey: session.key,
-          message,
-        }),
-      );
+      await client.request("chat.send", buildChatSendParams({ sessionKey: session.key, message }));
+      console.debug("[mas4s:app] _onSendMessage ← chat.send ok");
     } catch (err) {
       console.error("[mas4s] chat.send failed:", err);
     }
@@ -206,12 +184,14 @@ export class Mas4sApp extends LitElement {
   // ── 审批操作 ──────────────────────────────────────
 
   private _onResolveApproval = async (e: CustomEvent<{ id: string; decision: string }>) => {
+    console.debug("[mas4s:app] _onResolveApproval → id=%s decision=%s", e.detail.id, e.detail.decision);
     const client = getClient();
     try {
       await client.request("exec.approval.resolve", {
         id: e.detail.id,
         decision: e.detail.decision,
       });
+      console.debug("[mas4s:app] _onResolveApproval ← exec.approval.resolve ok");
     } catch (err) {
       console.error("[mas4s] exec.approval.resolve failed:", err);
     }
@@ -220,11 +200,15 @@ export class Mas4sApp extends LitElement {
   // ── 邀请弹窗 ──────────────────────────────────────
 
   private _onInviteOpen = () => {
+    console.debug("[mas4s:app] _onInviteOpen → opening invite dialog");
     this._dialog = { kind: "invite" };
+    console.debug("[mas4s:app] _onInviteOpen ← dialog=invite");
   };
 
   private _onDialogClose = () => {
+    console.debug("[mas4s:app] _onDialogClose → closing dialog");
     this._dialog = { kind: "none" };
+    console.debug("[mas4s:app] _onDialogClose ← dialog=none");
   };
 
   // ── 渲染 ──────────────────────────────────────────
@@ -236,26 +220,26 @@ export class Mas4sApp extends LitElement {
         <div style="display:flex;flex-direction:column;gap:16px;width:340px;background:white;padding:24px;border-radius:8px;box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.1);">
           <label style="display:flex;flex-direction:column;gap:6px;font-size:14px;color:#475569;">
             WebSocket URL
-            <input 
-              type="text" 
-              .value=${this._gatewayUrl} 
+            <input
+              type="text"
+              .value=${this._gatewayUrl}
               @input=${(e: Event) => (this._gatewayUrl = (e.target as HTMLInputElement).value)}
               style="padding:10px;border:1px solid #e2e8f0;border-radius:6px;font-size:14px;outline:none;"
             />
           </label>
           <label style="display:flex;flex-direction:column;gap:6px;font-size:14px;color:#475569;">
             网关令牌
-            <input 
-              type="password" 
-              .value=${this._gatewayToken} 
+            <input
+              type="password"
+              .value=${this._gatewayToken}
               @input=${(e: Event) => (this._gatewayToken = (e.target as HTMLInputElement).value)}
               @keydown=${(e: KeyboardEvent) => e.key === "Enter" && this._doConnect()}
               placeholder="OPENCLAW_GATEWAY_TOKEN (可选)"
               style="padding:10px;border:1px solid #e2e8f0;border-radius:6px;font-size:14px;outline:none;"
             />
           </label>
-          <button 
-            @click=${this._doConnect} 
+          <button
+            @click=${this._doConnect}
             style="margin-top:8px;padding:10px;background:#dc2626;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500;font-size:15px;"
           >连 接</button>
           ${this._connectError ? html`<div style="color:#dc2626;font-size:13px;margin-top:8px;padding:8px;background:#fef2f2;border:1px solid #fecaca;border-radius:4px;">${this._connectError}</div>` : ""}
@@ -277,32 +261,36 @@ export class Mas4sApp extends LitElement {
       `;
     }
 
-    if (d.kind === "join-input") {
-      return html`
-        <join-session-dialog
-          @join=${this._onJoinFromInput}
-          @close=${this._onDialogClose}
-        ></join-session-dialog>
-      `;
-    }
-
-    if (d.kind === "join-confirm") {
-      return html`
-        <join-confirm-dialog
-          .session=${d.session}
-          .loading=${d.loading}
-          .error=${d.error}
-          .sessionKey=${d.sessionKey}
-          @confirm=${this._onJoinConfirm}
-          @cancel=${this._onDialogClose}
-        ></join-confirm-dialog>
-      `;
-    }
-
     return html``;
   }
 
   render() {
+    if (this._masAuthState === "checking") {
+      return html`
+        <div
+          style="
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: #f8fafc;
+            color: #64748b;
+            font-size: 15px;
+          "
+        >
+          正在检查系统状态…
+        </div>
+      `;
+    }
+
+    if (this._masAuthState === "init") {
+      return html`<mas4s-login-view mode="init" @login-success=${this._onLoginSuccess}></mas4s-login-view>`;
+    }
+
+    if (this._masAuthState === "login") {
+      return html`<mas4s-login-view mode="login" @login-success=${this._onLoginSuccess}></mas4s-login-view>`;
+    }
+
     if (!this._connected) {
       return this._renderLoginGate();
     }
@@ -322,19 +310,22 @@ export class Mas4sApp extends LitElement {
               .activeSessionKey=${store.activeSessionId ?? ""}
               @session-select=${this._onSessionSelect}
               @session-create=${this._onSessionCreate}
-              @session-join=${this._onSessionJoinInput}
             ></session-sidebar>
           `
           : ""
       }
 
       <div class="workspace-wrap">
+        <div style="display:flex;justify-content:flex-end;padding:6px 12px;background:#fff;border-bottom:1px solid #e2e8f0;">
+          <button
+            @click=${this._onLogout}
+            style="padding:5px 12px;background:transparent;border:1px solid #e2e8f0;border-radius:6px;cursor:pointer;font-size:13px;color:#64748b;"
+          >退出登录</button>
+        </div>
         <main-workspace
           .activeNav=${this._activeNav}
           .session=${store.activeSession ?? null}
-          .messages=${
-            store.activeSessionId ? (store.messagesBySession.get(store.activeSessionId) ?? []) : []
-          }
+          .messages=${store.activeSessionId ? (store.messagesBySession.get(store.activeSessionId) ?? []) : []}
           .pendingApprovals=${store.pendingApprovals}
           @send-message=${this._onSendMessage}
           @resolve-approval=${this._onResolveApproval}

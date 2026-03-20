@@ -6,32 +6,33 @@
 
 ## 任务
 
-- [ ] 1. 基础数据层：模型定义、错误类型与 SQLite 存储
-  - [-] 1.1 创建数据模型和错误类型
+- [x] 1. 基础数据层：模型定义、错误类型与 SQLite 存储
+  - [x] 1.1 创建数据模型和错误类型
     - 创建 `aiemas/src/models.ts`，定义 Tenant、User、PublicUser、SessionOwnership、SessionMembership、SessionMember 接口及 GlobalRole、SessionRole、UserStatus 类型（UserStatus = "pending" | "approved" | "rejected"）
     - 创建 `aiemas/src/errors.ts`，定义 TenantServiceError 类及所有错误码常量（AUTH_FAILED、TOKEN_EXPIRED、USERNAME_TAKEN、SESSION_ACCESS_DENIED、PERMISSION_DENIED、OWNER_CANNOT_LEAVE、RATE_LIMITED、WEAK_PASSWORD、ACCOUNT_PENDING_APPROVAL、ACCOUNT_REJECTED、ALREADY_MEMBER、NOT_A_MEMBER、ADMIN_USERNAME_REQUIRED 等）
     - _需求: 1.1, 1.2, 2.2, 2.6, 4.3, 5.3, 5.7, 6.2, 11.1_
 
-  - [~] 1.2 实现 SQLite 数据库存储模块
+  - [x] 1.2 实现 SQLite 数据库存储模块
     - 创建 `aiemas/src/store/database.ts`，实现 initDatabase(dbPath) 和 ensureMas4sSchema(db) 函数
-    - 复用项目现有的 `requireNodeSqlite()`（`src/memory/sqlite.ts`）加载 `node:sqlite`
+    - 复用项目现有的 `requireNodeSqlite()`（`src/memory/sqlite.ts`），通过相对路径 `../../../src/memory/sqlite.js` 引用
     - 设置 WAL 模式（`PRAGMA journal_mode=WAL`）、busy_timeout（5000ms）、外键约束
     - 创建 tenants、users（含 UNIQUE 索引 tenantId+username）、session_ownership、session_memberships 四张表
     - 实现启动时自动创建数据库文件和目录结构（`~/.openclaw/aiemas/`）
+    - **测试运行方式：`aiemas/src/` 无独立 package.json，测试统一在根目录 vitest 单元测试通道下运行（`pnpm test -- aiemas/src`），`aiemas/src/**/\*.test.ts`已加入`vitest.unit-paths.mjs`，不应创建 `aiemas/vitest.config.ts`\*\*
     - _需求: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7_
 
-  - [~] 1.3 编写 SQLite 存储属性测试
+  - [x] 1.3 编写 SQLite 存储属性测试
     - **Property 15: 数据持久化 round-trip**
     - **验证: 需求 10.1, 10.2, 10.3, 10.4**
     - 创建 `aiemas/src/store/database.property.test.ts`，验证任意数据写入后关闭并重新打开数据库应得到等价数据
 
-  - [~] 1.4 编写 SQLite 并发写入属性测试
+  - [x] 1.4 编写 SQLite 并发写入属性测试
     - **Property 16: 并发写入安全**
     - **验证: 需求 10.6**
     - 在 `aiemas/src/store/database.property.test.ts` 中添加并发写入测试，验证 WAL 模式和 busy_timeout 确保数据不丢失不损坏
 
 - [ ] 2. 认证模块：JWT 签发/验证与密码哈希
-  - [~] 2.1 实现 JWT 签发与验证
+  - [x] 2.1 实现 JWT 签发与验证
     - 创建 `aiemas/src/auth/jwt.ts`，实现 signToken(payload)、verifyToken(token)、refreshToken(token) 函数
     - 使用 HMAC-SHA256 签名算法，密钥来源优先级：MAS4S_JWT_SECRET 环境变量 → 配置文件 → 随机生成（输出警告）
     - JWT payload 包含 userId、tenantId、role、iat、exp，默认有效期 24 小时
@@ -40,42 +41,42 @@
     - login 流程中凭据验证通过后，检查用户 status：pending 返回 ACCOUNT_PENDING_APPROVAL，rejected 返回 ACCOUNT_REJECTED，仅 approved 签发 token
     - _需求: 2.1, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 11.2, 11.5_
 
-  - [~] 2.2 实现密码哈希模块
+  - [x] 2.2 实现密码哈希模块
     - 创建 `aiemas/src/auth/password.ts`，实现 hashPassword(plain)、verifyPassword(plain, hash) 函数
     - 使用 bcrypt，cost factor 不低于 10
     - 实现密码强度校验：长度不低于 8 字符，不满足时抛出 WEAK_PASSWORD 错误
     - _需求: 1.3, 11.4_
 
-  - [~] 2.3 实现登录速率限制
+  - [x] 2.3 实现登录速率限制
     - 创建 `aiemas/src/auth/rate-limiter.ts`，实现基于 IP 的滑动窗口速率限制器
     - 同一 IP 每分钟最多 10 次失败尝试，超限返回 RATE_LIMITED 和 retryAfterMs
     - _需求: 11.1_
 
-  - [~] 2.4 编写 JWT round-trip 属性测试
+  - [x] 2.4 编写 JWT round-trip 属性测试
     - **Property 3: AuthToken round-trip**
     - **验证: 需求 2.1, 2.3, 2.5, 2.7**
     - 创建 `aiemas/src/auth/jwt.property.test.ts`，验证任意有效参数经 sign → verify 后返回一致的 userId、tenantId、role
 
-  - [~] 2.5 编写过期令牌属性测试
+  - [x] 2.5 编写过期令牌属性测试
     - **Property 4: 过期令牌拒绝**
     - **验证: 需求 2.6**
     - 在 `aiemas/src/auth/jwt.property.test.ts` 中添加测试，验证任意过期 token 的 verify 返回 TOKEN_EXPIRED
 
-  - [~] 2.6 编写认证错误不泄露信息属性测试
+  - [x] 2.6 编写认证错误不泄露信息属性测试
     - **Property 5: 认证错误不泄露信息**
     - **验证: 需求 2.2**
     - 在 `aiemas/src/auth/jwt.property.test.ts` 中添加测试，验证用户名不存在和密码错误返回相同错误码 AUTH_FAILED
 
-  - [~] 2.7 编写登录速率限制属性测试
+  - [x] 2.7 编写登录速率限制属性测试
     - **Property 13: 登录速率限制**
     - **验证: 需求 11.1**
     - 创建 `aiemas/src/auth/rate-limiter.property.test.ts`，验证任意 IP 连续 10 次失败后第 11 次返回 RATE_LIMITED
 
-- [~] 3. 检查点 - 数据层与认证模块
+- [x] 3. 检查点 - 数据层与认证模块
   - 确保所有测试通过，如有问题请向用户确认。
 
 - [ ] 4. 用户管理模块
-  - [~] 4.1 实现用户注册、查询、更新与审批服务
+  - [x] 4.1 实现用户注册、查询、更新与审批服务
     - 创建 `aiemas/src/users/user-service.ts`，实现 registerUser、listUsers、updateUser、getSystemStatus、approveUser、rejectUser 函数
     - getSystemStatus：查询 `SELECT COUNT(*) FROM users`，返回 `{ initialized: count > 0 }`
     - registerUser：
@@ -90,18 +91,18 @@
     - rejectUser：仅 admin 可调用，将 status 从 "pending" 改为 "rejected"
     - _需求: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 1.10, 1.11, 1.12, 11.4_
 
-  - [~] 4.2 编写用户名唯一性属性测试
+  - [x] 4.2 编写用户名唯一性属性测试
     - **Property 1: 用户名租户内唯一性**
     - **验证: 需求 1.2**
     - 创建 `aiemas/src/users/user-service.property.test.ts`，验证同一 tenantId 下重复注册相同用户名返回 USERNAME_TAKEN
 
-  - [~] 4.3 编写密码安全不变量属性测试
+  - [x] 4.3 编写密码安全不变量属性测试
     - **Property 2: 密码安全不变量**
     - **验证: 需求 1.3, 11.4**
     - 在 `aiemas/src/users/user-service.property.test.ts` 中添加测试，验证注册后存储中不含密码明文且弱密码被拒绝
 
 - [ ] 5. 权限控制与审计模块
-  - [~] 5.1 实现 RBAC 权限校验器
+  - [x] 5.1 实现 RBAC 权限校验器
     - 创建 `aiemas/src/rbac/permission-checker.ts`，实现 checkPermission 函数
     - 定义 GLOBAL_ROLE_PERMISSIONS 和 SESSION_ROLE_PERMISSIONS 权限矩阵常量（含 user.approve、user.reject 仅 admin；user.list 所有已认证用户可调用）
     - 全局角色校验：admin（全部）、member（查询用户+会话操作+消息）、viewer（查询用户+仅查看）
@@ -109,44 +110,44 @@
     - 权限失败时调用审计模块记录日志
     - _需求: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
 
-  - [~] 5.2 实现审计日志模块
+  - [x] 5.2 实现审计日志模块
     - 创建 `aiemas/src/audit/audit-logger.ts`，实现 logPermissionFailure 函数
     - 审计记录包含：userId、操作名、目标资源、时间戳、结果
     - 以追加方式写入 `~/.openclaw/aiemas/audit.log`
     - _需求: 11.3_
 
-  - [~] 5.3 编写权限矩阵一致性属性测试
+  - [x] 5.3 编写权限矩阵一致性属性测试
     - **Property 10: 全局与会话级权限矩阵一致性**
     - **验证: 需求 6.1, 6.2, 6.3, 6.4, 6.5, 6.6**
     - 创建 `aiemas/src/rbac/permission-checker.property.test.ts`，使用 fast-check 生成任意角色+操作组合，验证结果与矩阵一致
 
-  - [~] 5.4 编写审计日志属性测试
+  - [x] 5.4 编写审计日志属性测试
     - **Property 14: 权限失败审计日志**
     - **验证: 需求 11.3**
     - 创建 `aiemas/src/audit/audit-logger.test.ts`，验证权限失败后审计日志包含完整记录
 
-- [~] 6. 检查点 - 后端核心模块
+- [x] 6. 检查点 - 后端核心模块
   - 确保所有测试通过，如有问题请向用户确认。
 
 - [ ] 7. TenantService 入口与集成
-  - [~] 7.1 实现 TenantService 单例入口
+  - [x] 7.1 实现 TenantService 单例入口
     - 创建 `aiemas/src/index.ts`，定义 TenantServiceConfig 接口和 TenantService 接口
     - 实现 createTenantService(config) 工厂函数，组装 database、auth、users、sessions、rbac、audit 各模块
     - 实现 init() 方法：初始化 SQLite 数据库（WAL 模式）、初始化 JWT 密钥
     - 导出 TenantService 单例
     - _需求: 10.7, 11.5_
 
-  - [~] 7.2 创建测试辅助工具
+  - [x] 7.2 创建测试辅助工具
     - 创建 `aiemas/src/test-helpers/generators.ts`，实现 fast-check 生成器：arbUsername、arbPassword、arbWeakPassword、arbDisplayName、arbGlobalRole、arbSessionRole、arbSessionKey、arbMethod
     - 创建 `aiemas/src/test-helpers/setup.ts`，实现测试用临时 SQLite 数据库创建和清理辅助函数（使用 `:memory:` 或临时文件）
 
 - [ ] 8. GatewayAuthBridge 桥接层（含会话归属与成员管理）
-  - [~] 8.1 实现连接上下文管理
+  - [x] 8.1 实现连接上下文管理
     - 创建 `aiemas/src/gateway-bridge/context.ts`，使用 WeakMap 实现 setMasAuth / getMasAuth，在不修改 GatewayWsClient 类型的前提下附加 MasAuthContext
     - 定义 MasAuthContext 接口（userId、tenantId、masRole，均可为 null）
     - _需求: 3.1, 3.2, 3.4_
 
-  - [~] 8.2 实现会话归属与成员管理器
+  - [x] 8.2 实现会话归属与成员管理器
     - 创建 `aiemas/src/gateway-bridge/session-manager.ts`，实现以下函数（直接操作 SQLite）：
     - recordSessionCreated：同时创建 SessionOwnership 和 SessionMembership（role="owner"）记录
     - listSessionsForUser：返回用户拥有 membership 的所有 sessionKey
@@ -158,7 +159,7 @@
     - getSessionMemberUserIds / getSessionOwnerUserIds：用于广播过滤
     - _需求: 3.6, 3.7, 4.1, 4.2, 4.3, 4.4, 4.5, 5.1, 5.2, 5.3, 5.6, 5.7, 5.8, 5.9, 5.10, 5.11, 5.12, 5.13_
 
-  - [~] 8.3 实现 GatewayAuthBridge 核心逻辑
+  - [x] 8.3 实现 GatewayAuthBridge 核心逻辑
     - 创建 `aiemas/src/gateway-bridge/bridge.ts`，实现 GatewayAuthBridge 类：
     - authenticateConnect：从 WS URL query string 提取 masToken → 调用 TenantService.verify → 返回 MasAuthContext；无 masToken 时返回 null 上下文（兼容模式）
     - interceptMethod：检查全局角色权限 + 会话级权限 + 会话成员校验；兼容模式（userId=null）跳过所有校验
@@ -172,43 +173,43 @@
     - pushSessionRemoved：成员移除后向被移除用户所有已连接 WS 客户端推送 `event:session.removed { sessionKey, removedBy }`，前端收到后从会话列表移除
     - _需求: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 4.2, 4.3, 4.4, 4.6, 5.4, 5.10, 5.11, 7.1, 7.2, 7.3, 7.4_
 
-  - [~] 8.4 编写会话隔离完备性属性测试
+  - [x] 8.4 编写会话隔离完备性属性测试
     - **Property 6: 会话隔离完备性**
     - **验证: 需求 4.2, 4.3, 4.4**
     - 创建 `aiemas/src/gateway-bridge/bridge.property.test.ts`，验证无 membership 的用户无法访问会话
 
-  - [~] 8.5 编写会话创建记录完整性属性测试
+  - [x] 8.5 编写会话创建记录完整性属性测试
     - **Property 7: 会话创建记录完整性**
     - **验证: 需求 4.1**
     - 在 `aiemas/src/gateway-bridge/bridge.property.test.ts` 中添加测试，验证 onSessionCreated 后同时存在 ownership 和 membership 记录
 
-  - [~] 8.6 编写会话邀请权限与成员增长属性测试
+  - [x] 8.6 编写会话邀请权限与成员增长属性测试
     - **Property 8: 会话邀请权限与成员增长（邀请即自动加入）**
     - **验证: 需求 5.1, 5.2, 5.3, 5.4, 5.9**
     - 在 `aiemas/src/gateway-bridge/bridge.property.test.ts` 中添加测试，验证会话成员（owner 和 participant）均可邀请、被邀人立即成为成员、非成员邀请返回 SESSION_ACCESS_DENIED、重复邀请返回 ALREADY_MEMBER
 
-  - [~] 8.7 编写 owner 不可退出属性测试
+  - [x] 8.7 编写 owner 不可退出属性测试
     - **Property 9: owner 不可自行退出**
     - **验证: 需求 5.8**
     - 在 `aiemas/src/gateway-bridge/bridge.property.test.ts` 中添加测试，验证 owner 调用 leave 返回 OWNER_CANNOT_LEAVE
 
-  - [~] 8.8 编写广播隔离属性测试
+  - [x] 8.8 编写广播隔离属性测试
     - **Property 11: 事件广播隔离**
     - **验证: 需求 7.1, 7.2, 7.3**
     - 在 `aiemas/src/gateway-bridge/bridge.property.test.ts` 中添加测试，验证事件仅发送给有 membership 的用户，approval 仅发给 owner
 
-  - [~] 8.9 编写兼容模式透明性属性测试
+  - [x] 8.9 编写兼容模式透明性属性测试
     - **Property 12: 兼容模式透明性**
     - **验证: 需求 3.4, 4.6, 7.4**
     - 在 `aiemas/src/gateway-bridge/bridge.property.test.ts` 中添加测试，验证 userId=null 时所有操作不受限制
 
-  - [~] 8.10 编写成员移除完整性属性测试
+  - [x] 8.10 编写成员移除完整性属性测试
     - **Property 19: 成员移除完整性**
     - **验证: 需求 5.10, 5.11, 5.12, 5.13**
     - 在 `aiemas/src/gateway-bridge/bridge.property.test.ts` 中添加测试，验证 owner 可移除 participant、移除后不再是成员、owner 不可移除自己（OWNER_CANNOT_LEAVE）、目标不是成员返回 NOT_A_MEMBER
 
 - [ ] 9. Gateway 最小集成
-  - [~] 9.1 在 gateway WS 连接流程中集成 GatewayAuthBridge
+  - [x] 9.1 在 gateway WS 连接流程中集成 GatewayAuthBridge
     - 在 `src/gateway/` 的 WS upgrade/connect 处理中增加一行调用：从 upgradeReq.url 提取 masToken → 调用 bridge.authenticateConnect → 将 MasAuthContext 附加到 client
     - 在 server-methods 请求分发前增加 bridge.interceptMethod 调用
     - 在 server-broadcast 广播前增加 bridge.filterBroadcastTargets 调用
@@ -218,17 +219,17 @@
     - 保持原有认证流程不变，仅在有 masToken 时额外执行多租户认证
     - _需求: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
 
-- [~] 10. 检查点 - 后端集成完成
+- [x] 10. 检查点 - 后端集成完成
   - 确保所有测试通过，如有问题请向用户确认。
 
 - [ ] 11. 前端登录与用户状态
-  - [~] 11.1 扩展 AppStore 添加 currentUser 状态
+  - [x] 11.1 扩展 AppStore 添加 currentUser 状态
     - 在 `aiemas/ui/mas4s/src/store/app-store.ts` 中添加 currentUser 字段（userId、username、displayName、role、tenantId）
     - 添加 setCurrentUser / clearCurrentUser 方法
     - 添加 logout 方法：清除 localStorage 中的 mas4s_auth_token、重置 currentUser、断开 WebSocket
     - _需求: 8.3, 8.7_
 
-  - [~] 11.2 创建 LoginView 登录/注册组件
+  - [x] 11.2 创建 LoginView 登录/注册组件
     - 创建 `aiemas/ui/mas4s/src/views/login-view.ts`，LitElement 组件
     - 提供用户名、密码输入框和"登录"按钮，以及"注册新账号"切换链接
     - 支持初始化模式（`mode="init"`）：用户名固定为 "admin" 且输入框 disabled 不可修改，按钮文案改为"初始化系统"，仅需填写密码和显示名称
@@ -238,11 +239,11 @@
     - 自注册成功后显示"注册成功，请等待管理员审批后登录"提示，切换回登录表单
     - _需求: 8.1, 8.2, 8.3, 8.4, 8.6, 8.7, 8.10_
 
-  - [~] 11.3 修改 GatewayClient 注入 masToken
+  - [x] 11.3 修改 GatewayClient 注入 masToken
     - 修改 `aiemas/ui/mas4s/src/gateway/client.ts`，在构造 WebSocket URL 时从 localStorage 读取 mas4s_auth_token，追加为 query parameter：`?masToken=<token>`
     - _需求: 8.5_
 
-  - [~] 11.4 修改 mas4s-app 根组件集成登录流程
+  - [x] 11.4 修改 mas4s-app 根组件集成登录流程
     - 修改 `aiemas/ui/mas4s/src/app.ts`：
     - 启动时先调用 `system.status` 检查系统是否已初始化
     - 若 initialized=false：显示 LoginView（初始化模式，用户名锁定为 "admin"）
@@ -253,28 +254,28 @@
     - _需求: 8.5, 8.6, 8.7, 8.8, 8.9_
 
 - [ ] 12. 前端会话列表过滤与消息发送者
-  - [~] 12.1 实现会话列表 masType 标记与分组显示
+  - [x] 12.1 实现会话列表 masType 标记与分组显示
     - 修改 `aiemas/ui/mas4s/src/store/app-store.ts`，在 MasSession 类型上添加 masType 字段（"initiated" | "participated"）
     - 创建会话时标记 masType="initiated"
     - 修改 `aiemas/ui/mas4s/src/gateway/event-handler.ts`，监听 `event:session.joined` 事件：收到后将会话自动加入 AppStore 列表（masType="participated"），并显示 Toast 通知（"您已被邀请加入会话 {label}"）；监听 `event:session.removed` 事件：收到后从 AppStore 会话列表中移除该会话，并显示 Toast 通知（"您已被移出会话 {label}"）
     - 修改 `aiemas/ui/mas4s/src/components/session-sidebar.ts`，按 masType 分组显示："发起的会话"和"参与的会话"
     - _需求: 9.1, 9.2, 9.3, 9.4, 9.6_
 
-  - [~] 12.2 修改消息发送使用 currentUser.displayName
+  - [x] 12.2 修改消息发送使用 currentUser.displayName
     - 修改 `aiemas/ui/mas4s/src/app.ts` 中的 \_onSendMessage 方法，使用 AppStore.currentUser.displayName 替代硬编码的"我"
     - _需求: 9.5_
 
-  - [~] 12.3 编写消息发送者名替换属性测试
+  - [x] 12.3 编写消息发送者名替换属性测试
     - **Property 17: 消息发送者名替换**
     - **验证: 需求 9.5**
     - 创建 `aiemas/ui/mas4s/src/utils/message-format.property.test.ts`，验证任意 displayName 正确替换为消息前缀
 
-  - [~] 12.4 编写会话类型标记属性测试
+  - [x] 12.4 编写会话类型标记属性测试
     - **Property 18: 会话类型标记**
     - **验证: 需求 9.2, 9.3**
     - 创建 `aiemas/ui/mas4s/src/store/app-store.property.test.ts`，验证创建的会话标记为 initiated，邀请加入的标记为 participated
 
-- [~] 13. 最终检查点 - 全部完成
+- [x] 13. 最终检查点 - 全部完成
   - 确保所有测试通过，如有问题请向用户确认。
 
 ## 备注
@@ -284,3 +285,5 @@
 - 属性测试引用了设计文档中的 Property 编号，使用 Vitest + fast-check
 - 检查点任务确保增量验证，及时发现问题
 - 所有后端新增代码位于 `aiemas/src/`，原 gateway 仅在任务 9 中做最小改动
+- **测试运行：`aiemas/src/` 无独立 package.json，其代码由 gateway 直接调用，测试统一在根目录 vitest 单元测试通道下运行：`pnpm test -- aiemas/src`（遵循 AGENTS.md：始终用 wrapper，不得用 `pnpm vitest run`）。`aiemas/src/**/\*.test.ts`已加入`vitest.unit-paths.mjs`，不应创建 `aiemas/vitest.config.ts`\*\*
+- **前端测试（`aiemas/ui/`）独立运行，与后端测试分开**

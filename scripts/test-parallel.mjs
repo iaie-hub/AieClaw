@@ -203,6 +203,7 @@ const walkTestFiles = (rootDir) => {
 const allKnownTestFiles = [
   ...new Set([
     ...walkTestFiles("src"),
+    ...walkTestFiles("aiemas/src"),
     ...walkTestFiles("extensions"),
     ...walkTestFiles("test"),
     ...walkTestFiles(path.join("ui", "src", "ui")),
@@ -229,6 +230,9 @@ const inferTarget = (fileFilter) => {
     return { owner: "base", isolated };
   }
   if (fileFilter.startsWith("src/")) {
+    return { owner: "unit", isolated };
+  }
+  if (fileFilter.startsWith("aiemas/src/")) {
     return { owner: "unit", isolated };
   }
   return { owner: "base", isolated };

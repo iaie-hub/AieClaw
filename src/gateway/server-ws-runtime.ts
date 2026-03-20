@@ -4,6 +4,7 @@ import {
   attachGatewayWsConnectionHandler,
   type GatewayWsSharedHandlerParams,
 } from "./server/ws-connection.js";
+import type { GatewayWsClient } from "./server/ws-types.js";
 
 type GatewayWsRuntimeParams = GatewayWsSharedHandlerParams & {
   logGateway: ReturnType<typeof createSubsystemLogger>;
@@ -19,6 +20,8 @@ type GatewayWsRuntimeParams = GatewayWsSharedHandlerParams & {
     },
   ) => void;
   context: GatewayRequestContext;
+  onClientConnected?: (client: GatewayWsClient, upgradeReq: { url?: string }) => void;
+  onSessionCreated?: (sessionKey: string, label: string, client: GatewayWsClient) => void;
 };
 
 export function attachGatewayWsHandlers(params: GatewayWsRuntimeParams) {
@@ -40,5 +43,7 @@ export function attachGatewayWsHandlers(params: GatewayWsRuntimeParams) {
     extraHandlers: params.extraHandlers,
     broadcast: params.broadcast,
     buildRequestContext: () => params.context,
+    onClientConnected: params.onClientConnected,
+    onSessionCreated: params.onSessionCreated,
   });
 }

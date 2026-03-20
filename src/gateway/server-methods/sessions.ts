@@ -471,7 +471,7 @@ async function handleSessionSend(params: {
   }
 }
 export const sessionsHandlers: GatewayRequestHandlers = {
-  "sessions.list": ({ params, respond }) => {
+  "sessions.list": ({ params, client, respond, context }) => {
     if (!assertValidParams(params, validateSessionsListParams, "sessions.list", respond)) {
       return;
     }
@@ -484,6 +484,12 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       store,
       opts: p,
     });
+    // Apply mas4s session membership filter if available
+    if (context.filterSessionsList && Array.isArray(result.sessions)) {
+      const filtered = context.filterSessionsList(result.sessions as unknown[], client);
+      respond(true, { ...result, sessions: filtered }, undefined);
+      return;
+    }
     respond(true, result, undefined);
   },
   "sessions.subscribe": ({ client, context, respond }) => {
@@ -774,6 +780,11 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       sessionKey: target.canonicalKey,
       reason: "create",
     });
+    // mas4s hook: record session ownership and membership
+    if (context.onSessionCreated && client) {
+      const label = typeof p.label === "string" ? p.label.trim() : "";
+      context.onSessionCreated(target.canonicalKey, label, client);
+    }
     if (runStarted) {
       emitSessionsChanged(context, {
         sessionKey: target.canonicalKey,

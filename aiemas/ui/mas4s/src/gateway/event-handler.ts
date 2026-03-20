@@ -3,6 +3,7 @@ import { normalizeMessage } from "../lib/message-normalizer.js";
 import { AppStore } from "../store/app-store.js";
 import type { ApprovalRequest } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
+import type { MasSession } from "../types/session-types.js";
 import { parseSenderPrefix } from "../utils/message-format.js";
 import { addEventHandler } from "./client.js";
 
@@ -28,6 +29,38 @@ export function registerEventHandlers(): void {
       case "exec.approval.resolved": {
         const { id } = evt.payload as { id: string };
         store.resolveApproval(id);
+        break;
+      }
+      case "session.joined": {
+        const {
+          sessionKey,
+          label,
+          invitedBy: _invitedBy,
+          joinedAt: _joinedAt,
+        } = evt.payload as {
+          sessionKey: string;
+          label: string;
+          invitedBy: string;
+          joinedAt: number;
+        };
+        const newSession: MasSession = {
+          key: sessionKey,
+          label,
+          kind: "group",
+          updatedAt: null,
+          masType: "participated",
+          hasNotification: true,
+          notificationCount: 1,
+          participants: [],
+        };
+        store.addSession(newSession);
+        console.info(`您已被邀请加入会话 ${label}`);
+        break;
+      }
+      case "session.removed": {
+        const { sessionKey } = evt.payload as { sessionKey: string; removedBy: string };
+        store.removeSession(sessionKey);
+        console.info("您已被移出会话");
         break;
       }
     }

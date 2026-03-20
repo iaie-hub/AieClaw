@@ -54,14 +54,30 @@ export function resetClient(): void {
 /**
  * 从当前页面 URL 推断 gateway WebSocket 地址。
  * 开发时默认连接 localhost:18789。
+ * 若 localStorage 中存有 mas4s_auth_token，则附加 masToken 查询参数。
  */
-function resolveGatewayUrl(): string {
-  const loc = window.location;
-  const proto = loc.protocol === "https:" ? "wss:" : "ws:";
-  if (loc.hostname === "localhost" || loc.hostname === "127.0.0.1") {
-    return `${proto}//${loc.hostname}:18789/ws`;
+function resolveGatewayUrl(baseUrl?: string): string {
+  let url: string;
+  if (baseUrl) {
+    url = baseUrl;
+  } else {
+    const loc = window.location;
+    const proto = loc.protocol === "https:" ? "wss:" : "ws:";
+    if (loc.hostname === "localhost" || loc.hostname === "127.0.0.1") {
+      url = `${proto}//${loc.hostname}:18789/ws`;
+    } else {
+      url = `${proto}//${loc.host}/ws`;
+    }
   }
-  return `${proto}//${loc.host}/ws`;
+
+  // Inject masToken if available
+  const masToken = localStorage.getItem("mas4s_auth_token");
+  if (masToken) {
+    const separator = url.includes("?") ? "&" : "?";
+    url = `${url}${separator}masToken=${encodeURIComponent(masToken)}`;
+  }
+
+  return url;
 }
 
 export type { GatewayHelloOk, GatewayEventFrame };

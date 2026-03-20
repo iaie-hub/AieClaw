@@ -88,6 +88,8 @@ export type AttachGatewayWsConnectionHandlerParams = GatewayWsSharedHandlerParam
     },
   ) => void;
   buildRequestContext: () => GatewayRequestContext;
+  onClientConnected?: (client: GatewayWsClient, upgradeReq: { url?: string }) => void;
+  onSessionCreated?: (sessionKey: string, label: string, client: GatewayWsClient) => void;
 };
 
 export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnectionHandlerParams) {
@@ -110,6 +112,8 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     broadcast,
     buildRequestContext,
   } = params;
+  const onClientConnected = params.onClientConnected;
+  const onSessionCreated = params.onSessionCreated;
   const originCheckMetrics: WsOriginCheckMetrics = { hostHeaderFallbackAccepted: 0 };
 
   wss.on("connection", (socket, upgradeReq) => {
@@ -304,6 +308,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       setClient: (next) => {
         client = next;
         clients.add(next);
+        onClientConnected?.(next, upgradeReq);
       },
       setHandshakeState: (next) => {
         handshakeState = next;

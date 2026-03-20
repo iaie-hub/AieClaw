@@ -1,0 +1,302 @@
+/**
+ * Opt-in integration point for the mas4s multi-tenant RBAC plugin.
+ *
+ * This module lazily loads the mas4s gateway plugin and adapts its
+ * handlers/hooks to the gateway's type system. The gateway core has
+ * zero hard dependencies on aiemas — if the plugin fails to load,
+ * the gateway continues without multi-tenant features.
+ */
+
+import type { createSubsystemLogger } from "../logging/subsystem.js";
+import type { GatewayRequestHandler, GatewayRequestHandlers } from "./server-methods/types.js";
+import type { GatewayWsClient } from "./server/ws-types.js";
+
+type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
+
+export interface Mas4sIntegration {
+  extraHandlers: GatewayRequestHandlers;
+  onClientConnected: (client: GatewayWsClient, upgradeReq: { url?: string }) => void;
+  onSessionCreated: (sessionKey: string, label: string, client: GatewayWsClient) => void;
+  /**
+   * Pre-request interceptor: check RBAC + session access before dispatching.
+   * Returns null to allow, or an error shape to reject.
+   */
+  interceptRequest: (
+    method: string,
+    params: Record<string, unknown>,
+    client: GatewayWsClient | null,
+  ) => { allowed: true } | { allowed: false; code: string; message: string };
+  /**
+   * Broadcast filter: returns a Set of connIds that should receive the event,
+   * or null to broadcast to all (compat mode / no filtering).
+   */
+  filterBroadcast: (
+    event: string,
+    payload: unknown,
+    clients: Set<GatewayWsClient>,
+  ) => ReadonlySet<string> | null;
+  /**
+   * Filter sessions.list results to only include sessions the user has membership for.
+   */
+  filterSessionsList: (sessions: unknown[], client: GatewayWsClient | null) => unknown[];
+}
+
+const NOOP_INTEGRATION: Mas4sIntegration = {
+  extraHandlers: {},
+  onClientConnected: () => {},
+  onSessionCreated: () => {},
+  interceptRequest: () => ({ allowed: true }),
+  filterBroadcast: () => null,
+  filterSessionsList: (sessions) => sessions,
+};
+
+/**
+ * Attempt to initialize the mas4s plugin. Returns a noop integration
+ * on failure so the gateway can start without it.
+ */
+export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sIntegration> {
+  try {
+    const { createMas4sGatewayPlugin } =
+      await import("../../aiemas/src/gateway-bridge/mas4s-gateway-plugin.js");
+    const contextMod = await import("../../aiemas/src/gateway-bridge/context.js");
+    const integrationMod = await import("../../aiemas/src/gateway-bridge/integration.js");
+
+    const plugin = await createMas4sGatewayPlugin();
+    log.info("mas4s multi-tenant plugin loaded");
+
+    // Helper: send an event frame to a specific WS client by connId
+    const sendToConnId = (
+      connId: string,
+      clients: Set<GatewayWsClient>,
+      event: string,
+      data: unknown,
+    ) => {
+      for (const c of clients) {
+        if (c.connId === connId) {
+          try {
+            c.socket.send(JSON.stringify({ type: "event", event, payload: data }));
+          } catch {
+            /* ignore */
+          }
+          break;
+        }
+      }
+    };
+
+    // Adapt SimpleHandler → GatewayRequestHandler
+    const extraHandlers: GatewayRequestHandlers = {};
+    for (const [method, handler] of Object.entries(plugin.extraHandlers)) {
+      const adapted: GatewayRequestHandler = async (opts) => {
+        // Bridge respond signature: SimpleHandler uses (ok, payload, error: unknown)
+        // while GatewayRequestHandler uses RespondFn (ok, payload?, error?: ErrorShape)
+        const respond = (ok: boolean, payload: unknown, error: unknown) => {
+          opts.respond(ok, payload ?? undefined, error as Parameters<typeof opts.respond>[2]);
+        };
+        await handler({ params: opts.params, client: opts.client, respond });
+      };
+      extraHandlers[method] = adapted;
+    }
+
+    const onClientConnected: Mas4sIntegration["onClientConnected"] = (client, upgradeReq) => {
+      try {
+        const masToken = integrationMod.extractMasTokenFromUrl(
+          upgradeReq as import("node:http").IncomingMessage,
+        );
+        const masAuth = plugin.bridge.authenticateConnect({ masToken });
+        contextMod.setMasAuth(client, masAuth);
+      } catch (err) {
+        log.warn(`mas4s auth failed for conn=${client.connId}: ${String(err)}`);
+        contextMod.setMasAuth(client, contextMod.NULL_MAS_AUTH);
+      }
+    };
+
+    const onSessionCreated: Mas4sIntegration["onSessionCreated"] = (sessionKey, label, client) => {
+      try {
+        const masAuth = contextMod.getMasAuth(client) ?? contextMod.NULL_MAS_AUTH;
+        plugin.bridge.onSessionCreated(sessionKey, label, masAuth);
+      } catch (err) {
+        log.warn(`mas4s onSessionCreated failed for session=${sessionKey}: ${String(err)}`);
+      }
+    };
+
+    const interceptRequest: Mas4sIntegration["interceptRequest"] = (method, params, client) => {
+      try {
+        const masAuth = client
+          ? (contextMod.getMasAuth(client) ?? contextMod.NULL_MAS_AUTH)
+          : contextMod.NULL_MAS_AUTH;
+        return plugin.bridge.interceptMethod(method, params, masAuth);
+      } catch (err) {
+        log.warn(`mas4s interceptRequest failed for method=${method}: ${String(err)}`);
+        return { allowed: true };
+      }
+    };
+
+    const filterBroadcast: Mas4sIntegration["filterBroadcast"] = (event, payload, clients) => {
+      try {
+        // Build connectedUsers map: connId → MasAuthContext
+        const connectedUsers = new Map<
+          string,
+          import("../../aiemas/src/gateway-bridge/context.js").MasAuthContext
+        >();
+        for (const c of clients) {
+          const auth = contextMod.getMasAuth(c);
+          if (auth) {
+            connectedUsers.set(c.connId, auth);
+          }
+        }
+        if (connectedUsers.size === 0) {
+          return null;
+        }
+
+        const targetUserIds = plugin.bridge.filterBroadcastTargets(event, payload, connectedUsers);
+        if (targetUserIds === null) {
+          return null;
+        }
+
+        // Map userId set → connId set
+        const connIds = new Set<string>();
+        for (const [connId, auth] of connectedUsers.entries()) {
+          if (auth.userId !== null && targetUserIds.has(auth.userId)) {
+            connIds.add(connId);
+          }
+        }
+        return connIds;
+      } catch (err) {
+        log.warn(`mas4s filterBroadcast failed for event=${event}: ${String(err)}`);
+        return null;
+      }
+    };
+
+    const filterSessionsList: Mas4sIntegration["filterSessionsList"] = (sessions, client) => {
+      try {
+        const masAuth = client
+          ? (contextMod.getMasAuth(client) ?? contextMod.NULL_MAS_AUTH)
+          : contextMod.NULL_MAS_AUTH;
+        return plugin.bridge.filterSessionsForUser(sessions, masAuth);
+      } catch (err) {
+        log.warn(`mas4s filterSessionsList failed: ${String(err)}`);
+        return sessions;
+      }
+    };
+
+    // Wrap session.invite and session.removeMember to push real-time notifications.
+    // We need access to the clients set, so we store a reference that gets updated.
+    let activeClients: Set<GatewayWsClient> = new Set();
+    const setActiveClients = (c: Set<GatewayWsClient>) => {
+      activeClients = c;
+    };
+
+    const origInvite = extraHandlers["session.invite"];
+    if (origInvite) {
+      extraHandlers["session.invite"] = async (opts) => {
+        const targetUserId =
+          typeof opts.params["targetUserId"] === "string" ? opts.params["targetUserId"] : "";
+        const sessionKey =
+          typeof opts.params["sessionKey"] === "string" ? opts.params["sessionKey"] : "";
+        let inviteOk = false;
+        let invitePayload: unknown;
+
+        await origInvite({
+          ...opts,
+          respond: (ok, payload, error, meta) => {
+            inviteOk = ok;
+            invitePayload = payload;
+            opts.respond(ok, payload, error, meta);
+          },
+        });
+
+        if (inviteOk && targetUserId && sessionKey) {
+          try {
+            const connectedUsers = new Map<
+              string,
+              import("../../aiemas/src/gateway-bridge/context.js").MasAuthContext
+            >();
+            for (const c of activeClients) {
+              const auth = contextMod.getMasAuth(c);
+              if (auth) connectedUsers.set(c.connId, auth);
+            }
+            const callerAuth = opts.client
+              ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
+              : contextMod.NULL_MAS_AUTH;
+            const member =
+              invitePayload && typeof invitePayload === "object"
+                ? ((invitePayload as Record<string, unknown>)["member"] as
+                    | Record<string, unknown>
+                    | undefined)
+                : undefined;
+            plugin.bridge.pushSessionJoined(
+              targetUserId,
+              {
+                sessionKey,
+                label: String(opts.params["label"] ?? sessionKey),
+                invitedBy: callerAuth.userId ?? "",
+                joinedAt: member ? Number(member["joinedAt"] ?? Date.now()) : Date.now(),
+              },
+              connectedUsers,
+              (connId, event, data) => sendToConnId(connId, activeClients, event, data),
+            );
+          } catch (err) {
+            log.warn(`mas4s pushSessionJoined failed: ${String(err)}`);
+          }
+        }
+      };
+    }
+
+    const origRemoveMember = extraHandlers["session.removeMember"];
+    if (origRemoveMember) {
+      extraHandlers["session.removeMember"] = async (opts) => {
+        const targetUserId =
+          typeof opts.params["targetUserId"] === "string" ? opts.params["targetUserId"] : "";
+        const sessionKey =
+          typeof opts.params["sessionKey"] === "string" ? opts.params["sessionKey"] : "";
+        let removeOk = false;
+
+        await origRemoveMember({
+          ...opts,
+          respond: (ok, payload, error, meta) => {
+            removeOk = ok;
+            opts.respond(ok, payload, error, meta);
+          },
+        });
+
+        if (removeOk && targetUserId && sessionKey) {
+          try {
+            const connectedUsers = new Map<
+              string,
+              import("../../aiemas/src/gateway-bridge/context.js").MasAuthContext
+            >();
+            for (const c of activeClients) {
+              const auth = contextMod.getMasAuth(c);
+              if (auth) connectedUsers.set(c.connId, auth);
+            }
+            const callerAuth = opts.client
+              ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
+              : contextMod.NULL_MAS_AUTH;
+            plugin.bridge.pushSessionRemoved(
+              targetUserId,
+              { sessionKey, removedBy: callerAuth.userId ?? "" },
+              connectedUsers,
+              (connId, event, data) => sendToConnId(connId, activeClients, event, data),
+            );
+          } catch (err) {
+            log.warn(`mas4s pushSessionRemoved failed: ${String(err)}`);
+          }
+        }
+      };
+    }
+
+    return {
+      extraHandlers,
+      onClientConnected,
+      onSessionCreated,
+      interceptRequest,
+      filterBroadcast,
+      filterSessionsList,
+      /** Internal: allows server.impl.ts to keep the clients reference up to date */
+      _setActiveClients: setActiveClients,
+    } as Mas4sIntegration & { _setActiveClients: (c: Set<GatewayWsClient>) => void };
+  } catch (err) {
+    log.info(`mas4s plugin not available, skipping: ${String(err)}`);
+    return NOOP_INTEGRATION;
+  }
+}

@@ -25,14 +25,15 @@ OpenClaw Gateway 是所有客户端（Web、移动端、CLI）的统一接入点
 
 ### 2.1 健康检查端点
 
-| 路径 | 方法 | 说明 |
-|------|------|------|
-| `/health` | GET | 存活探针（liveness） |
-| `/healthz` | GET | 存活探针（同上） |
-| `/ready` | GET | 就绪探针（readiness） |
-| `/readyz` | GET | 就绪探针（同上） |
+| 路径       | 方法 | 说明                  |
+| ---------- | ---- | --------------------- |
+| `/health`  | GET  | 存活探针（liveness）  |
+| `/healthz` | GET  | 存活探针（同上）      |
+| `/ready`   | GET  | 就绪探针（readiness） |
+| `/readyz`  | GET  | 就绪探针（同上）      |
 
 响应示例：
+
 ```json
 { "status": "ok" }
 ```
@@ -44,28 +45,30 @@ OpenClaw Gateway 是所有客户端（Web、移动端、CLI）的统一接入点
 认证：`Authorization: Bearer <token>`
 
 请求体（OpenAI Chat Completions 格式）：
+
 ```json
 {
   "model": "openclaw",
-  "messages": [
-    { "role": "user", "content": "你好" }
-  ],
+  "messages": [{ "role": "user", "content": "你好" }],
   "stream": false
 }
 ```
 
 非流式响应：
+
 ```json
 {
   "id": "chatcmpl_<uuid>",
   "object": "chat.completion",
   "created": 1710000000,
   "model": "openclaw",
-  "choices": [{
-    "index": 0,
-    "message": { "role": "assistant", "content": "你好！" },
-    "finish_reason": "stop"
-  }],
+  "choices": [
+    {
+      "index": 0,
+      "message": { "role": "assistant", "content": "你好！" },
+      "finish_reason": "stop"
+    }
+  ],
   "usage": { "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0 }
 }
 ```
@@ -73,6 +76,7 @@ OpenClaw Gateway 是所有客户端（Web、移动端、CLI）的统一接入点
 流式响应（`stream: true`）：SSE 格式，`data: {...}` 逐块推送，以 `data: [DONE]` 结束。
 
 支持自定义 Header：
+
 - `X-OpenClaw-Session-Key`：指定 session key
 - `X-OpenClaw-Message-Channel`：指定消息渠道
 
@@ -84,10 +88,10 @@ OpenClaw Gateway 是所有客户端（Web、移动端、CLI）的统一接入点
 
 ### 2.4 Webhook 回调
 
-| 路径 | 渠道 |
-|------|------|
+| 路径                               | 渠道                     |
+| ---------------------------------- | ------------------------ |
 | `/api/channels/mattermost/command` | Mattermost Slash Command |
-| `/api/channels/slack/*` | Slack 事件/交互 |
+| `/api/channels/slack/*`            | Slack 事件/交互          |
 
 ### 2.5 控制 UI
 
@@ -109,6 +113,7 @@ wss://your-gateway-host/   （TLS 模式）
 所有消息均为 JSON 文本帧，有三种类型：
 
 **请求帧（客户端 → 服务端）**
+
 ```typescript
 {
   type: "req",
@@ -119,6 +124,7 @@ wss://your-gateway-host/   （TLS 模式）
 ```
 
 **响应帧（服务端 → 客户端）**
+
 ```typescript
 {
   type: "res",
@@ -136,6 +142,7 @@ wss://your-gateway-host/   （TLS 模式）
 ```
 
 **事件帧（服务端 → 客户端，主动推送）**
+
 ```typescript
 {
   type: "event",
@@ -169,6 +176,7 @@ wss://your-gateway-host/   （TLS 模式）
 ```
 
 **connect 请求参数（ConnectParams）**：
+
 ```typescript
 {
   minProtocol: number,   // 最低协议版本（当前为 1）
@@ -197,6 +205,7 @@ wss://your-gateway-host/   （TLS 模式）
 ```
 
 **hello-ok 响应（HelloOk）**：
+
 ```typescript
 {
   type: "hello-ok",
@@ -225,6 +234,7 @@ wss://your-gateway-host/   （TLS 模式）
 ```
 
 **Snapshot（初始状态）**：
+
 ```typescript
 {
   presence: PresenceEntry[],  // 在线设备列表
@@ -247,6 +257,7 @@ wss://your-gateway-host/   （TLS 模式）
 #### chat.send — 发送消息
 
 请求参数：
+
 ```typescript
 {
   sessionKey: string,          // 会话 key，如 "main" 或 "agent:xxx:main"
@@ -260,6 +271,7 @@ wss://your-gateway-host/   （TLS 模式）
 ```
 
 响应（立即 ACK）：
+
 ```typescript
 {
   ok: true,
@@ -367,6 +379,7 @@ Agent 执行过程中，服务端通过 `chat` 事件推送流式输出（见 3.
 ```
 
 消息流示意：
+
 ```
 chat { state: "delta", seq: 0, message: { text: "你" } }
 chat { state: "delta", seq: 1, message: { text: "好" } }
@@ -394,7 +407,9 @@ chat { state: "final",  seq: 3, message: { text: "你好！" }, usage: {...} }
 #### tick — 心跳
 
 ```typescript
-{ ts: number }   // 服务端时间戳，按 tickIntervalMs 间隔发送
+{
+  ts: number;
+} // 服务端时间戳，按 tickIntervalMs 间隔发送
 ```
 
 #### shutdown — 服务关闭通知
@@ -429,15 +444,15 @@ chat { state: "final",  seq: 3, message: { text: "你好！" }, usage: {...} }
 
 ### 3.6 错误码
 
-| 错误码 | 含义 |
-|--------|------|
-| `INVALID_REQUEST` | 请求参数错误或权限不足 |
-| `UNAUTHORIZED` | 认证失败 |
-| `UNAVAILABLE` | 服务不可用（Agent 未就绪等） |
-| `AGENT_TIMEOUT` | Agent 执行超时 |
-| `NOT_LINKED` | 渠道未连接 |
-| `NOT_PAIRED` | 设备未配对 |
-| `INTERNAL_ERROR` | 服务器内部错误 |
+| 错误码            | 含义                         |
+| ----------------- | ---------------------------- |
+| `INVALID_REQUEST` | 请求参数错误或权限不足       |
+| `UNAUTHORIZED`    | 认证失败                     |
+| `UNAVAILABLE`     | 服务不可用（Agent 未就绪等） |
+| `AGENT_TIMEOUT`   | Agent 执行超时               |
+| `NOT_LINKED`      | 渠道未连接                   |
+| `NOT_PAIRED`      | 设备未配对                   |
+| `INTERNAL_ERROR`  | 服务器内部错误               |
 
 ---
 
@@ -445,12 +460,12 @@ chat { state: "final",  seq: 3, message: { text: "你好！" }, usage: {...} }
 
 ### 4.1 认证模式
 
-| 模式 | 说明 |
-|------|------|
-| `none` | 无认证（loopback 本地连接默认） |
-| `token` | Bearer token |
-| `password` | 密码认证 |
-| `trusted-proxy` | 反向代理信任 |
+| 模式            | 说明                            |
+| --------------- | ------------------------------- |
+| `none`          | 无认证（loopback 本地连接默认） |
+| `token`         | Bearer token                    |
+| `password`      | 密码认证                        |
+| `trusted-proxy` | 反向代理信任                    |
 
 ### 4.2 WebSocket 认证
 
@@ -474,13 +489,14 @@ Authorization: Bearer <token>
 
 ### 4.4 角色与权限
 
-| 角色 | 说明 |
-|------|------|
+| 角色       | 说明                 |
+| ---------- | -------------------- |
 | `operator` | 完整操作权限（默认） |
-| `browser` | 浏览器客户端（受限） |
-| `node` | 节点角色 |
+| `browser`  | 浏览器客户端（受限） |
+| `node`     | 节点角色             |
 
 作用域（scopes）：
+
 - `operator.admin`：管理员，绕过所有作用域检查
 - `operator.approvals`：工具执行审批
 - `operator.pairing`：设备配对管理
@@ -507,13 +523,13 @@ discord:<channelId>           # Discord 渠道会话
 
 ### 6.1 技术选型
 
-| 层次 | 推荐方案 | 说明 |
-|------|----------|------|
-| 框架 | React 18 + TypeScript | 生态成熟，类型安全 |
-| 构建 | Vite | 快速 HMR，ESM 原生 |
-| 状态管理 | Zustand | 轻量，适合 WebSocket 状态 |
-| UI 组件 | shadcn/ui + Tailwind CSS | 可定制，无样式锁定 |
-| WebSocket | 原生 WebSocket + 自定义 hook | 无需额外依赖 |
+| 层次          | 推荐方案                          | 说明                      |
+| ------------- | --------------------------------- | ------------------------- |
+| 框架          | React 18 + TypeScript             | 生态成熟，类型安全        |
+| 构建          | Vite                              | 快速 HMR，ESM 原生        |
+| 状态管理      | Zustand                           | 轻量，适合 WebSocket 状态 |
+| UI 组件       | shadcn/ui + Tailwind CSS          | 可定制，无样式锁定        |
+| WebSocket     | 原生 WebSocket + 自定义 hook      | 无需额外依赖              |
 | Markdown 渲染 | react-markdown + rehype-highlight | Agent 回复通常含 Markdown |
 
 ### 6.2 项目结构
@@ -702,9 +718,7 @@ export function useGatewayChat(url: string, token?: string) {
         pendingTextRef.current = "";
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === runId
-              ? { ...m, text: message?.text ?? m.text, pending: false }
-              : m,
+            m.id === runId ? { ...m, text: message?.text ?? m.text, pending: false } : m,
           ),
         );
       }
@@ -720,10 +734,7 @@ export function useGatewayChat(url: string, token?: string) {
     async (text: string) => {
       if (!clientRef.current || !connected) return;
 
-      setMessages((prev) => [
-        ...prev,
-        { id: crypto.randomUUID(), role: "user", text },
-      ]);
+      setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "user", text }]);
 
       await clientRef.current.request("chat.send", {
         sessionKey,
@@ -850,6 +861,7 @@ Agent 执行层                    Gateway 层                    WebSocket 客�
 ```
 
 核心模块：
+
 - `src/infra/agent-events.ts`：进程内事件总线（`emitAgentEvent` / `onAgentEvent`）
 - `src/agents/pi-embedded-subscribe.handlers.*.ts`：各阶段事件发射点
 - `src/gateway/server-chat.ts`：`createAgentEventHandler`，将 agent 事件转换为 WebSocket 广播
@@ -858,12 +870,12 @@ Agent 执行层                    Gateway 层                    WebSocket 客�
 
 ```typescript
 type AgentEventPayload = {
-  runId: string;          // 运行 ID（与 chat.send 响应中的 runId 对应）
-  seq: number;            // 严格递增序列号（进程内全局，按 runId 独立计数）
-  stream: string;         // 事件流类型（见 7.3）
-  ts: number;             // 时间戳（毫秒）
-  data: Record<string, unknown>;  // 事件数据（按 stream 类型不同）
-  sessionKey?: string;    // 关联的 session key
+  runId: string; // 运行 ID（与 chat.send 响应中的 runId 对应）
+  seq: number; // 严格递增序列号（进程内全局，按 runId 独立计数）
+  stream: string; // 事件流类型（见 7.3）
+  ts: number; // 时间戳（毫秒）
+  data: Record<string, unknown>; // 事件数据（按 stream 类型不同）
+  sessionKey?: string; // 关联的 session key
 };
 ```
 
@@ -891,6 +903,7 @@ WebSocket 广播时封装为 `agent` 事件帧：
 Agent 运行的开始、结束、出错节点。
 
 **phase: "start"** — Agent 开始执行
+
 ```typescript
 {
   phase: "start",
@@ -899,6 +912,7 @@ Agent 运行的开始、结束、出错节点。
 ```
 
 **phase: "end"** — Agent 正常结束
+
 ```typescript
 {
   phase: "end",
@@ -907,6 +921,7 @@ Agent 运行的开始、结束、出错节点。
 ```
 
 **phase: "error"** — Agent 出错结束
+
 ```typescript
 {
   phase: "error",
@@ -936,6 +951,7 @@ LLM 生成文本的流式增量，是最高频的事件类型。
 Agent 调用工具的完整生命周期，分三个 phase。
 
 **phase: "start"** — 工具开始执行
+
 ```typescript
 {
   phase: "start",
@@ -946,6 +962,7 @@ Agent 调用工具的完整生命周期，分三个 phase。
 ```
 
 **phase: "update"** — 工具执行中（流式部分结果）
+
 ```typescript
 {
   phase: "update",
@@ -956,6 +973,7 @@ Agent 调用工具的完整生命周期，分三个 phase。
 ```
 
 **phase: "result"** — 工具执行完成
+
 ```typescript
 {
   phase: "result",
@@ -968,6 +986,7 @@ Agent 调用工具的完整生命周期，分三个 phase。
 ```
 
 工具事件的路由规则：
+
 - 只发送给注册了 `tool-events` capability 的 WebSocket 连接（`broadcastToConnIds`）
 - 非 verbose 模式下，`result` 和 `partialResult` 字段会被剥除，只保留元数据
 - 客户端需在 `connect` 请求的 `caps` 中声明 `"tool-events"` 才能收到工具事件
@@ -988,11 +1007,15 @@ Agent 调用工具的完整生命周期，分三个 phase。
 当会话上下文接近模型 token 上限时触发自动压缩。
 
 **phase: "start"**
+
 ```typescript
-{ phase: "start" }
+{
+  phase: "start";
+}
 ```
 
 **phase: "end"**
+
 ```typescript
 {
   phase: "end",
@@ -1042,13 +1065,13 @@ Agent 调用工具的完整生命周期，分三个 phase。
 
 ### 7.5 agent 事件与 chat 事件的关系
 
-| 维度 | `agent` 事件 | `chat` 事件 |
-|------|-------------|------------|
-| 内容 | 完整执行步骤（工具、生命周期、思考等） | 仅助手文本输出 |
-| 触发源 | 所有 stream 类型 | 仅 `assistant` stream 和 `lifecycle` end/error |
-| 节流 | 无 | 150ms 节流（delta），final 无节流 |
-| 接收方 | 声明 `tool-events` cap 的连接（工具事件）；全部连接（其他） | 全部连接 |
-| 用途 | 展示执行步骤、工具调用详情 | 展示对话文本 |
+| 维度   | `agent` 事件                                                | `chat` 事件                                    |
+| ------ | ----------------------------------------------------------- | ---------------------------------------------- |
+| 内容   | 完整执行步骤（工具、生命周期、思考等）                      | 仅助手文本输出                                 |
+| 触发源 | 所有 stream 类型                                            | 仅 `assistant` stream 和 `lifecycle` end/error |
+| 节流   | 无                                                          | 150ms 节流（delta），final 无节流              |
+| 接收方 | 声明 `tool-events` cap 的连接（工具事件）；全部连接（其他） | 全部连接                                       |
+| 用途   | 展示执行步骤、工具调用详情                                  | 展示对话文本                                   |
 
 ### 7.6 客户端接收工具事件
 
@@ -1138,22 +1161,31 @@ ws.onmessage = (e) => console.log("←", JSON.parse(e.data));
 ws.onmessage = (e) => {
   const frame = JSON.parse(e.data);
   if (frame.event === "connect.challenge") {
-    ws.send(JSON.stringify({
-      type: "req", id: "1", method: "connect",
-      params: {
-        minProtocol: 1, maxProtocol: 1,
-        client: { id: "webchat", version: "1.0.0", platform: "web", mode: "webchat" }
-      }
-    }));
+    ws.send(
+      JSON.stringify({
+        type: "req",
+        id: "1",
+        method: "connect",
+        params: {
+          minProtocol: 1,
+          maxProtocol: 1,
+          client: { id: "webchat", version: "1.0.0", platform: "web", mode: "webchat" },
+        },
+      }),
+    );
   }
   console.log("←", frame);
 };
 
 // 连接成功后发送消息
 function chat(msg) {
-  ws.send(JSON.stringify({
-    type: "req", id: crypto.randomUUID(), method: "chat.send",
-    params: { sessionKey: "main", message: msg, idempotencyKey: crypto.randomUUID() }
-  }));
+  ws.send(
+    JSON.stringify({
+      type: "req",
+      id: crypto.randomUUID(),
+      method: "chat.send",
+      params: { sessionKey: "main", message: msg, idempotencyKey: crypto.randomUUID() },
+    }),
+  );
 }
 ```

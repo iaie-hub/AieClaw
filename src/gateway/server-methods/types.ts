@@ -98,6 +98,21 @@ export type GatewayRequestContext = {
     prompter: import("../../wizard/prompts.js").WizardPrompter,
   ) => Promise<void>;
   broadcastVoiceWakeChanged: (triggers: string[]) => void;
+  /** Optional mas4s hook: called after sessions.create to record ownership. */
+  onSessionCreated?: (sessionKey: string, label: string, client: GatewayClient) => void;
+  /**
+   * Optional mas4s hook: called before dispatching any request.
+   * Returns null to allow, or an error shape to reject.
+   */
+  onBeforeRequest?: (
+    method: string,
+    params: Record<string, unknown>,
+    client: GatewayClient | null,
+  ) => { allowed: true } | { allowed: false; code: string; message: string };
+  /**
+   * Optional mas4s hook: called after sessions.list to filter results by membership.
+   */
+  filterSessionsList?: (sessions: unknown[], client: GatewayClient | null) => unknown[];
 };
 
 export type GatewayRequestOptions = {

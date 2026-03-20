@@ -2,6 +2,7 @@ import path from "node:path";
 
 export const unitTestIncludePatterns = [
   "src/**/*.test.ts",
+  "aiemas/src/**/*.test.ts",
   "test/**/*.test.ts",
   "ui/src/ui/app-chat.test.ts",
   "ui/src/ui/views/agents-utils.test.ts",

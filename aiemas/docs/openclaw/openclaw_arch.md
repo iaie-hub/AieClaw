@@ -10,18 +10,18 @@ OpenClaw 是一个多渠道 AI 网关，支持将 AI agent 接入 Telegram、Dis
 
 ## 顶层目录结构
 
-| 目录 | 说明 |
-|------|------|
-| `src/` | 主源码，按功能模块划分 |
-| `extensions/` | 渠道插件（30+ 个） |
-| `apps/` | 原生客户端（iOS / Android / macOS） |
-| `skills/` | AI 技能包（50+ 个） |
-| `ui/` | Web 控制台（Vite + Lit） |
-| `packages/` | 内部包（clawdbot、moltbot） |
-| `docs/` | Mintlify 文档站 |
-| `scripts/` | 构建、发布、CI 脚本 |
-| `test/` | 全局测试辅助和 e2e 测试 |
-| `vendor/` | 本地 vendor（a2ui） |
+| 目录          | 说明                                |
+| ------------- | ----------------------------------- |
+| `src/`        | 主源码，按功能模块划分              |
+| `extensions/` | 渠道插件（30+ 个）                  |
+| `apps/`       | 原生客户端（iOS / Android / macOS） |
+| `skills/`     | AI 技能包（50+ 个）                 |
+| `ui/`         | Web 控制台（Vite + Lit）            |
+| `packages/`   | 内部包（clawdbot、moltbot）         |
+| `docs/`       | Mintlify 文档站                     |
+| `scripts/`    | 构建、发布、CI 脚本                 |
+| `test/`       | 全局测试辅助和 e2e 测试             |
+| `vendor/`     | 本地 vendor（a2ui）                 |
 
 ---
 
@@ -64,15 +64,15 @@ WebSocket + HTTP 服务器，是所有渠道的接入点：
 
 ### 内置渠道实现
 
-| 模块 | 渠道 |
-|------|------|
+| 模块            | 渠道         |
+| --------------- | ------------ |
 | `src/telegram/` | Telegram Bot |
-| `src/discord/` | Discord |
-| `src/slack/` | Slack |
-| `src/signal/` | Signal |
-| `src/imessage/` | iMessage |
-| `src/web/` | WhatsApp Web |
-| `src/line/` | LINE |
+| `src/discord/`  | Discord      |
+| `src/slack/`    | Slack        |
+| `src/signal/`   | Signal       |
+| `src/imessage/` | iMessage     |
+| `src/web/`      | WhatsApp Web |
+| `src/line/`     | LINE         |
 
 ### 自动回复（`src/auto-reply/`）
 
@@ -109,22 +109,22 @@ WebSocket + HTTP 服务器，是所有渠道的接入点：
 
 ### 其他模块
 
-| 模块 | 说明 |
-|------|------|
-| `src/plugin-sdk/` | 插件 SDK，对外暴露多个子路径 |
-| `src/memory/` | 向量记忆 / 嵌入系统（SQLite-vec、LanceDB） |
-| `src/browser/` | Playwright 浏览器自动化 |
-| `src/media/` | 媒体处理管道（音视频、图片、PDF） |
-| `src/hooks/` | 消息 Hook 系统 |
-| `src/cron/` | 定时任务服务 |
-| `src/acp/` | Agent Client Protocol |
-| `src/tts/` | 文字转语音 |
-| `src/tui/` | 终端 UI |
-| `src/terminal/` | ANSI、表格、调色板等终端工具 |
-| `src/secrets/` | 密钥管理和 secret-ref 系统 |
-| `src/security/` | 安全审计和策略 |
-| `src/pairing/` | 设备配对 |
-| `src/routing/` | 消息路由和账号绑定 |
+| 模块              | 说明                                       |
+| ----------------- | ------------------------------------------ |
+| `src/plugin-sdk/` | 插件 SDK，对外暴露多个子路径               |
+| `src/memory/`     | 向量记忆 / 嵌入系统（SQLite-vec、LanceDB） |
+| `src/browser/`    | Playwright 浏览器自动化                    |
+| `src/media/`      | 媒体处理管道（音视频、图片、PDF）          |
+| `src/hooks/`      | 消息 Hook 系统                             |
+| `src/cron/`       | 定时任务服务                               |
+| `src/acp/`        | Agent Client Protocol                      |
+| `src/tts/`        | 文字转语音                                 |
+| `src/tui/`        | 终端 UI                                    |
+| `src/terminal/`   | ANSI、表格、调色板等终端工具               |
+| `src/secrets/`    | 密钥管理和 secret-ref 系统                 |
+| `src/security/`   | 安全审计和策略                             |
+| `src/pairing/`    | 设备配对                                   |
+| `src/routing/`    | 消息路由和账号绑定                         |
 
 ---
 
@@ -132,40 +132,40 @@ WebSocket + HTTP 服务器，是所有渠道的接入点：
 
 每个插件结构：`index.ts` + `openclaw.plugin.json` + 可选 `package.json`、`src/`。
 
-| 插件 | 渠道 |
-|------|------|
-| `extensions/telegram/` | Telegram（扩展版） |
-| `extensions/discord/` | Discord（扩展版） |
-| `extensions/slack/` | Slack（扩展版） |
-| `extensions/signal/` | Signal |
-| `extensions/matrix/` | Matrix |
-| `extensions/msteams/` | Microsoft Teams |
-| `extensions/whatsapp/` | WhatsApp |
-| `extensions/feishu/` | 飞书 |
-| `extensions/googlechat/` | Google Chat |
-| `extensions/line/` | LINE |
-| `extensions/irc/` | IRC |
-| `extensions/nostr/` | Nostr |
-| `extensions/tlon/` | Tlon |
-| `extensions/twitch/` | Twitch |
-| `extensions/zalo/` | Zalo |
-| `extensions/voice-call/` | 语音通话 |
-| `extensions/memory-core/` | 记忆核心 |
-| `extensions/memory-lancedb/` | LanceDB 记忆后端 |
-| `extensions/llm-task/` | LLM 任务 |
-| `extensions/diffs/` | Diff 工具 |
-| `extensions/lobster/` | Lobster UI |
+| 插件                         | 渠道               |
+| ---------------------------- | ------------------ |
+| `extensions/telegram/`       | Telegram（扩展版） |
+| `extensions/discord/`        | Discord（扩展版）  |
+| `extensions/slack/`          | Slack（扩展版）    |
+| `extensions/signal/`         | Signal             |
+| `extensions/matrix/`         | Matrix             |
+| `extensions/msteams/`        | Microsoft Teams    |
+| `extensions/whatsapp/`       | WhatsApp           |
+| `extensions/feishu/`         | 飞书               |
+| `extensions/googlechat/`     | Google Chat        |
+| `extensions/line/`           | LINE               |
+| `extensions/irc/`            | IRC                |
+| `extensions/nostr/`          | Nostr              |
+| `extensions/tlon/`           | Tlon               |
+| `extensions/twitch/`         | Twitch             |
+| `extensions/zalo/`           | Zalo               |
+| `extensions/voice-call/`     | 语音通话           |
+| `extensions/memory-core/`    | 记忆核心           |
+| `extensions/memory-lancedb/` | LanceDB 记忆后端   |
+| `extensions/llm-task/`       | LLM 任务           |
+| `extensions/diffs/`          | Diff 工具          |
+| `extensions/lobster/`        | Lobster UI         |
 
 ---
 
 ## apps/ 原生客户端
 
-| 目录 | 平台 | 技术栈 |
-|------|------|--------|
-| `apps/ios/` | iOS | Swift / SwiftUI（`@Observable` 框架） |
-| `apps/android/` | Android | Kotlin / Gradle |
-| `apps/macos/` | macOS | SwiftUI（menubar 应用，含 Sparkle 自动更新） |
-| `apps/shared/` | 共享 | OpenClawKit Swift 库 |
+| 目录            | 平台    | 技术栈                                       |
+| --------------- | ------- | -------------------------------------------- |
+| `apps/ios/`     | iOS     | Swift / SwiftUI（`@Observable` 框架）        |
+| `apps/android/` | Android | Kotlin / Gradle                              |
+| `apps/macos/`   | macOS   | SwiftUI（menubar 应用，含 Sparkle 自动更新） |
+| `apps/shared/`  | 共享    | OpenClawKit Swift 库                         |
 
 ---
 
@@ -179,20 +179,20 @@ WebSocket + HTTP 服务器，是所有渠道的接入点：
 
 ## 技术栈总结
 
-| 类别 | 技术 |
-|------|------|
-| 语言 | TypeScript ESM，严格模式，无 `any` |
-| 运行时 | Node 22+ / Bun（双路径） |
-| 包管理 | pnpm 10 workspace |
-| 构建 | tsdown |
-| 测试 | Vitest（unit / gateway / e2e / live / channels） |
-| Lint | Oxlint（type-aware） |
-| Format | Oxfmt |
-| Web UI | Vite + Lit + Signals |
-| 配置 schema | Zod |
-| 类型工具 | TypeBox（工具 schema） |
-| 进度/提示 | osc-progress + @clack/prompts |
-| 表格/ANSI | `src/terminal/table.ts`、`src/terminal/palette.ts` |
+| 类别        | 技术                                               |
+| ----------- | -------------------------------------------------- |
+| 语言        | TypeScript ESM，严格模式，无 `any`                 |
+| 运行时      | Node 22+ / Bun（双路径）                           |
+| 包管理      | pnpm 10 workspace                                  |
+| 构建        | tsdown                                             |
+| 测试        | Vitest（unit / gateway / e2e / live / channels）   |
+| Lint        | Oxlint（type-aware）                               |
+| Format      | Oxfmt                                              |
+| Web UI      | Vite + Lit + Signals                               |
+| 配置 schema | Zod                                                |
+| 类型工具    | TypeBox（工具 schema）                             |
+| 进度/提示   | osc-progress + @clack/prompts                      |
+| 表格/ANSI   | `src/terminal/table.ts`、`src/terminal/palette.ts` |
 
 ---
 
@@ -218,7 +218,6 @@ pnpm openclaw ...     # 开发模式运行 CLI
 - `apps/ios/Sources/Info.plist` + `apps/ios/Tests/Info.plist`
 - `apps/macos/Sources/OpenClaw/Resources/Info.plist`
 - `docs/install/updating.md`（pinned npm 版本）
-
 
 ---
 
@@ -359,6 +358,7 @@ handleTerminalChatEvent() (final/error/aborted):
 ### 七、关键数据结构
 
 **WebSocket 帧格式（JSON-RPC 风格）：**
+
 ```typescript
 // 请求帧
 { type: "req", id: string, method: string, params: unknown }
@@ -371,6 +371,7 @@ handleTerminalChatEvent() (final/error/aborted):
 ```
 
 **chat.send 请求参数：**
+
 ```typescript
 {
   sessionKey: string,
@@ -382,6 +383,7 @@ handleTerminalChatEvent() (final/error/aborted):
 ```
 
 **chat 事件 payload：**
+
 ```typescript
 {
   runId: string,
@@ -420,7 +422,6 @@ handleTerminalChatEvent() (final/error/aborted):
  │    chatMessages 追加      │                        │                    │
  │    chatStream = null      │                        │                    │
 ```
-
 
 ---
 
@@ -575,6 +576,7 @@ getReplyFromConfig() 中：
 ```
 
 每个目录扫描逻辑：
+
 - 检测 `skills/` 子目录（嵌套 root 自动检测）
 - 每个子目录若有 `SKILL.md` 则视为一个 skill
 - 文件大小限制：默认 256KB/skill，最多 200 个/来源，最多 150 个进入 prompt
@@ -821,15 +823,14 @@ chat.send (server-methods/chat.ts)
 
 ### 八、配置层级总结
 
-| 层级 | 配置位置 | 影响范围 |
-|------|----------|----------|
-| Session | `sessionEntry.modelOverride` | 单个会话 |
-| Channel | `cfg.channels[provider].modelOverride` | 整个渠道 |
-| Agent | `cfg.agents.list[id].model` | 单个 agent |
-| Global | `cfg.agents.defaults.model` | 所有 agent |
-| Skill filter | `cfg.agents.list[id].skills` | agent 可用 skill |
-| Workspace | `cfg.session.store` / `entry.workspace` | 文件系统路径 |
-
+| 层级         | 配置位置                                | 影响范围         |
+| ------------ | --------------------------------------- | ---------------- |
+| Session      | `sessionEntry.modelOverride`            | 单个会话         |
+| Channel      | `cfg.channels[provider].modelOverride`  | 整个渠道         |
+| Agent        | `cfg.agents.list[id].model`             | 单个 agent       |
+| Global       | `cfg.agents.defaults.model`             | 所有 agent       |
+| Skill filter | `cfg.agents.list[id].skills`            | agent 可用 skill |
+| Workspace    | `cfg.session.store` / `entry.workspace` | 文件系统路径     |
 
 ---
 
@@ -978,21 +979,21 @@ agents:
 
 **resolveAgentConfig 返回字段说明：**
 
-| 字段 | 来源 | 说明 |
-|------|------|------|
-| `name` | `entry.name` | 显示名称 |
-| `workspace` | `entry.workspace` | 工作区目录（展开 `~`） |
-| `agentDir` | `entry.agentDir` | agent 专属目录（存放 agent 文件） |
-| `model` | `entry.model` | 模型配置（字符串或 `{primary, fallbacks}`） |
-| `skills` | `entry.skills` | skill 白名单（`string[]`，`undefined` = 不限制） |
-| `memorySearch` | `entry.memorySearch` | 记忆搜索配置 |
-| `humanDelay` | `entry.humanDelay` | 模拟人类延迟配置 |
-| `heartbeat` | `entry.heartbeat` | 心跳配置（定时 ping） |
-| `identity` | `entry.identity` | agent 身份（名字、头像等） |
-| `groupChat` | `entry.groupChat` | 群聊行为配置 |
-| `subagents` | `entry.subagents` | 子 agent 配置 |
-| `sandbox` | `entry.sandbox` | 沙箱配置 |
-| `tools` | `entry.tools` | 工具权限配置 |
+| 字段           | 来源                 | 说明                                             |
+| -------------- | -------------------- | ------------------------------------------------ |
+| `name`         | `entry.name`         | 显示名称                                         |
+| `workspace`    | `entry.workspace`    | 工作区目录（展开 `~`）                           |
+| `agentDir`     | `entry.agentDir`     | agent 专属目录（存放 agent 文件）                |
+| `model`        | `entry.model`        | 模型配置（字符串或 `{primary, fallbacks}`）      |
+| `skills`       | `entry.skills`       | skill 白名单（`string[]`，`undefined` = 不限制） |
+| `memorySearch` | `entry.memorySearch` | 记忆搜索配置                                     |
+| `humanDelay`   | `entry.humanDelay`   | 模拟人类延迟配置                                 |
+| `heartbeat`    | `entry.heartbeat`    | 心跳配置（定时 ping）                            |
+| `identity`     | `entry.identity`     | agent 身份（名字、头像等）                       |
+| `groupChat`    | `entry.groupChat`    | 群聊行为配置                                     |
+| `subagents`    | `entry.subagents`    | 子 agent 配置                                    |
+| `sandbox`      | `entry.sandbox`      | 沙箱配置                                         |
+| `tools`        | `entry.tools`        | 工具权限配置                                     |
 
 ---
 
@@ -1076,20 +1077,20 @@ thread session:  agent:main:telegram:direct:+123:thread:456
 
 所有规范化的 sessionKey 统一采用 `agent:{agentId}:{rest}` 格式：
 
-| 类型 | 格式示例 | 说明 |
-|------|---------|------|
-| 主会话（DM） | `agent:main:main` | 默认 agent 的主会话 |
-| 自定义主键 | `agent:ops:work` | mainKey=work 时 |
-| 群组/频道 | `agent:main:telegram:group:123456789` | Telegram 群组 |
-| Discord 频道 | `agent:main:discord:channel:987654321` | Discord 频道 |
-| 线程 | `agent:main:telegram:group:123:thread:456` | 话题/线程 |
-| 子 agent | `agent:main:main:subagent:0` | 子 agent 深度 0 |
-| Cron 任务 | `agent:main:main:cron:{jobId}:{runId}` | 定时任务运行 |
-| ACP 会话 | `agent:main:main:acp:{channel}:{accountId}:{convId}` | ACP 绑定会话 |
-| 全局（global scope） | `global` | scope=global 时 |
-| 未知来源 | `unknown` | 无法解析 From 时 |
-| 多 peer（per-channel-peer） | `agent:main:telegram:direct:{peerId}` | 按渠道+peer 隔离 |
-| 多账号（per-account-channel-peer） | `agent:main:telegram:{accountId}:direct:{peerId}` | 按账号+渠道+peer 隔离 |
+| 类型                               | 格式示例                                             | 说明                  |
+| ---------------------------------- | ---------------------------------------------------- | --------------------- |
+| 主会话（DM）                       | `agent:main:main`                                    | 默认 agent 的主会话   |
+| 自定义主键                         | `agent:ops:work`                                     | mainKey=work 时       |
+| 群组/频道                          | `agent:main:telegram:group:123456789`                | Telegram 群组         |
+| Discord 频道                       | `agent:main:discord:channel:987654321`               | Discord 频道          |
+| 线程                               | `agent:main:telegram:group:123:thread:456`           | 话题/线程             |
+| 子 agent                           | `agent:main:main:subagent:0`                         | 子 agent 深度 0       |
+| Cron 任务                          | `agent:main:main:cron:{jobId}:{runId}`               | 定时任务运行          |
+| ACP 会话                           | `agent:main:main:acp:{channel}:{accountId}:{convId}` | ACP 绑定会话          |
+| 全局（global scope）               | `global`                                             | scope=global 时       |
+| 未知来源                           | `unknown`                                            | 无法解析 From 时      |
+| 多 peer（per-channel-peer）        | `agent:main:telegram:direct:{peerId}`                | 按渠道+peer 隔离      |
+| 多账号（per-account-channel-peer） | `agent:main:telegram:{accountId}:direct:{peerId}`    | 按账号+渠道+peer 隔离 |
 
 ### 7.2 前端 SessionKey 生命周期
 
@@ -1371,23 +1372,23 @@ Telegram/Discord/Slack 等渠道消息不经过前端，sessionKey 由渠道 ada
 
 ### 7.8 特殊 SessionKey 类型的派生规则
 
-| 类型 | 派生方式 | 格式 |
-|------|---------|------|
-| 线程 | `resolveThreadSessionKeys()` | `{base}:thread:{threadId}` |
-| 子 agent | `buildSubagentSessionKey()` | `{parent}:subagent:{depth}` |
-| Cron 运行 | `buildCronRunSessionKey()` | `{base}:cron:{jobId}:{runId}` |
-| ACP 会话 | `buildAcpSessionKey()` | `{base}:acp:{channel}:{accountId}:{convId}` |
-| 父 session | `resolveThreadParentSessionKey()` | 去掉 `:thread:{id}` 后缀 |
+| 类型       | 派生方式                          | 格式                                        |
+| ---------- | --------------------------------- | ------------------------------------------- |
+| 线程       | `resolveThreadSessionKeys()`      | `{base}:thread:{threadId}`                  |
+| 子 agent   | `buildSubagentSessionKey()`       | `{parent}:subagent:{depth}`                 |
+| Cron 运行  | `buildCronRunSessionKey()`        | `{base}:cron:{jobId}:{runId}`               |
+| ACP 会话   | `buildAcpSessionKey()`            | `{base}:acp:{channel}:{accountId}:{convId}` |
+| 父 session | `resolveThreadParentSessionKey()` | 去掉 `:thread:{id}` 后缀                    |
 
 ### 7.9 关键配置项对 SessionKey 的影响
 
-| 配置项 | 默认值 | 影响 |
-|--------|--------|------|
-| `session.scope` | `"per-sender"` | `"global"` 时所有消息共享 `global` key |
-| `session.mainKey` | `"main"` | DM 主会话的 key 后缀，如 `"work"` → `agent:main:work` |
-| `session.store` | `~/.openclaw/agents/{agentId}/sessions/sessions.json` | 含 `{agentId}` 则按 agent 隔离存储 |
-| `agents.list[].id` | `"main"` | 决定 `agent:` 前缀中的 agentId 部分 |
-| `agents.list[].default` | 第一个 agent | 决定默认 agentId |
+| 配置项                  | 默认值                                                | 影响                                                  |
+| ----------------------- | ----------------------------------------------------- | ----------------------------------------------------- |
+| `session.scope`         | `"per-sender"`                                        | `"global"` 时所有消息共享 `global` key                |
+| `session.mainKey`       | `"main"`                                              | DM 主会话的 key 后缀，如 `"work"` → `agent:main:work` |
+| `session.store`         | `~/.openclaw/agents/{agentId}/sessions/sessions.json` | 含 `{agentId}` 则按 agent 隔离存储                    |
+| `agents.list[].id`      | `"main"`                                              | 决定 `agent:` 前缀中的 agentId 部分                   |
+| `agents.list[].default` | 第一个 agent                                          | 决定默认 agentId                                      |
 
 ---
 
@@ -1417,6 +1418,7 @@ resolveSessionAgentId({ sessionKey, config: cfg }):
 ```
 
 `parseAgentSessionKey` 的规则极简：
+
 - 必须以 `agent:` 开头
 - 至少三段（`agent:{id}:{rest}`）
 - 返回 `{ agentId, rest }`，均为小写
@@ -1489,10 +1491,10 @@ resolveAgentConfig(cfg, "ops"):
 
 agentId 决定了三个关键路径：
 
-| 路径 | 解析逻辑 | 示例（agentId="ops"） |
-|------|---------|----------------------|
-| workspace | `cfg.agents.list[ops].workspace` → `cfg.agents.defaults.workspace` → `~/.openclaw/workspace-ops` | `~/projects/ops` |
-| agentDir | `cfg.agents.list[ops].agentDir` → `~/.openclaw/agents/ops/agent` | `~/.openclaw/agents/ops/agent` |
+| 路径      | 解析逻辑                                                                                                    | 示例（agentId="ops"）                           |
+| --------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| workspace | `cfg.agents.list[ops].workspace` → `cfg.agents.defaults.workspace` → `~/.openclaw/workspace-ops`            | `~/projects/ops`                                |
+| agentDir  | `cfg.agents.list[ops].agentDir` → `~/.openclaw/agents/ops/agent`                                            | `~/.openclaw/agents/ops/agent`                  |
 | storePath | `resolveStorePath(cfg.session.store, { agentId: "ops" })` → `~/.openclaw/agents/ops/sessions/sessions.json` | `~/.openclaw/agents/ops/sessions/sessions.json` |
 
 `storePath` 的模板替换：若 `cfg.session.store` 含 `{agentId}`（默认值），则每个 agent 有独立的 sessions 文件；否则所有 agent 共享同一文件。
@@ -1566,6 +1568,7 @@ parseAgentSessionKey(sessionKey)
 ### 8.9 多 Agent 场景示例
 
 配置示例：
+
 ```yaml
 agents:
   list:
@@ -1580,10 +1583,10 @@ agents:
       skills: [web-search, arxiv]
 ```
 
-| 前端发送的 sessionKey | 解析结果 | 路由到 | 工作目录 |
-|----------------------|---------|--------|---------|
-| `agent:main:main` | agentId=main | main agent | ~/projects/main |
-| `agent:ops:main` | agentId=ops | ops agent | ~/projects/ops |
-| `agent:research:telegram:group:123` | agentId=research | research agent | ~/projects/research |
-| `main`（非 agent: 格式） | 解析失败 → default | main agent | ~/projects/main |
-| `global` | 解析失败 → default | main agent | ~/projects/main |
+| 前端发送的 sessionKey               | 解析结果           | 路由到         | 工作目录            |
+| ----------------------------------- | ------------------ | -------------- | ------------------- |
+| `agent:main:main`                   | agentId=main       | main agent     | ~/projects/main     |
+| `agent:ops:main`                    | agentId=ops        | ops agent      | ~/projects/ops      |
+| `agent:research:telegram:group:123` | agentId=research   | research agent | ~/projects/research |
+| `main`（非 agent: 格式）            | 解析失败 → default | main agent     | ~/projects/main     |
+| `global`                            | 解析失败 → default | main agent     | ~/projects/main     |

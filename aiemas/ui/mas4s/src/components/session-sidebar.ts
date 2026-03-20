@@ -59,39 +59,6 @@ export class SessionSidebar extends LitElement {
       box-shadow: 0 4px 10px rgba(59, 130, 246, 0.4);
     }
 
-    .dropdown {
-      position: absolute;
-      top: 32px;
-      right: 0;
-      background: white;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-      z-index: 100;
-      min-width: 140px;
-      overflow: hidden;
-    }
-
-    .dropdown-item {
-      padding: 10px 16px;
-      font-size: 14px;
-      color: #334155;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      transition: background 0.15s;
-      border: none;
-      background: none;
-      width: 100%;
-      text-align: left;
-    }
-
-    .dropdown-item:hover {
-      background: #eff6ff;
-      color: #3b82f6;
-    }
-
     .session-list {
       flex: 1;
       overflow-y: auto;
@@ -176,15 +143,11 @@ export class SessionSidebar extends LitElement {
     this.requestUpdate();
   };
 
-  private _onAction(action: "create" | "join") {
+  private _onCreate() {
     this._showDropdown = false;
     this.requestUpdate();
-    if (action === "create") {
-      const label = `会话 ${new Date().toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
-      this.dispatchEvent(new CustomEvent("session-create", { detail: { label }, bubbles: true }));
-    } else {
-      this.dispatchEvent(new CustomEvent("session-join", { bubbles: true }));
-    }
+    const label = `会话 ${new Date().toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
+    this.dispatchEvent(new CustomEvent("session-create", { detail: { label }, bubbles: true }));
   }
 
   private _onSessionClick(key: string) {
@@ -231,25 +194,9 @@ export class SessionSidebar extends LitElement {
     return html`
       <div class="sidebar-header">
         <span>会话列表</span>
-        <div style="position:relative">
-          <button class="add-btn" @click=${this._toggleDropdown} aria-label="新建或加入会话">
-            +
-          </button>
-          ${
-            this._showDropdown
-              ? html`
-                <div class="dropdown">
-                  <button class="dropdown-item" @click=${() => this._onAction("create")}>
-                    ➕ 发起新会话
-                  </button>
-                  <button class="dropdown-item" @click=${() => this._onAction("join")}>
-                    🔗 加入会话
-                  </button>
-                </div>
-              `
-              : nothing
-          }
-        </div>
+        <button class="add-btn" @click=${this._onCreate} aria-label="发起新会话" title="发起新会话">
+          +
+        </button>
       </div>
 
       <div class="session-list">
