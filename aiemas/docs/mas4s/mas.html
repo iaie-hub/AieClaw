@@ -4,22 +4,57 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>智能体协作平台</title>
+  <title>多智能体协作与进化平台</title>
 
   <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
 
   <style>
+    :root {
+      --ai-bg-body: #f1f5f9;
+      /* 浅蓝灰底色 */
+      --ai-bg-panel: #ffffff;
+      /* 纯白面板 */
+      --ai-border: #e2e8f0;
+      --ai-primary-gradient: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+      --ai-primary-light: #eff6ff;
+      --ai-text-main: #1e293b;
+      --ai-text-sub: #64748b;
+      --ai-shadow-soft: 0 4px 20px rgba(0, 0, 0, 0.04);
+      --ai-shadow-hover: 0 10px 25px rgba(59, 130, 246, 0.15);
+    }
+
     body,
     html,
     #app {
       height: 100%;
       margin: 0;
-      font-family: 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
-      background-color: #f5f7fa;
+      font-family: 'Inter', 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+      background: var(--ai-bg-body);
+      color: var(--ai-text-main);
+      overflow: hidden;
     }
 
     [v-cloak] {
       display: none !important;
+    }
+
+    /* 定制滚动条 */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
     }
 
     .layout-container {
@@ -27,89 +62,143 @@
       display: flex;
     }
 
-    /* 1. 最左侧一级菜单（深色极简） */
+    /* 1. 最左侧一级菜单（清爽浅色+精美图标） */
     .primary-sidebar {
-      width: 72px;
-      background-color: #001529;
+      width: 80px;
+      background: var(--ai-bg-panel);
+      border-right: 1px solid var(--ai-border);
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding-top: 15px;
+      padding-top: 24px;
       flex-shrink: 0;
       z-index: 10;
+      box-shadow: 2px 0 10px rgba(0, 0, 0, 0.02);
     }
 
     .logo-icon {
-      width: 40px;
-      height: 40px;
-      background-color: #1890ff;
-      border-radius: 8px;
-      margin-bottom: 20px;
+      width: 48px;
+      height: 48px;
+      background: var(--ai-primary-gradient);
+      border-radius: 14px;
+      margin-bottom: 32px;
       display: flex;
       align-items: center;
       justify-content: center;
       color: white;
-      font-weight: bold;
-      font-size: 14px;
+      font-weight: 900;
+      font-size: 18px;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+      letter-spacing: 1px;
     }
 
     .nav-item {
-      width: 100%;
-      height: 60px;
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      color: #a6adb4;
+      color: var(--ai-text-sub);
       font-size: 12px;
       cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      margin-bottom: 12px;
+      position: relative;
+    }
+
+    .nav-icon-wrapper {
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 10px;
       transition: all 0.3s;
-      margin-bottom: 5px;
-    }
-
-    .nav-item.active {
-      background-color: #1890ff;
-      color: #fff;
-    }
-
-    .nav-item:hover:not(.active) {
-      color: #fff;
+      margin-bottom: 4px;
     }
 
     .nav-item .el-icon {
       font-size: 20px;
-      margin-bottom: 4px;
+      transition: all 0.3s;
     }
 
-    /* 2. 次级侧边栏（浅色列表，仅在工作台显示） */
+    .nav-item.active {
+      color: #3b82f6;
+      font-weight: 600;
+    }
+
+    .nav-item.active .nav-icon-wrapper {
+      background: var(--ai-primary-light);
+      color: #3b82f6;
+      box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.2);
+    }
+
+    .nav-item:hover:not(.active) {
+      color: #3b82f6;
+    }
+
+    .nav-item:hover:not(.active) .nav-icon-wrapper {
+      background: #f8fafc;
+      transform: translateY(-2px);
+    }
+
+    /* 2. 次级侧边栏（会话列表） */
     .secondary-sidebar {
-      width: 260px;
-      background-color: #f8f9fa;
-      border-right: 1px solid #dcdfe6;
+      width: 280px;
+      background: #f8fafc;
+      border-right: 1px solid var(--ai-border);
       display: flex;
       flex-direction: column;
       flex-shrink: 0;
     }
 
     .secondary-header {
-      height: 60px;
+      height: 70px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 16px;
-      font-weight: bold;
+      padding: 0 20px;
+      font-weight: 600;
       font-size: 16px;
-      border-bottom: 1px solid #dcdfe6;
+      border-bottom: 1px solid var(--ai-border);
+      color: var(--ai-text-main);
     }
 
+    /* 覆盖 Element Plus 菜单样式 */
     .secondary-menu {
-      border-right: none;
-      background-color: transparent;
+      border-right: none !important;
+      background-color: transparent !important;
     }
 
-    .secondary-menu .el-menu-item {
-      height: 50px;
-      line-height: 50px;
+    .el-menu {
+      background-color: transparent !important;
+    }
+
+    .el-sub-menu__title,
+    .el-menu-item {
+      color: var(--ai-text-sub) !important;
+      border-radius: 8px;
+      margin: 4px 10px;
+      height: 44px !important;
+      line-height: 44px !important;
+      transition: all 0.2s;
+    }
+
+    .el-sub-menu__title:hover,
+    .el-menu-item:hover {
+      background-color: var(--ai-bg-panel) !important;
+      color: var(--ai-text-main) !important;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+    }
+
+    .el-menu-item.is-active {
+      background: var(--ai-bg-panel) !important;
+      color: #3b82f6 !important;
+      box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+      font-weight: 600;
+      border-left: 3px solid #3b82f6;
     }
 
     /* 3. 右侧主工作区 */
@@ -118,47 +207,41 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      background-color: #f5f7fa;
+      position: relative;
+      background: var(--ai-bg-body);
     }
 
     /* 顶部通用 Header */
     .main-header {
-      height: 60px;
-      background-color: #fff;
-      border-bottom: 1px solid #dcdfe6;
+      height: 70px;
+      background: var(--ai-bg-panel);
+      border-bottom: 1px solid var(--ai-border);
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0 20px;
+      padding: 0 30px;
       flex-shrink: 0;
+      z-index: 5;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
     }
 
     /* ========== 工作台聊天区样式 ========== */
     .chat-container {
       flex: 1;
       overflow-y: auto;
-      padding: 20px;
-    }
-
-    .chat-input-area {
-      padding: 15px 20px;
-      background-color: #ffffff;
-      border-top: 1px solid #dcdfe6;
-      flex-shrink: 0;
+      padding: 30px;
+      scroll-behavior: smooth;
     }
 
     .message-row {
       display: flex;
-      margin-bottom: 24px;
-      animation: fadeIn 0.3s;
+      margin-bottom: 30px;
+      animation: slideUp 0.4s ease-out forwards;
+      opacity: 0;
+      transform: translateY(10px);
     }
 
-    @keyframes fadeIn {
-      from {
-        opacity: 0;
-        transform: translateY(10px);
-      }
-
+    @keyframes slideUp {
       to {
         opacity: 1;
         transform: translateY(0);
@@ -170,33 +253,33 @@
     }
 
     .message-avatar {
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
       display: flex;
       align-items: center;
       justify-content: center;
       color: #fff;
-      font-size: 12px;
-      margin: 0 12px;
+      font-size: 16px;
+      margin: 0 16px;
       flex-shrink: 0;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
     }
 
     .avatar-user {
-      background-color: #409EFF;
+      background: var(--ai-primary-gradient);
     }
 
     .avatar-agent {
-      background-color: #67C23A;
-      border-radius: 8px;
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
     }
 
     .avatar-colleague {
-      background-color: #E6A23C;
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
     }
 
     .message-content {
-      max-width: 70%;
+      max-width: 65%;
       display: flex;
       flex-direction: column;
     }
@@ -206,240 +289,249 @@
     }
 
     .message-name {
-      font-size: 12px;
-      color: #909399;
-      margin-bottom: 4px;
+      font-size: 13px;
+      color: var(--ai-text-sub);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
 
     .message-bubble {
-      padding: 10px 14px;
-      border-radius: 8px;
-      background-color: #ffffff;
-      border: 1px solid #e4e7ed;
-      line-height: 1.5;
-      color: #303133;
+      padding: 14px 18px;
+      border-radius: 16px;
       font-size: 14px;
+      line-height: 1.6;
       word-break: break-all;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
     }
 
+    /* AI气泡：纯白卡片 */
+    .message-bubble {
+      background: var(--ai-bg-panel);
+      border: 1px solid var(--ai-border);
+      color: var(--ai-text-main);
+      border-top-left-radius: 4px;
+    }
+
+    /* 用户气泡：渐变高亮 */
     .message-row.is-user .message-bubble {
-      background-color: #cce5ff;
-      border-color: #b3d8ff;
-      color: #004085;
+      background: var(--ai-primary-gradient);
+      color: #fff;
+      border: none;
+      border-top-right-radius: 4px;
+      border-top-left-radius: 16px;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
     }
 
-    .pending-card {
-      margin-top: 10px;
-      border: 1px solid #F56C6C;
-      width: 100%;
-    }
-
+    /* 推理折叠面板 - 保持暗色终端风格以体现极客感 */
     .reasoning-box {
-      margin-bottom: 8px;
+      margin-bottom: 12px;
       width: 100%;
-    }
-
-    .el-collapse-item__header {
-      height: 32px;
-      line-height: 32px;
-      font-size: 13px;
-      color: #909399;
-      background-color: transparent;
-      border-bottom: none;
     }
 
     .el-collapse {
-      border-top: none;
-      border-bottom: none;
+      border: none !important;
+      --el-collapse-header-bg-color: transparent !important;
+      --el-collapse-content-bg-color: transparent !important;
+    }
+
+    .el-collapse-item__header {
+      height: 36px;
+      line-height: 36px;
+      font-size: 13px;
+      color: #059669 !important;
+      border-bottom: none !important;
+      font-family: monospace;
+      font-weight: 600;
+    }
+
+    .el-collapse-item__wrap {
+      border-bottom: none !important;
+      background-color: transparent !important;
     }
 
     .terminal-mock {
-      background-color: #1e1e1e;
-      color: #d4d4d4;
-      padding: 10px;
-      border-radius: 4px;
-      font-family: monospace;
+      background-color: #1e293b;
+      color: #34d399;
+      padding: 15px;
+      border-radius: 8px;
+      font-family: 'Fira Code', monospace;
       font-size: 12px;
       white-space: pre-wrap;
       margin-top: 5px;
+      box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.2);
+      border: 1px solid #0f172a;
     }
 
-    /* ========== Usage 仪表盘样式 ========== */
-    .dashboard-container {
+    /* 挂起拦截卡片 (红色警告风格) */
+    .pending-card {
+      margin-top: 12px;
+      border: 1px solid #fecdd3 !important;
+      background: #fff !important;
+      border-radius: 12px !important;
+      box-shadow: 0 4px 15px rgba(225, 29, 72, 0.08) !important;
+      overflow: hidden;
+    }
+
+    .pending-card .el-card__header {
+      background: #fff1f2;
+      border-bottom: 1px solid #ffe4e6;
+    }
+
+    .pending-card .el-card__body {
       padding: 20px;
+    }
+
+    /* 底部输入区 - 悬浮胶囊设计 */
+    .chat-input-wrapper {
+      padding: 0 30px 30px 30px;
+      position: relative;
+      z-index: 10;
+    }
+
+    .chat-input-area {
+      background: var(--ai-bg-panel);
+      border: 1px solid var(--ai-border);
+      border-radius: 20px;
+      padding: 15px 20px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+      transition: all 0.3s;
+    }
+
+    .chat-input-area:focus-within {
+      border-color: #93c5fd;
+      box-shadow: 0 10px 30px rgba(59, 130, 246, 0.1);
+    }
+
+    .el-textarea__inner {
+      background: transparent !important;
+      border: none !important;
+      color: var(--ai-text-main) !important;
+      box-shadow: none !important;
+      font-size: 15px;
+    }
+
+    .el-textarea__inner::placeholder {
+      color: #94a3b8;
+    }
+
+    /* ========== 覆盖 Element Plus 按钮与下拉 ========== */
+    .el-button--primary {
+      background: var(--ai-primary-gradient) !important;
+      border: none !important;
+      box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
+      transition: all 0.3s;
+    }
+
+    .el-button--primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 15px rgba(59, 130, 246, 0.4);
+    }
+
+    .el-button--success {
+      background: linear-gradient(135deg, #10b981, #059669) !important;
+      border: none !important;
+    }
+
+    .el-dropdown-menu__item:hover {
+      background: #eff6ff !important;
+      color: #3b82f6 !important;
+    }
+
+    /* ========== Usage 仪表盘 & 智能体列表 ========== */
+    .dashboard-container,
+    .agent-list-container,
+    .agent-detail-container {
+      padding: 30px;
       overflow-y: auto;
       flex: 1;
     }
 
-    .stat-card {
-      border-radius: 8px;
-      padding: 20px;
-      background: #fff;
-      box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.02);
-      height: 100%;
-      border: 1px solid #ebeef5;
+    .stat-card,
+    .agent-card,
+    .agent-header-card,
+    .agent-tabs-card {
+      background: var(--ai-bg-panel) !important;
+      border: 1px solid var(--ai-border) !important;
+      border-radius: 16px !important;
+      box-shadow: var(--ai-shadow-soft);
+      transition: transform 0.3s, box-shadow 0.3s;
+    }
+
+    .stat-card:hover,
+    .agent-card:hover {
+      transform: translateY(-5px);
+      box-shadow: var(--ai-shadow-hover);
+      border-color: #bfdbfe !important;
     }
 
     .stat-title {
-      color: #909399;
+      color: var(--ai-text-sub);
       font-size: 13px;
-      margin-bottom: 10px;
-      display: flex;
-      align-items: center;
-      gap: 5px;
+      margin-bottom: 12px;
+      font-weight: 500;
     }
 
     .stat-value {
-      font-size: 28px;
-      font-weight: bold;
-      color: #303133;
-      margin-bottom: 5px;
+      font-size: 32px;
+      font-weight: 800;
+      background: linear-gradient(to right, #2563eb, #7c3aed);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
     }
 
     .stat-sub {
       font-size: 12px;
-      color: #C0C4CC;
-    }
-
-    /* ========== 智能体管理/列表样式 ========== */
-    .agent-list-container {
-      padding: 24px 32px;
-      overflow-y: auto;
-      flex: 1;
-    }
-
-    .agent-list-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 24px;
-    }
-
-    .agent-card {
-      border-radius: 8px;
-      border: none;
-      transition: all 0.3s;
-      cursor: pointer;
-    }
-
-    .agent-card:hover {
-      transform: translateY(-3px);
-      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
-    }
-
-    .agent-card .el-card__body {
-      padding: 0;
+      color: #94a3b8;
     }
 
     .agent-card-main {
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      min-height: 140px;
-    }
-
-    .agent-card-top {
-      display: flex;
+      padding: 24px;
     }
 
     .agent-card-icon {
-      width: 48px;
-      height: 48px;
-      background-color: #409EFF;
-      border-radius: 8px;
-      color: white;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 24px;
-      flex-shrink: 0;
-      position: relative;
-    }
-
-    .agent-status-dot {
-      position: absolute;
-      top: -4px;
-      right: -4px;
-      width: 10px;
-      height: 10px;
-      background-color: #67C23A;
-      border-radius: 50%;
-      border: 2px solid #fff;
-    }
-
-    .agent-card-info {
-      margin-left: 16px;
-      flex: 1;
-      overflow: hidden;
+      background: linear-gradient(135deg, #3b82f6, #0ea5e9);
+      box-shadow: 0 4px 10px rgba(14, 165, 233, 0.3);
+      border-radius: 12px;
     }
 
     .agent-card-name {
-      font-size: 16px;
-      font-weight: bold;
-      color: #303133;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--ai-text-main);
     }
 
     .agent-card-desc {
       font-size: 13px;
-      color: #909399;
-      margin-top: 6px;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
+      color: var(--ai-text-sub);
+    }
+
+    /* 表格描述等浅色重置 */
+    .el-descriptions__body {
+      background: transparent !important;
+    }
+
+    .el-descriptions__cell {
+      border-color: #f1f5f9 !important;
+    }
+
+    .el-descriptions__label {
+      color: #64748b !important;
+      background: #f8fafc !important;
+    }
+
+    .el-table {
+      border-radius: 8px;
       overflow: hidden;
-      line-height: 1.5;
+      border: 1px solid var(--ai-border);
     }
 
-    .agent-card-stats {
-      margin-top: auto;
-      padding-top: 15px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 12px;
-      color: #909399;
-    }
-
-    .agent-card-footer {
-      border-top: 1px solid #f0f2f5;
-      padding: 12px 0;
-      text-align: center;
-      font-size: 13px;
-      color: #909399;
-      background-color: #fafafa;
-      border-radius: 0 0 8px 8px;
-    }
-
-    .agent-card:hover .agent-card-footer {
-      color: #409EFF;
-    }
-
-    /* ========== 智能体详情样式 ========== */
-    .agent-detail-container {
-      padding: 24px 32px;
-      overflow-y: auto;
-      flex: 1;
-    }
-
-    .agent-header-card {
-      margin-bottom: 20px;
-      padding: 20px;
-      background: #fff;
-      border-radius: 8px;
-      box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.02);
-      border: none;
-    }
-
-    .agent-tabs-card {
-      background: #fff;
-      border-radius: 8px;
-      padding: 20px;
-      min-height: 400px;
-      box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.02);
-      border: none;
+    .el-table th.el-table__cell {
+      background: #f8fafc !important;
+      color: #475569 !important;
+      font-weight: 600;
     }
   </style>
 </head>
@@ -451,74 +543,80 @@
       <div class="primary-sidebar">
         <div class="logo-icon">AIE</div>
         <div class="nav-item" :class="{active: activeMainMenu === 'workspace'}" @click="switchMenu('workspace')">
-          <el-icon>
-            <ChatDotRound />
-          </el-icon>工作台
+          <div class="nav-icon-wrapper"><el-icon>
+              <ChatDotRound />
+            </el-icon></div>
+          <span>工作台</span>
         </div>
         <div class="nav-item" :class="{active: activeMainMenu === 'usage'}" @click="switchMenu('usage')">
-          <el-icon>
-            <DataLine />
-          </el-icon>使用情况
+          <div class="nav-icon-wrapper"><el-icon>
+              <DataLine />
+            </el-icon></div>
+          <span>使用情况</span>
         </div>
         <div class="nav-item" :class="{active: activeMainMenu === 'agents'}" @click="switchMenu('agents')">
-          <el-icon>
-            <User />
-          </el-icon>智能体
+          <div class="nav-icon-wrapper"><el-icon>
+              <Cpu />
+            </el-icon></div>
+          <span>智能体</span>
         </div>
         <div class="nav-item" :class="{active: activeMainMenu === 'skills'}" @click="switchMenu('skills')">
-          <el-icon>
-            <SetUp />
-          </el-icon>Skills
+          <div class="nav-icon-wrapper"><el-icon>
+              <SetUp />
+            </el-icon></div>
+          <span>Skills</span>
         </div>
         <div class="nav-item" :class="{active: activeMainMenu === 'cron'}" @click="switchMenu('cron')">
-          <el-icon>
-            <Timer />
-          </el-icon>定时任务
+          <div class="nav-icon-wrapper"><el-icon>
+              <Timer />
+            </el-icon></div>
+          <span>定时任务</span>
         </div>
+        <div style="flex: 1;"></div>
         <div class="nav-item" :class="{active: activeMainMenu === 'settings'}" @click="switchMenu('settings')">
-          <el-icon>
-            <Setting />
-          </el-icon>设置
+          <div class="nav-icon-wrapper"><el-icon>
+              <Setting />
+            </el-icon></div>
+          <span>设置</span>
         </div>
       </div>
 
       <div class="secondary-sidebar" v-show="activeMainMenu === 'workspace'">
-
         <div class="secondary-header">
-          <span>任务列表</span>
-          <el-dropdown @command="handleTaskAction" trigger="click">
-            <el-button size="small" type="primary" icon="Plus" circle></el-button>
+          <span>会话列表</span>
+          <el-dropdown @command="handleSessionAction" trigger="click">
+            <el-button size="small" type="primary" icon="Plus" circle style="width: 28px; height: 28px;"></el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="create" icon="Plus">发起新任务</el-dropdown-item>
-                <el-dropdown-item command="join" icon="Link">加入协作任务</el-dropdown-item>
+                <el-dropdown-item command="create" icon="Plus">发起新会话</el-dropdown-item>
+                <el-dropdown-item command="join" icon="Link">加入会话</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
         </div>
 
-        <el-menu :default-active="activeTaskId" class="secondary-menu" @select="handleTaskSelect"
+        <el-menu :default-active="activeSessionId" class="secondary-menu" @select="handleSessionSelect"
           :default-openeds="['group-1', 'group-2']">
           <el-sub-menu index="group-1">
             <template #title><el-icon>
                 <FolderOpened />
-              </el-icon>我发起的任务</template>
-            <el-menu-item v-for="task in initiatedTasks" :key="task.id" :index="task.id">
+              </el-icon>发起的会话</template>
+            <el-menu-item v-for="session in initiatedSessions" :key="session.id" :index="session.id">
               <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
-                :title="task.title">{{ task.title }}</span>
-              <el-badge v-if="task.hasNotification" is-dot class="item" type="danger"
-                style="margin-left:auto"></el-badge>
+                :title="session.title">{{ session.title }}</span>
+              <el-badge v-if="session.hasNotification" is-dot class="item" type="danger"
+                style="margin-left:auto;"></el-badge>
             </el-menu-item>
           </el-sub-menu>
 
           <el-sub-menu index="group-2">
             <template #title><el-icon>
                 <Connection />
-              </el-icon>我参与的协作</template>
-            <el-menu-item v-for="task in participatedTasks" :key="task.id" :index="task.id">
+              </el-icon>参与的会话</template>
+            <el-menu-item v-for="session in participatedSessions" :key="session.id" :index="session.id">
               <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
-                :title="task.title">{{ task.title }}</span>
-              <el-badge v-if="task.notificationCount" :value="task.notificationCount" class="item" type="primary"
+                :title="session.title">{{ session.title }}</span>
+              <el-badge v-if="session.notificationCount" :value="session.notificationCount" class="item" type="primary"
                 style="margin-left:auto"></el-badge>
             </el-menu-item>
           </el-sub-menu>
@@ -528,13 +626,13 @@
       <div class="main-workspace">
 
         <div class="main-header" v-show="activeMainMenu !== 'agents'">
-          <div style="font-size: 16px; font-weight: bold; color: #303133; display: flex; align-items: center;">
-            <template v-if="activeMainMenu === 'workspace' && currentTask">
-              任务：{{ currentTask.title }}
-              <el-tag size="small" :type="currentTask.statusType" style="margin-left: 10px; margin-right: 15px;">{{
-                currentTask.status }}</el-tag>
+          <div style="font-size: 18px; font-weight: 600; display: flex; align-items: center; z-index: 5;">
+            <template v-if="activeMainMenu === 'workspace' && currentSession">
+              <span style="color: #1e293b; margin-right: 12px;">会话：{{ currentSession.title }}</span>
+              <el-tag size="small" :type="currentSession.statusType" effect="light" style="margin-right: 15px;">{{
+                currentSession.status }}</el-tag>
 
-              <el-tooltip content="邀请协作者 / 生成链接" placement="bottom">
+              <el-tooltip content="邀请加入会话 / 分享链接" placement="bottom">
                 <el-button size="small" icon="Share" circle @click="inviteCollaborator"></el-button>
               </el-tooltip>
             </template>
@@ -542,29 +640,38 @@
             <span v-else>{{ activeMainMenu === 'skills' ? 'Skills' : (activeMainMenu === 'cron' ? '定时任务' : '设置')
               }}</span>
           </div>
-          <div style="display: flex; align-items: center; gap: 20px;">
-            <el-tooltip v-if="activeMainMenu === 'workspace'" content="全局审批通知" placement="bottom">
+          <div style="display: flex; align-items: center; gap: 24px; z-index: 5;">
+            <el-tooltip v-if="activeMainMenu === 'workspace'" content="全局异常拦截" placement="bottom">
               <el-badge :value="globalNotificationCount" type="danger" :hidden="globalNotificationCount === 0">
-                <el-button circle icon="Bell" @click="showGlobalNotification"></el-button>
+                <el-button circle icon="Bell" @click="showGlobalNotification" plain></el-button>
               </el-badge>
             </el-tooltip>
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <el-avatar size="small" style="background-color: #dcdfe6; color: #909399;">A</el-avatar>
-              <span style="font-size: 14px; color: #606266;">admin</span>
+            <div style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+              <el-avatar size="small"
+                style="background: linear-gradient(135deg, #f43f5e, #8b5cf6); color: white; font-weight: bold;">A</el-avatar>
+              <span style="font-size: 14px; color: #475569; font-weight: 500;">admin</span>
             </div>
           </div>
         </div>
 
         <template v-if="activeMainMenu === 'workspace'">
-          <template v-if="currentTask">
+          <template v-if="currentSession">
             <div class="chat-container" id="chatBox">
-              <template v-for="(msg, index) in currentTask.messages" :key="index">
+              <div
+                style="text-align: center; margin-bottom: 40px; color: #94a3b8; font-size: 12px; letter-spacing: 2px;">
+                —— 协作链路已加密连接 ——</div>
+
+              <template v-for="(msg, index) in currentSession.messages" :key="index">
                 <div v-if="msg.type === 'user'" class="message-row is-user">
                   <div class="message-content">
-                    <div class="message-name">{{ msg.sender }}</div>
+                    <div class="message-name">You <el-icon style="margin-left:4px; color: #3b82f6;">
+                        <Check />
+                      </el-icon></div>
                     <div class="message-bubble">{{ msg.content }}</div>
                   </div>
-                  <div class="message-avatar avatar-user">我</div>
+                  <div class="message-avatar avatar-user"><el-icon>
+                      <UserFilled />
+                    </el-icon></div>
                 </div>
 
                 <div v-else-if="msg.type === 'colleague'" class="message-row">
@@ -577,15 +684,17 @@
 
                 <div v-else-if="msg.type === 'agent'" class="message-row">
                   <div class="message-avatar avatar-agent"><el-icon>
-                      <Service />
+                      <Cpu />
                     </el-icon></div>
                   <div class="message-content">
-                    <div class="message-name">{{ msg.sender }} 🤖</div>
+                    <div class="message-name" style="color: #059669;">{{ msg.sender }} <el-tag size="small"
+                        type="success" effect="light"
+                        style="margin-left:6px; height: 18px; padding: 0 4px; font-size: 10px;">Agent</el-tag></div>
                     <div v-if="msg.reasoning" class="reasoning-box">
                       <el-collapse v-model="activeNames">
                         <el-collapse-item :name="'reasoning-' + index">
                           <template #title>
-                            <el-icon class="is-loading" style="margin-right: 5px;">
+                            <el-icon class="is-loading" style="margin-right: 8px;">
                               <Loading />
                             </el-icon> {{ msg.reasoning.title }}
                           </template>
@@ -598,111 +707,151 @@
                 </div>
 
                 <div v-else-if="msg.type === 'pending'" class="message-row">
-                  <div class="message-avatar avatar-agent"><el-icon>
-                      <Warning />
-                    </el-icon></div>
-                  <div class="message-content">
-                    <div class="message-name">{{ msg.sender }} 🤖 (等待审批)</div>
+                  <div class="message-avatar"
+                    style="background: linear-gradient(135deg, #e11d48, #be123c); box-shadow: 0 4px 10px rgba(225,29,72,0.3);">
+                    <el-icon>
+                      <WarningFilled />
+                    </el-icon>
+                  </div>
+                  <div class="message-content" style="max-width: 80%;">
+                    <div class="message-name" style="color: #e11d48;">{{ msg.sender }} <el-tag size="small"
+                        type="danger" effect="plain"
+                        style="margin-left:6px; height: 18px; padding: 0 4px; font-size: 10px; border-color:#fda4af;">Awaiting
+                        HITL</el-tag></div>
                     <el-card class="pending-card" shadow="never">
                       <template #header>
-                        <div style="color: #F56C6C; font-weight: bold; display: flex; align-items: center; gap: 5px;">
-                          <el-icon>
-                            <WarningFilled />
-                          </el-icon> 流程挂起：重大变更需审批
+                        <div
+                          style="color: #e11d48; font-weight: 600; display: flex; align-items: center; gap: 8px; font-size: 15px;">
+                          <span
+                            style="display:inline-block; width:8px; height:8px; background:#f43f5e; border-radius:50%; box-shadow: 0 0 8px #f43f5e; animation: blink 1s infinite;"></span>
+                          系统防线触发：重大变更需审批
                         </div>
                       </template>
-                      <p style="font-size: 13px; color: #606266; margin-top:0;">{{ msg.content }}</p>
+                      <p style="font-size: 14px; color: #334155; margin-top:0; line-height: 1.6;">{{ msg.content }}</p>
                       <div
-                        style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; font-size: 13px; color: #606266;">
-                        <strong>待执行：</strong> {{ msg.pendingData.tool }}<br>
-                        <strong>风险项：</strong> {{ msg.pendingData.risk }}
+                        style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; border-radius: 8px; font-size: 13px; font-family: monospace;">
+                        <span style="color: #64748b;">> 待执行：</span> <span style="color: #0284c7; font-weight: bold;">{{
+                          msg.pendingData.tool }}</span><br>
+                        <span style="color: #64748b; margin-top: 8px; display: inline-block;">> 风险项：</span> <span
+                          style="color: #d97706; font-weight: bold;">{{ msg.pendingData.risk }}</span>
                       </div>
-                      <div style="text-align: right; margin-top: 15px;">
-                        <el-button size="small" plain @click="handleReject(index)">驳回</el-button>
-                        <el-button size="small" plain type="primary" @click="handleModify(index)">修改参数</el-button>
-                        <el-button size="small" type="success" @click="handleApprove(index)">批准执行</el-button>
+                      <div style="text-align: right; margin-top: 20px;">
+                        <el-button size="default" plain @click="handleReject(index)">驳回</el-button>
+                        <el-button size="default" type="primary" plain @click="handleModify(index)">修改参数</el-button>
+                        <el-button size="default" type="danger"
+                          style="background: #e11d48; border:none; box-shadow: 0 4px 10px rgba(225, 29, 72, 0.3);"
+                          @click="handleApprove(index)">批准执行</el-button>
                       </div>
                     </el-card>
                   </div>
                 </div>
               </template>
+              <div style="height: 20px;"></div>
             </div>
-            <div class="chat-input-area">
-              <el-input v-model="inputText" type="textarea" :rows="2" placeholder="输入任务指令，探讨方案或 @特定专家/Agent..."
-                resize="none" @keyup.enter="sendMessage"></el-input>
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
-                <div style="color: #909399; font-size: 12px;"><el-icon>
-                    <InfoFilled />
-                  </el-icon> Agent 会自动感知上下文进行协作流转。</div>
-                <el-button type="primary" icon="Position" @click="sendMessage">发送</el-button>
+
+            <div class="chat-input-wrapper">
+              <div class="chat-input-area">
+                <el-input v-model="inputText" type="textarea" :rows="2" placeholder="输入控制指令，探讨方案，或使用 @ 唤醒数字生命..."
+                  resize="none" @keyup.enter="sendMessage"></el-input>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
+                  <div style="color: #94a3b8; font-size: 12px; display: flex; align-items: center; gap: 4px;">
+                    <el-icon>
+                      <InfoFilled />
+                    </el-icon> Agent 会自动感知上下文进行协作流转。
+                  </div>
+                  <el-button type="primary" icon="Position" @click="sendMessage"
+                    style="border-radius: 8px; padding: 8px 20px;">发送</el-button>
+                </div>
               </div>
             </div>
           </template>
           <div v-else style="flex: 1; display: flex; align-items: center; justify-content: center;">
-            <el-empty description="请选择或发起一个科研任务"></el-empty>
+            <el-empty description="当前无激活的协作流，请发起或选择一个会话" :image-size="160"></el-empty>
           </div>
         </template>
 
         <template v-if="activeMainMenu === 'usage'">
           <div class="dashboard-container">
-            <el-row :gutter="20">
+            <el-row :gutter="24">
               <el-col :span="6">
                 <div class="stat-card">
-                  <div class="stat-title">Messages</div>
+                  <div class="stat-title"><el-icon>
+                      <DataBoard />
+                    </el-icon> Messages</div>
                   <div class="stat-value">6</div>
                   <div class="stat-sub">2 user · 4 assistant</div>
                 </div>
               </el-col>
               <el-col :span="6">
                 <div class="stat-card">
-                  <div class="stat-title">Tool Calls</div>
-                  <div class="stat-value">2</div>
+                  <div class="stat-title"><el-icon>
+                      <SetUp />
+                    </el-icon> Tool Calls</div>
+                  <div class="stat-value"
+                    style="background: linear-gradient(to right, #10b981, #3b82f6); -webkit-background-clip: text;">2
+                  </div>
                   <div class="stat-sub">1 tools used</div>
                 </div>
               </el-col>
               <el-col :span="6">
                 <div class="stat-card">
-                  <div class="stat-title">Avg Tokens / Msg</div>
+                  <div class="stat-title"><el-icon>
+                      <Cpu />
+                    </el-icon> Avg Tokens / Msg</div>
                   <div class="stat-value">842</div>
                   <div class="stat-sub">Across 6 messages</div>
                 </div>
               </el-col>
               <el-col :span="6">
                 <div class="stat-card">
-                  <div class="stat-title">Throughput</div>
-                  <div class="stat-value">1,240 tok/min</div>
+                  <div class="stat-title"><el-icon>
+                      <Odometer />
+                    </el-icon> Throughput</div>
+                  <div class="stat-value">1,240 <span
+                      style="font-size:14px; font-weight:normal; color:#94a3b8;">tok/min</span></div>
                   <div class="stat-sub">0 errors · 1m 44s avg session</div>
                 </div>
               </el-col>
             </el-row>
-            <el-row :gutter="20">
+            <el-row :gutter="24" style="margin-top: 24px;">
               <el-col :span="8">
-                <el-card shadow="never" style="border-radius: 8px;">
-                  <template #header><span style="font-weight: bold;">Top Models</span></template>
-                  <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 10px;">
-                    <span>Qwen3.5-122B-A10B</span><span>4 msgs</span>
+                <el-card shadow="never" class="stat-card" style="border:none;">
+                  <template #header><span style="font-weight: 600; font-size: 15px; color: #334155;">Top
+                      Models</span></template>
+                  <div
+                    style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid #f1f5f9;">
+                    <span style="color:#475569;">Qwen3.5-122B-A10B</span><span style="color:#10b981; font-weight:600;">4
+                      msgs</span>
                   </div>
-                  <div style="display: flex; justify-content: space-between; font-size: 14px;">
-                    <span>Llama-3-70B</span><span>2 msgs</span>
-                  </div>
+                  <div style="display: flex; justify-content: space-between; font-size: 14px;"><span
+                      style="color:#475569;">Llama-3-70B</span><span style="color:#10b981; font-weight:600;">2
+                      msgs</span></div>
                 </el-card>
               </el-col>
               <el-col :span="8">
-                <el-card shadow="never" style="border-radius: 8px;">
-                  <template #header><span style="font-weight: bold;">Top Tools</span></template>
-                  <div style="display: flex; justify-content: space-between; font-size: 14px;">
-                    <span>Web_Search</span><span>2 calls</span>
-                  </div>
+                <el-card shadow="never" class="stat-card" style="border:none;">
+                  <template #header><span style="font-weight: 600; font-size: 15px; color: #334155;">Top
+                      Tools</span></template>
+                  <div style="display: flex; justify-content: space-between; font-size: 14px;"><span
+                      style="color:#475569; font-family: monospace;">Web_Search</span><span
+                      style="color:#3b82f6; font-weight:600;">2 calls</span></div>
                 </el-card>
               </el-col>
               <el-col :span="8">
-                <el-card shadow="never" style="border-radius: 8px;">
-                  <template #header><span style="font-weight: bold;">Top Agents</span></template>
-                  <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 10px;">
-                    <span>检索 Agent</span><span>4 msgs</span>
+                <el-card shadow="never" class="stat-card" style="border:none;">
+                  <template #header><span style="font-weight: 600; font-size: 15px; color: #334155;">Top
+                      Agents</span></template>
+                  <div
+                    style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid #f1f5f9;">
+                    <div style="display:flex; align-items:center; gap:8px;"><span
+                        style="width:8px; height:8px; background:#a855f7; border-radius:50%;"></span> 检索 Agent</div>
+                    <span style="color:#a855f7; font-weight:600;">4 msgs</span>
                   </div>
-                  <div style="display: flex; justify-content: space-between; font-size: 14px;"><span>报告
-                      Agent</span><span>2 msgs</span></div>
+                  <div style="display: flex; justify-content: space-between; font-size: 14px;">
+                    <div style="display:flex; align-items:center; gap:8px;"><span
+                        style="width:8px; height:8px; background:#f43f5e; border-radius:50%;"></span> 报告 Agent</div>
+                    <span style="color:#f43f5e; font-weight:600;">2 msgs</span>
+                  </div>
                 </el-card>
               </el-col>
             </el-row>
@@ -711,28 +860,15 @@
 
         <template v-if="activeMainMenu === 'agents'">
           <div class="agent-list-container" v-if="currentAgentView === 'list'">
-            <div
-              style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; height: 40px;">
-              <div style="font-size: 20px; font-weight: bold; color: #303133;">智能体管理</div>
-              <div style="display: flex; align-items: center; gap: 20px;">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <el-icon size="18" style="color: #909399; cursor: pointer;">
-                    <Bell />
-                  </el-icon>
-                  <el-avatar size="small" style="background-color: #dcdfe6; color: #909399;">A</el-avatar>
-                  <span style="font-size: 14px; color: #606266;">admin</span>
-                </div>
-              </div>
-            </div>
-            <div class="agent-list-header">
-              <div></div>
-              <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+              <div style="font-size: 24px; font-weight: 700; color: #1e293b; letter-spacing: 0.5px;">智能体管理</div>
+              <div style="display: flex; gap: 12px;">
                 <el-button plain icon="Refresh">同步 OpenClaw</el-button>
                 <el-button type="primary" icon="Plus">创建智能体</el-button>
               </div>
             </div>
-            <el-row :gutter="20">
-              <el-col :span="8" v-for="agent in agentList" :key="agent.id" style="margin-bottom: 20px;">
+            <el-row :gutter="24">
+              <el-col :span="8" v-for="agent in agentList" :key="agent.id" style="margin-bottom: 24px;">
                 <el-card shadow="hover" class="agent-card" @click="goToAgentDetail(agent)">
                   <div class="agent-card-main">
                     <div class="agent-card-top">
@@ -740,58 +876,57 @@
                         <el-icon>
                           <Platform />
                         </el-icon>
-                        <div class="agent-status-dot" v-if="agent.status === '活跃'"></div>
+                        <div class="agent-status-dot" v-if="agent.status === '活跃'"
+                          style="box-shadow: 0 0 8px rgba(103,194,58,0.5); border: 2px solid #fff;"></div>
                       </div>
                       <div class="agent-card-info">
                         <div class="agent-card-name">{{ agent.name }}</div>
                         <div class="agent-card-desc">{{ agent.desc }}</div>
                       </div>
                     </div>
-                    <div class="agent-card-stats">
-                      <div>
-                        <el-tag size="small" type="success" effect="plain" v-if="agent.status === '活跃'">{{ agent.status
-                          }}</el-tag>
-                        <span style="margin-left: 8px;">技能: {{ agent.skills }}</span>
+                    <div class="agent-card-stats" style="border-top: 1px solid #f1f5f9; margin-top: 20px;">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <el-tag size="small" type="success" effect="light" v-if="agent.status === '活跃'">在线</el-tag>
+                        <span style="color: #64748b; font-size: 12px;">技能: <span
+                            style="color:#1e293b; font-weight:bold;">{{ agent.skills }}</span></span>
                       </div>
-                      <div style="display: flex; align-items: center; color: #E6A23C;">
+                      <div
+                        style="display: flex; align-items: center; color: #d97706; background: #fef3c7; padding: 2px 8px; border-radius: 10px;">
                         <el-icon>
                           <StarFilled />
-                        </el-icon> <span style="margin-left: 4px; color: #909399">{{ agent.rating }}</span>
+                        </el-icon> <span style="margin-left: 4px; font-weight:bold; font-size:12px;">{{ agent.rating
+                          }}</span>
                       </div>
                     </div>
                   </div>
-                  <div class="agent-card-footer">详 情</div>
                 </el-card>
               </el-col>
             </el-row>
           </div>
 
           <div class="agent-detail-container" v-else-if="currentAgentView === 'detail'">
-            <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 20px;">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <el-icon size="18" style="color: #909399; cursor: pointer;">
-                  <Bell />
-                </el-icon>
-                <el-avatar size="small" style="background-color: #dcdfe6; color: #909399;">A</el-avatar>
-                <span style="font-size: 14px; color: #606266;">admin</span>
-              </div>
-            </div>
             <div class="agent-header-card">
-              <el-page-header @back="goBackToAgentList" title="返回" style="margin-bottom: 20px;">
+              <el-page-header @back="goBackToAgentList" style="margin-bottom: 24px;">
+                <template #title><span style="color: #64748b;">返回</span></template>
                 <template #content>
-                  <span style="font-size: 18px; font-weight: bold; margin-right: 10px;">{{ selectedAgent.name }}</span>
-                  <el-tag size="small" type="success" effect="light" v-if="selectedAgent.status === '活跃'">活跃</el-tag>
+                  <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 22px; font-weight: 800; color: #1e293b;">{{ selectedAgent.name }}</span>
+                    <el-tag size="small" type="success" effect="light" v-if="selectedAgent.status === '活跃'">活跃</el-tag>
+                  </div>
                 </template>
               </el-page-header>
-              <el-descriptions :column="4" border size="small">
-                <el-descriptions-item label="LLM 后端">openclaw</el-descriptions-item>
+              <el-descriptions :column="4" border size="default">
+                <el-descriptions-item label="LLM 后端"><span
+                    style="color: #0284c7; font-family: monospace; font-weight:600;">openclaw</span></el-descriptions-item>
                 <el-descriptions-item label="累计惩罚">0.0</el-descriptions-item>
                 <el-descriptions-item label="创建时间">16:50</el-descriptions-item>
                 <el-descriptions-item label="版本">v1.0</el-descriptions-item>
               </el-descriptions>
             </div>
+
             <div class="agent-tabs-card">
-              <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+              <div
+                style="display: flex; justify-content: space-between; margin-bottom: 20px; align-items: center; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px;">
                 <el-tabs v-model="agentActiveTab" style="flex: 1;">
                   <el-tab-pane label="人设" name="persona"></el-tab-pane>
                   <el-tab-pane label="思维模式" name="mindset"></el-tab-pane>
@@ -799,21 +934,28 @@
                   <el-tab-pane label="记忆" name="memory"></el-tab-pane>
                   <el-tab-pane label="进化历史" name="history"></el-tab-pane>
                 </el-tabs>
-                <el-button type="primary" size="small" style="margin-top: 5px;">编辑人设</el-button>
+                <el-button type="primary" size="small" icon="Edit" plain>编辑人设</el-button>
               </div>
-              <el-table :data="personaData" border style="width: 100%" v-if="agentActiveTab === 'persona'">
-                <el-table-column prop="key" label="属性" width="180" style="background-color: #f5f7fa;"></el-table-column>
+
+              <el-table :data="personaData" style="width: 100%; border-radius: 8px; overflow: hidden;"
+                v-if="agentActiveTab === 'persona'" border>
+                <el-table-column prop="key" label="属性" width="200"></el-table-column>
                 <el-table-column prop="value" label="内容"></el-table-column>
               </el-table>
-              <el-empty v-else description="暂无数据 / 功能开发中"></el-empty>
+              <el-empty v-else description="暂无数据 / 功能开发中" :image-size="100"></el-empty>
             </div>
           </div>
         </template>
 
         <template v-if="['skills', 'cron', 'settings'].includes(activeMainMenu)">
           <div style="flex:1; display:flex; align-items:center; justify-content:center;">
-            <el-empty
-              :description="activeMainMenu === 'skills' ? 'Skills 模块开发中' : (activeMainMenu === 'cron' ? '定时任务模块开发中' : '设置模块开发中')"></el-empty>
+            <div style="text-align: center;">
+              <el-icon size="60" style="color: #cbd5e1; margin-bottom: 20px;">
+                <Cpu />
+              </el-icon>
+              <div style="color: #64748b; font-size: 16px; letter-spacing: 1px;">子系统 [ {{ activeMainMenu.toUpperCase()
+                }} ] 正在加载模块...</div>
+            </div>
           </div>
         </template>
 
@@ -832,7 +974,7 @@
       setup() {
         const activeMainMenu = ref('workspace');
         const currentAgentView = ref('list');
-        const activeTaskId = ref('t-1');
+        const activeSessionId = ref('s-1');
         const inputText = ref('');
         const agentActiveTab = ref('persona');
         const activeNames = ref(['reasoning-1']);
@@ -851,9 +993,9 @@
           { key: '行为约束', value: '不得提供系统内核级别的修改建议' }
         ]);
 
-        const tasksData = ref([
+        const sessionsData = ref([
           {
-            id: 't-1',
+            id: 's-1',
             title: '大模型推理过程可视化研究',
             type: 'initiated',
             status: '挂起审批中',
@@ -867,7 +1009,7 @@
             ]
           },
           {
-            id: 't-2',
+            id: 's-2',
             title: 'Ceph分布式存储集群部署方案',
             type: 'initiated',
             status: '规划中',
@@ -879,7 +1021,7 @@
             ]
           },
           {
-            id: 't-3',
+            id: 's-3',
             title: '多智能体底层路由算法评估',
             type: 'participated',
             status: '讨论中',
@@ -893,10 +1035,10 @@
           }
         ]);
 
-        const initiatedTasks = computed(() => tasksData.value.filter(t => t.type === 'initiated'));
-        const participatedTasks = computed(() => tasksData.value.filter(t => t.type === 'participated'));
-        const currentTask = computed(() => tasksData.value.find(t => t.id === activeTaskId.value));
-        const globalNotificationCount = computed(() => tasksData.value.filter(t => t.hasNotification).length);
+        const initiatedSessions = computed(() => sessionsData.value.filter(t => t.type === 'initiated'));
+        const participatedSessions = computed(() => sessionsData.value.filter(t => t.type === 'participated'));
+        const currentSession = computed(() => sessionsData.value.find(t => t.id === activeSessionId.value));
+        const globalNotificationCount = computed(() => sessionsData.value.filter(t => t.hasNotification).length);
 
         const switchMenu = (menuName) => {
           activeMainMenu.value = menuName;
@@ -915,49 +1057,46 @@
           currentAgentView.value = 'list';
         };
 
-        const handleTaskSelect = (index) => {
-          activeTaskId.value = index;
+        const handleSessionSelect = (index) => {
+          activeSessionId.value = index;
           scrollToBottom();
         };
 
         const sendMessage = () => {
-          if (!inputText.value.trim() || !currentTask.value) return;
-          currentTask.value.messages.push({ type: 'user', sender: '我', content: inputText.value });
+          if (!inputText.value.trim() || !currentSession.value) return;
+          currentSession.value.messages.push({ type: 'user', sender: '我', content: inputText.value });
           inputText.value = '';
           scrollToBottom();
         };
 
-        // --- 【新增下拉菜单交互逻辑】---
-        const handleTaskAction = (command) => {
-          if (command === 'create') {
-            createNewTask();
-          } else if (command === 'join') {
-            joinTask();
-          }
+        const handleSessionAction = (command) => {
+          if (command === 'create') createNewSession();
+          else if (command === 'join') joinSession();
         };
 
-        const createNewTask = () => {
-          ElementPlus.ElMessage({ message: '发起新任务弹窗开发中...', type: 'info' });
+        const createNewSession = () => {
+          ElementPlus.ElMessage({ message: '初始化新会话...', type: 'info' });
         };
 
-        const joinTask = () => {
-          ElementPlus.ElMessageBox.prompt('请输入协作链接或任务识别码', '加入协作任务', {
+        const joinSession = () => {
+          ElementPlus.ElMessageBox.prompt('请输入会话链接或会话 ID', '加入会话', {
             confirmButtonText: '加入',
             cancelButtonText: '取消',
             inputPattern: /\S+/,
-            inputErrorMessage: '链接或任务码不能为空'
+            inputErrorMessage: '链接或会话 ID 不能为空'
           }).then(({ value }) => {
-            ElementPlus.ElMessage({ type: 'success', message: `成功解析链接并加入任务` });
+            ElementPlus.ElMessage({ type: 'success', message: `成功加入会话` });
           }).catch(() => { });
         };
 
         const inviteCollaborator = () => {
-          if (!currentTask.value) return;
-          ElementPlus.ElMessageBox.prompt('请输入协作者邮箱或复制以下协作链接：\nhttp://aie.platform/join?task=' + currentTask.value.id, '邀请协作者', {
-            confirmButtonText: '发送邀请',
-            cancelButtonText: '取消',
-          }).then(({ value }) => {
-            ElementPlus.ElMessage({ type: 'success', message: '邀请已发送' });
+          if (!currentSession.value) return;
+          ElementPlus.ElMessageBox.prompt('授权密钥：', '生成会话访问凭证', {
+            inputValue: 'https://aie.platform/join?session=' + currentSession.value.id + '&auth=xyz',
+            confirmButtonText: '复制到剪贴板',
+            cancelButtonText: '关闭',
+          }).then(() => {
+            ElementPlus.ElMessage({ type: 'success', message: '已复制' });
           }).catch(() => { });
         };
 
@@ -967,7 +1106,7 @@
         const handleModify = (msgIndex) => {
           ElementPlus.ElMessageBox.prompt('请输入修改后的参数', '手动修改', {
             confirmButtonText: '提交', cancelButtonText: '取消',
-          }).then(({ value }) => {
+          }).then(() => {
             ElementPlus.ElMessage({ type: 'success', message: '参数已提交' });
           }).catch(() => { });
         };
@@ -985,7 +1124,7 @@
         const showGlobalNotification = () => {
           ElementPlus.ElNotification({
             title: '全局审批通知',
-            message: '您发起的任务中有流程挂起，请审核。',
+            message: '您发起的会话中有流程挂起，请审核。',
             type: 'warning', duration: 0
           });
         };
@@ -993,11 +1132,11 @@
         onMounted(() => { scrollToBottom(); });
 
         return {
-          activeMainMenu, currentAgentView, activeTaskId, inputText, agentActiveTab, activeNames,
+          activeMainMenu, currentAgentView, activeSessionId, inputText, agentActiveTab, activeNames,
           agentList, selectedAgent, personaData,
-          tasksData, initiatedTasks, participatedTasks, currentTask, globalNotificationCount,
-          switchMenu, goToAgentDetail, goBackToAgentList, handleTaskSelect, sendMessage,
-          handleTaskAction, createNewTask, joinTask, inviteCollaborator, // 暴露新增方法
+          sessionsData, initiatedSessions, participatedSessions, currentSession, globalNotificationCount,
+          switchMenu, goToAgentDetail, goBackToAgentList, handleSessionSelect, sendMessage,
+          handleSessionAction, createNewSession, joinSession, inviteCollaborator,
           handleApprove, handleModify, handleReject, showGlobalNotification
         };
       }
