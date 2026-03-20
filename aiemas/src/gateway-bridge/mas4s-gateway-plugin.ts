@@ -30,13 +30,19 @@ function errorShape(code: string, message: string): { code: string; message: str
 
 function getCallerAuth(client: unknown) {
   if (client != null && typeof client === "object") {
-    return getMasAuth(client as object) ?? NULL_MAS_AUTH;
+    return getMasAuth(client) ?? NULL_MAS_AUTH;
   }
   return NULL_MAS_AUTH;
 }
 
 function str(v: unknown): string {
-  return typeof v === "string" ? v : String(v ?? "");
+  return typeof v === "string"
+    ? v
+    : v == null
+      ? ""
+      : typeof v === "object"
+        ? JSON.stringify(v)
+        : String(v as string | number | boolean | symbol | bigint);
 }
 
 export async function createMas4sGatewayPlugin(
@@ -158,7 +164,11 @@ export async function createMas4sGatewayPlugin(
 
     "auth.login": async ({ params, client, respond }) => {
       try {
-        const c = client as any;
+        const c = client as {
+          remoteAddress?: string;
+          socket?: { _socket?: { remoteAddress?: string } };
+          _socket?: { remoteAddress?: string };
+        };
         const clientIp =
           c?.remoteAddress || c?.socket?._socket?.remoteAddress || c?._socket?.remoteAddress;
 

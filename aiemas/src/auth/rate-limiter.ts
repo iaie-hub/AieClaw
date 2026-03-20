@@ -23,7 +23,7 @@ export class RateLimiter {
     this.failureMap.set(ip, timestamps);
 
     if (timestamps.length >= this.maxFailures) {
-      const oldest = timestamps[0]!;
+      const oldest = timestamps[0];
       const retryAfterMs = oldest + this.windowMs - now;
       return { allowed: false, retryAfterMs: Math.max(retryAfterMs, 0) };
     }

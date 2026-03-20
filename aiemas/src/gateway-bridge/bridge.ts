@@ -328,7 +328,9 @@ export class GatewayAuthBridge {
     const row = this.db
       .prepare("SELECT role FROM session_memberships WHERE sessionKey = ? AND userId = ?")
       .get(sessionKey, userId) as { role: string } | undefined;
-    if (!row) return null;
+    if (!row) {
+      return null;
+    }
     return row.role as "owner" | "participant";
   }
 }

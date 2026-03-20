@@ -29,7 +29,7 @@ const SESSION_RESTRICTED_METHODS = Object.keys(SESSION_ROLE_PERMISSIONS);
 
 const arbGlobalRole: fc.Arbitrary<GlobalRole> = fc.constantFrom("admin", "member", "viewer");
 
-const arbSessionRole: fc.Arbitrary<SessionRole> = fc.constantFrom("owner", "participant");
+// const arbSessionRole: fc.Arbitrary<SessionRole> = fc.constantFrom("owner", "participant");
 
 const arbUserId = fc.string({ minLength: 1, maxLength: 36 });
 const arbSessionKey = fc.stringMatching(/^[a-z0-9-]{5,30}$/);
@@ -86,7 +86,7 @@ describe("Property 10: 全局与会话级权限矩阵一致性", () => {
   it("role in allowed set → allowed for authenticated methods", () => {
     fc.assert(
       fc.property(arbUserId, fc.constantFrom(...AUTH_METHODS), (userId, method) => {
-        const allowedRoles = GLOBAL_ROLE_PERMISSIONS[method]!;
+        const allowedRoles = GLOBAL_ROLE_PERMISSIONS[method];
         for (const role of allowedRoles) {
           const result = checkPermission(userId, role as GlobalRole, method);
           expect(result.allowed).toBe(true);
@@ -104,7 +104,7 @@ describe("Property 10: 全局与会话级权限矩阵一致性", () => {
 
     fc.assert(
       fc.property(arbUserId, fc.constantFrom(...AUTH_METHODS), (userId, method) => {
-        const allowedRoles = GLOBAL_ROLE_PERMISSIONS[method]!;
+        const allowedRoles = GLOBAL_ROLE_PERMISSIONS[method];
         const deniedRoles = allRoles.filter((r) => !allowedRoles.has(r));
 
         for (const role of deniedRoles) {
@@ -166,12 +166,14 @@ describe("Property 10: 全局与会话级权限矩阵一致性", () => {
         arbSessionKey,
         fc.constantFrom(...SESSION_RESTRICTED_METHODS),
         (userId, sessionKey, method) => {
-          const allowedSessionRoles = SESSION_ROLE_PERMISSIONS[method]!;
-          const globalAllowed = GLOBAL_ROLE_PERMISSIONS[method]!;
+          const allowedSessionRoles = SESSION_ROLE_PERMISSIONS[method];
+          const globalAllowed = GLOBAL_ROLE_PERMISSIONS[method];
 
           // Pick a global role that passes the global check
           const globalRole = [...globalAllowed][0] as GlobalRole | undefined;
-          if (!globalRole) return; // skip if no global role passes (shouldn't happen)
+          if (!globalRole) {
+            return;
+          } // skip if no global role passes (shouldn't happen)
 
           for (const sessionRole of allowedSessionRoles) {
             const result = checkPermission(userId, globalRole, method, {
@@ -198,14 +200,18 @@ describe("Property 10: 全局与会话级权限矩阵一致性", () => {
         arbSessionKey,
         fc.constantFrom(...SESSION_RESTRICTED_METHODS),
         (userId, sessionKey, method) => {
-          const allowedSessionRoles = SESSION_ROLE_PERMISSIONS[method]!;
-          const globalAllowed = GLOBAL_ROLE_PERMISSIONS[method]!;
+          const allowedSessionRoles = SESSION_ROLE_PERMISSIONS[method];
+          const globalAllowed = GLOBAL_ROLE_PERMISSIONS[method];
           const deniedSessionRoles = allSessionRoles.filter((r) => !allowedSessionRoles.has(r));
 
-          if (deniedSessionRoles.length === 0) return; // all roles allowed, skip
+          if (deniedSessionRoles.length === 0) {
+            return;
+          } // all roles allowed, skip
 
           const globalRole = [...globalAllowed][0] as GlobalRole | undefined;
-          if (!globalRole) return;
+          if (!globalRole) {
+            return;
+          }
 
           for (const sessionRole of deniedSessionRoles) {
             const result = checkPermission(userId, globalRole, method, {
@@ -233,9 +239,11 @@ describe("Property 10: 全局与会话级权限矩阵一致性", () => {
         arbSessionKey,
         fc.constantFrom(...SESSION_RESTRICTED_METHODS),
         (userId, sessionKey, method) => {
-          const globalAllowed = GLOBAL_ROLE_PERMISSIONS[method]!;
+          const globalAllowed = GLOBAL_ROLE_PERMISSIONS[method];
           const globalRole = [...globalAllowed][0] as GlobalRole | undefined;
-          if (!globalRole) return;
+          if (!globalRole) {
+            return;
+          }
 
           const result = checkPermission(userId, globalRole, method, {
             sessionKey,
@@ -257,9 +265,11 @@ describe("Property 10: 全局与会话级权限矩阵一致性", () => {
   it("no sessionContext → session restrictions not applied, global check only", () => {
     fc.assert(
       fc.property(arbUserId, fc.constantFrom(...SESSION_RESTRICTED_METHODS), (userId, method) => {
-        const globalAllowed = GLOBAL_ROLE_PERMISSIONS[method]!;
+        const globalAllowed = GLOBAL_ROLE_PERMISSIONS[method];
         const globalRole = [...globalAllowed][0] as GlobalRole | undefined;
-        if (!globalRole) return;
+        if (!globalRole) {
+          return;
+        }
 
         // Without sessionContext, session-level check is skipped
         const result = checkPermission(userId, globalRole, method);
@@ -327,12 +337,14 @@ describe("Property 10: 全局与会话级权限矩阵一致性", () => {
   it("audit logger is invoked on permission denial", () => {
     fc.assert(
       fc.property(arbUserId, fc.constantFrom(...AUTH_METHODS), (userId, method) => {
-        const allowedRoles = GLOBAL_ROLE_PERMISSIONS[method]!;
+        const allowedRoles = GLOBAL_ROLE_PERMISSIONS[method];
         const allRoles: GlobalRole[] = ["admin", "member", "viewer"];
         const deniedRoles = allRoles.filter((r) => !allowedRoles.has(r));
-        if (deniedRoles.length === 0) return;
+        if (deniedRoles.length === 0) {
+          return;
+        }
 
-        const role = deniedRoles[0]!;
+        const role = deniedRoles[0];
         const auditCalls: Array<{ userId: string | null; method: string; reason: string }> = [];
 
         checkPermission(userId, role, method, undefined, (uid, m, reason) => {
@@ -340,8 +352,8 @@ describe("Property 10: 全局与会话级权限矩阵一致性", () => {
         });
 
         expect(auditCalls).toHaveLength(1);
-        expect(auditCalls[0]!.userId).toBe(userId);
-        expect(auditCalls[0]!.method).toBe(method);
+        expect(auditCalls[0].userId).toBe(userId);
+        expect(auditCalls[0].method).toBe(method);
       }),
     );
   });

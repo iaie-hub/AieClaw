@@ -41,7 +41,7 @@ describe("signToken", () => {
     const after = Math.floor(Date.now() / 1000);
 
     const [, encodedPayload] = token.split(".");
-    const padded = encodedPayload!.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = encodedPayload.replace(/-/g, "+").replace(/_/g, "/");
     const pad = padded.length % 4;
     const padded2 = pad === 0 ? padded : padded + "=".repeat(4 - pad);
     const claims = JSON.parse(Buffer.from(padded2, "base64").toString("utf8")) as JwtPayload;

@@ -83,6 +83,7 @@ const RATE_LIMIT_MAX_FAILURES = 10;
 export function createTenantService(config?: TenantServiceConfig): TenantService {
   const dbPath = config?.dbPath ?? join(homedir(), ".openclaw", "aiemas", "mas4s.db");
 
+  // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
   let db: DatabaseSync | undefined;
 
   // In-memory sliding window rate limiter: ip -> timestamps of failures
@@ -125,13 +126,17 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
 
       if (!user) {
         // Record failure for rate limiting
-        if (clientIp) recordLoginFailure(failureMap, clientIp);
+        if (clientIp) {
+          recordLoginFailure(failureMap, clientIp);
+        }
         return { ok: false, error: AUTH_FAILED };
       }
 
       // Verify password
       if (!verifyPassword(password, user.passwordHash)) {
-        if (clientIp) recordLoginFailure(failureMap, clientIp);
+        if (clientIp) {
+          recordLoginFailure(failureMap, clientIp);
+        }
         return { ok: false, error: AUTH_FAILED };
       }
 
@@ -219,7 +224,7 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
       failureMap.set(clientIp, timestamps);
 
       if (timestamps.length >= RATE_LIMIT_MAX_FAILURES) {
-        const oldest = timestamps[0]!;
+        const oldest = timestamps[0];
         const retryAfterMs = oldest + RATE_LIMIT_WINDOW_MS - now;
         return { allowed: false, retryAfterMs: Math.max(retryAfterMs, 0) };
       }

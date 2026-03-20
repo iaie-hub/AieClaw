@@ -27,6 +27,7 @@ const arbRole: fc.Arbitrary<GlobalRole> = fc.constantFrom("admin", "member", "vi
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** base64url-encode a buffer or string (mirrors jwt.ts internals). */
+// eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
 function base64urlEncode(input: string | Buffer): string {
   const buf = typeof input === "string" ? Buffer.from(input, "utf8") : input;
   return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -46,8 +47,10 @@ function buildExpiredToken(userId: string, tenantId: string, role: GlobalRole): 
 /** Flip one character in the signature part of a JWT. */
 function tamperSignature(token: string): string {
   const parts = token.split(".");
-  if (parts.length !== 3) return token;
-  const sig = parts[2]!;
+  if (parts.length !== 3) {
+    return token;
+  }
+  const sig = parts[2];
   // Replace the first character with a different one
   const flipped = sig[0] === "A" ? "B" + sig.slice(1) : "A" + sig.slice(1);
   return `${parts[0]}.${parts[1]}.${flipped}`;

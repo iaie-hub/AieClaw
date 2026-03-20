@@ -9,7 +9,6 @@ import type { DatabaseSync } from "node:sqlite";
 import * as fc from "fast-check";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
-  TenantServiceError,
   OWNER_CANNOT_LEAVE,
   ALREADY_MEMBER,
   NOT_A_MEMBER,
@@ -116,7 +115,9 @@ describe("Property 6: 会话隔离完备性", () => {
         arbTenantId,
         (ownerUserId, otherUserId, sessionKey, tenantId) => {
           // Ensure distinct user IDs
-          if (ownerUserId === otherUserId) return;
+          if (ownerUserId === otherUserId) {
+            return;
+          }
 
           insertUser(db, ownerUserId, tenantId, "Owner");
           insertUser(db, otherUserId, tenantId, "Other");
@@ -233,7 +234,9 @@ describe("Property 8: 会话邀请权限与成员增长", () => {
         arbSessionKey,
         arbTenantId,
         (ownerUserId, inviteeUserId, sessionKey, tenantId) => {
-          if (ownerUserId === inviteeUserId) return;
+          if (ownerUserId === inviteeUserId) {
+            return;
+          }
 
           // Clean up any leftover session data from previous iterations
           db.prepare("DELETE FROM session_memberships WHERE sessionKey = ?").run(sessionKey);
@@ -281,8 +284,9 @@ describe("Property 8: 会话邀请权限与成员增长", () => {
             ownerUserId === participantUserId ||
             ownerUserId === inviteeUserId ||
             participantUserId === inviteeUserId
-          )
+          ) {
             return;
+          }
 
           insertUser(db, ownerUserId, tenantId, "Owner");
           insertUser(db, participantUserId, tenantId, "Participant");
@@ -325,8 +329,9 @@ describe("Property 8: 会话邀请权限与成员增长", () => {
             ownerUserId === nonMemberUserId ||
             ownerUserId === inviteeUserId ||
             nonMemberUserId === inviteeUserId
-          )
+          ) {
             return;
+          }
 
           insertUser(db, ownerUserId, tenantId, "Owner");
           insertUser(db, nonMemberUserId, tenantId, "NonMember");
@@ -362,7 +367,9 @@ describe("Property 8: 会话邀请权限与成员增长", () => {
         arbSessionKey,
         arbTenantId,
         (ownerUserId, inviteeUserId, sessionKey, tenantId) => {
-          if (ownerUserId === inviteeUserId) return;
+          if (ownerUserId === inviteeUserId) {
+            return;
+          }
 
           insertUser(db, ownerUserId, tenantId, "Owner");
           insertUser(db, inviteeUserId, tenantId, "Invitee");
@@ -449,8 +456,9 @@ describe("Property 11: 事件广播隔离", () => {
             ownerUserId === memberUserId ||
             ownerUserId === outsiderUserId ||
             memberUserId === outsiderUserId
-          )
+          ) {
             return;
+          }
 
           insertUser(db, ownerUserId, tenantId, "Owner");
           insertUser(db, memberUserId, tenantId, "Member");
@@ -492,7 +500,9 @@ describe("Property 11: 事件广播隔离", () => {
         arbSessionKey,
         arbTenantId,
         (ownerUserId, participantUserId, sessionKey, tenantId) => {
-          if (ownerUserId === participantUserId) return;
+          if (ownerUserId === participantUserId) {
+            return;
+          }
 
           insertUser(db, ownerUserId, tenantId, "Owner");
           insertUser(db, participantUserId, tenantId, "Participant");
@@ -633,7 +643,9 @@ describe("Property 19: 成员移除完整性", () => {
         arbSessionKey,
         arbTenantId,
         (ownerUserId, participantUserId, sessionKey, tenantId) => {
-          if (ownerUserId === participantUserId) return;
+          if (ownerUserId === participantUserId) {
+            return;
+          }
 
           insertUser(db, ownerUserId, tenantId, "Owner");
           insertUser(db, participantUserId, tenantId, "Participant");
@@ -710,7 +722,9 @@ describe("Property 19: 成员移除完整性", () => {
         arbSessionKey,
         arbTenantId,
         (ownerUserId, nonMemberUserId, sessionKey, tenantId) => {
-          if (ownerUserId === nonMemberUserId) return;
+          if (ownerUserId === nonMemberUserId) {
+            return;
+          }
 
           insertUser(db, ownerUserId, tenantId, "Owner");
           insertUser(db, nonMemberUserId, tenantId, "NonMember");

@@ -13,7 +13,9 @@ describe("AuditLogger tests", () => {
   const tmpLog = join(tmpdir(), `audit-test-${process.pid}.log`);
 
   afterEach(() => {
-    if (existsSync(tmpLog)) unlinkSync(tmpLog);
+    if (existsSync(tmpLog)) {
+      unlinkSync(tmpLog);
+    }
   });
 
   it("Property 14: logPermissionFailure writes valid JSON line with all required fields", () => {
@@ -25,7 +27,9 @@ describe("AuditLogger tests", () => {
         fc.option(fc.string({ minLength: 1, maxLength: 100 }), { nil: undefined }),
         (userId, action, resource, reason) => {
           // Clean up between runs
-          if (existsSync(tmpLog)) unlinkSync(tmpLog);
+          if (existsSync(tmpLog)) {
+            unlinkSync(tmpLog);
+          }
 
           const timestamp = Date.now();
           const entry = {
@@ -43,7 +47,7 @@ describe("AuditLogger tests", () => {
           const lines = content.trimEnd().split("\n");
           expect(lines.length).toBe(1);
 
-          const parsed = JSON.parse(lines[0]!);
+          const parsed = JSON.parse(lines[0]);
           expect(parsed.userId).toBe(userId);
           expect(parsed.action).toBe(action);
           expect(parsed.resource).toBe(resource);

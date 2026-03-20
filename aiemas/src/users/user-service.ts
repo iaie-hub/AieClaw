@@ -24,13 +24,17 @@ function hashPassword(plain: string): string {
 
 function verifyPassword(plain: string, stored: string): boolean {
   const parts = stored.split(":");
-  if (parts.length !== 3 || parts[0] !== "sha256") return false;
+  if (parts.length !== 3 || parts[0] !== "sha256") {
+    return false;
+  }
   const [, salt, hash] = parts as [string, string, string];
   const expected = createHash("sha256")
     .update(salt + plain)
     .digest("hex");
   // Constant-time comparison
-  if (expected.length !== hash.length) return false;
+  if (expected.length !== hash.length) {
+    return false;
+  }
   let diff = 0;
   for (let i = 0; i < expected.length; i++) {
     diff |= expected.charCodeAt(i) ^ hash.charCodeAt(i);

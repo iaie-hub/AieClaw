@@ -60,6 +60,7 @@ function validateKeyLength(key: string): void {
 
 // ── Base64url helpers ─────────────────────────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
 function base64urlEncode(input: string | Buffer): string {
   const buf = typeof input === "string" ? Buffer.from(input, "utf8") : input;
   return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -173,9 +174,9 @@ export function refreshToken(token: string): string {
 function timingSafeEqual(a: Buffer, b: Buffer): boolean {
   if (a.length !== b.length) {
     // Still iterate to avoid length-based timing leak
-    let diff = 0;
+    let _diff = 0;
     for (let i = 0; i < a.length; i++) {
-      diff |= (a[i] ?? 0) ^ 0;
+      _diff |= (a[i] ?? 0) ^ 0;
     }
     return false;
   }

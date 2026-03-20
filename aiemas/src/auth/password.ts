@@ -28,12 +28,16 @@ export function hashPassword(plain: string): string {
  */
 export function verifyPassword(plain: string, stored: string): boolean {
   const parts = stored.split(":");
-  if (parts.length !== 3 || parts[0] !== "sha256") return false;
+  if (parts.length !== 3 || parts[0] !== "sha256") {
+    return false;
+  }
   const [, salt, hash] = parts as [string, string, string];
   const expected = createHash("sha256")
     .update(salt + plain)
     .digest("hex");
-  if (expected.length !== hash.length) return false;
+  if (expected.length !== hash.length) {
+    return false;
+  }
   // Use Node's built-in constant-time buffer comparison
   return timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(hash, "hex"));
 }

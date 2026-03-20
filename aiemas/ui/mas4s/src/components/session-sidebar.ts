@@ -194,7 +194,7 @@ export class SessionSidebar extends LitElement {
     return html`
       <div class="sidebar-header">
         <span>会话列表</span>
-        <button class="add-btn" @click=${this._onCreate} aria-label="发起新会话" title="发起新会话">
+        <button class="add-btn" @click=${() => this._onCreate()} aria-label="发起新会话" title="发起新会话">
           +
         </button>
       </div>

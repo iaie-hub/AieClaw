@@ -198,22 +198,10 @@ export class LoginView extends LitElement {
     this._loading = true;
     try {
       const client = getClient();
-      const res = (await client.request("auth.login", {
+      const res = await client.request("auth.login", {
         username: this._username,
         password: this._password,
-      })) as {
-        ok: boolean;
-        token?: string;
-        user?: {
-          userId: string;
-          username: string;
-          displayName: string;
-          role: string;
-          tenantId: string;
-        };
-        error?: string;
-        retryAfterMs?: number;
-      };
+      });
 
       if (!res.ok) {
         const fakeErr = Object.assign(new Error(res.error ?? "AUTH_FAILED"), {
@@ -261,21 +249,11 @@ export class LoginView extends LitElement {
 
     try {
       const client = getClient();
-      const res = (await client.request("user.register", {
+      const res = await client.request("user.register", {
         username,
         password: this._password,
         displayName: this._displayName,
-      })) as {
-        ok: boolean;
-        user?: {
-          userId: string;
-          username: string;
-          displayName: string;
-          role: string;
-          tenantId: string;
-        };
-        error?: string;
-      };
+      });
 
       if (!res.ok) {
         const fakeErr = Object.assign(new Error(res.error ?? "操作失败"), {
@@ -305,18 +283,7 @@ export class LoginView extends LitElement {
 
   private async _autoLogin(username: string, password: string) {
     const client = getClient();
-    const res = (await client.request("auth.login", { username, password })) as {
-      ok: boolean;
-      token?: string;
-      user?: {
-        userId: string;
-        username: string;
-        displayName: string;
-        role: string;
-        tenantId: string;
-      };
-      error?: string;
-    };
+    const res = await client.request("auth.login", { username, password });
 
     if (!res.ok || !res.token || !res.user) {
       this._error = "初始化成功，请手动登录";
