@@ -113,7 +113,6 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     buildRequestContext,
   } = params;
   const onClientConnected = params.onClientConnected;
-  const onSessionCreated = params.onSessionCreated;
   const originCheckMetrics: WsOriginCheckMetrics = { hostHeaderFallbackAccepted: 0 };
 
   wss.on("connection", (socket, upgradeReq) => {

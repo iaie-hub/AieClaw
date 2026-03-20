@@ -213,7 +213,9 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
             >();
             for (const c of activeClients) {
               const auth = contextMod.getMasAuth(c);
-              if (auth) connectedUsers.set(c.connId, auth);
+              if (auth) {
+                connectedUsers.set(c.connId, auth);
+              }
             }
             const callerAuth = opts.client
               ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
@@ -228,7 +230,7 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
               targetUserId,
               {
                 sessionKey,
-                label: String(opts.params["label"] ?? sessionKey),
+                label: String((opts.params["label"] as string | undefined) ?? sessionKey),
                 invitedBy: callerAuth.userId ?? "",
                 joinedAt: member ? Number(member["joinedAt"] ?? Date.now()) : Date.now(),
               },
@@ -267,7 +269,9 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
             >();
             for (const c of activeClients) {
               const auth = contextMod.getMasAuth(c);
-              if (auth) connectedUsers.set(c.connId, auth);
+              if (auth) {
+                connectedUsers.set(c.connId, auth);
+              }
             }
             const callerAuth = opts.client
               ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
