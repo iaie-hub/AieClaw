@@ -2,6 +2,79 @@
 
 本文档提取自 `.kiro/specs/mas4s-multi-tenant-rbac/requirements.md`，用于全局指导 `aiemas` 模块的开发。在修改 `aiemas` 及关联模块的代码时，请严格遵守以下核心系统约束：
 
+## 0. 目录结构 (Directory Structure)
+
+```
+aiemas/
+├── src/                          # 核心 TypeScript 源码（由根目录 vitest 统一测试）
+│   ├── auth/                     # JWT 签发/验证/续期；密码哈希（bcrypt）
+│   │   ├── jwt.ts
+│   │   ├── jwt.test.ts
+│   │   ├── jwt.property.test.ts  # fast-check 属性测试
+│   │   ├── password.ts
+│   │   ├── rate-limiter.ts
+│   │   └── rate-limiter.property.test.ts
+│   ├── users/                    # 用户注册、查询、更新、审批；系统初始化状态
+│   │   ├── user-service.ts
+│   │   └── user-service.property.test.ts
+│   ├── rbac/                     # 全局角色 + 会话级角色权限矩阵
+│   │   ├── permission-checker.ts
+│   │   └── permission-checker.property.test.ts
+│   ├── store/                    # SQLite 初始化、schema、事务封装
+│   │   ├── database.ts
+│   │   ├── database.test.ts
+│   │   └── database.property.test.ts
+│   ├── audit/                    # 权限失败审计日志
+│   │   ├── audit-logger.ts
+│   │   └── audit-logger.test.ts
+│   ├── gateway-bridge/           # GatewayAuthBridge 薄适配层（连接认证、会话归属、广播过滤）
+│   │   ├── bridge.ts
+│   │   ├── bridge.property.test.ts
+│   │   ├── context.ts            # WeakMap 连接上下文扩展（不修改原 gateway 类型）
+│   │   ├── integration.ts
+│   │   ├── mas4s-gateway-plugin.ts
+│   │   └── session-manager.ts
+│   ├── presence/                 # 用户在线状态维护（心跳/超时扫描）
+│   │   └── presence-service.ts
+│   ├── test-helpers/             # 测试辅助工具（generators、setup）
+│   │   ├── generators.ts
+│   │   └── setup.ts
+│   ├── errors.ts                 # TenantServiceError 统一错误类
+│   ├── models.ts                 # 共享数据类型（Tenant、User、SessionMembership 等）
+│   └── index.ts                  # TenantService 单例初始化与导出
+├── ui/
+│   └── mas4s/                    # Vue 3 + Vite 前端工作台
+│       ├── src/
+│       │   ├── app.ts            # 应用入口
+│       │   ├── components/       # UI 组件（LoginView、SessionSidebar 等）
+│       │   ├── gateway/          # GatewayBrowserClient（masToken 注入）
+│       │   ├── lib/              # 工具库
+│       │   ├── store/            # AppStore（currentUser、会话列表）
+│       │   ├── styles/
+│       │   ├── types/
+│       │   ├── utils/
+│       │   └── views/            # 页面视图
+│       ├── index.html
+│       ├── package.json
+│       ├── tsconfig.json
+│       └── vite.config.ts
+├── docs/
+│   ├── mas4s/                    # mas4s 平台文档（mas.html）
+│   └── openclaw/                 # openclaw 集成文档（协议、架构、workspace 等）
+├── AGENTS.md                     # 本文件（模块开发约束）
+└── README.md                     # 平台愿景与架构概述
+```
+
+数据库文件（运行时生成，不入库）：
+
+```
+~/.openclaw/aiemas/
+├── mas4s.db        # SQLite 主库（WAL 模式）
+├── mas4s.db-wal    # WAL 日志（自动）
+├── mas4s.db-shm    # 共享内存（自动）
+└── audit.log       # 审计日志（追加写入）
+```
+
 ## 1. 架构与目录约束 (Architecture & Directory)
 
 - **最小入侵原 Gateway**：尽量少改动原 gateway (`src/gateway/`)，AIEMAS 的多租户服务等新增功能必须闭环在 `aiemas/src` 目录内实现。

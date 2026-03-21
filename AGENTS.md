@@ -9,6 +9,13 @@
 - Source code: `src/` (CLI wiring in `src/cli`, commands in `src/commands`, web provider in `src/provider-web.ts`, infra in `src/infra`, media pipeline in `src/media`).
 - Tests: colocated `*.test.ts`.
 - Docs: `docs/` (images, queue, Pi config). Built output lives in `dist/`.
+- AIEMAS module: `aiemas/` — multi-agent collaboration platform (AIE-Platform). Contains multi-tenant RBAC, JWT auth, session isolation, and gateway bridge services. Sub-structure:
+  - `aiemas/src/` — core TypeScript source: `auth/` (JWT), `users/` (registration/management), `rbac/` (permission matrix), `store/` (SQLite), `audit/` (audit log), `gateway-bridge/` (GatewayAuthBridge thin adapter), `presence/` (online status)
+  - `aiemas/ui/mas4s/` — Vue 3 frontend (Vite); entry at `ui/mas4s/src/app.ts`
+  - `aiemas/docs/` — module-level docs (`docs/mas4s/`, `docs/openclaw/`)
+  - Tests colocated as `*.test.ts` and `*.property.test.ts` (fast-check PBT); run via root `pnpm test -- aiemas/src`
+  - SQLite database: `~/.openclaw/aiemas/mas4s.db` (WAL mode, shared by TenantService and GatewayAuthBridge)
+  - See `aiemas/AGENTS.md` for module-specific development constraints.
 - Nomenclature: use "plugin" / "plugins" in docs, UI, changelogs, and contributor guidance. `extensions/*` remains the internal directory/package path to avoid repo-wide churn from a rename.
 - Plugins: live under `extensions/*` (workspace packages). Keep plugin-only deps in the extension `package.json`; do not add them to the root `package.json` unless core uses them.
 - Plugins: install runs `npm install --omit=dev` in plugin dir; runtime deps must live in `dependencies`. Avoid `workspace:*` in `dependencies` (npm install breaks); put `openclaw` in `devDependencies` or `peerDependencies` instead (runtime resolves `openclaw/plugin-sdk` via jiti alias).

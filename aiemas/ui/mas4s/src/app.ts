@@ -2,7 +2,7 @@ import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { getClient, resetClient } from "./gateway/client.js";
 import { registerEventHandlers } from "./gateway/event-handler.js";
-import { createSession } from "./gateway/session-manager.js";
+import { createSession, renameSession } from "./gateway/session-manager.js";
 import { AppStore, AppStoreController } from "./store/app-store.js";
 import { buildGroupMessage, buildChatSendParams } from "./utils/message-format.js";
 // 组件注册（副作用导入）
@@ -221,6 +221,19 @@ export class Mas4sApp extends LitElement {
     }
   };
 
+  private _onSessionRename = async (e: CustomEvent<{ sessionKey: string; label: string }>) => {
+    const { sessionKey, label } = e.detail;
+    console.debug("[mas4s:app] _onSessionRename → sessionKey=%s label=%s", sessionKey, label);
+    const client = getClient();
+    try {
+      await renameSession(client, sessionKey, label);
+      this._ctrl.store.updateSessionLabel(sessionKey, label);
+      console.debug("[mas4s:app] _onSessionRename ← ok");
+    } catch (err) {
+      console.error("[mas4s] renameSession failed:", err);
+    }
+  };
+
   private _onSessionSelect = (e: CustomEvent<{ sessionKey: string }>) => {
     console.debug("[mas4s:app] _onSessionSelect → sessionKey=%s", e.detail.sessionKey);
     this._ctrl.store.setActiveSession(e.detail.sessionKey);
@@ -375,6 +388,7 @@ export class Mas4sApp extends LitElement {
               .activeSessionKey=${store.activeSessionId ?? ""}
               @session-select=${this._onSessionSelect}
               @session-create=${this._onSessionCreate}
+              @session-rename=${this._onSessionRename}
             ></session-sidebar>
           `
           : ""

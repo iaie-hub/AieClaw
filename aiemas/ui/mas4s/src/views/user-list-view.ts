@@ -472,6 +472,9 @@ export class UserListView extends LitElement {
   private _renderUserItem(user: UserRecord) {
     const isSelected = this._selectedUser?.userId === user.userId;
     const isAdmin = this._ctrl.store.currentUser?.role === "admin";
+    // Merge real-time presence override from store (user.presence events)
+    const overrides = this._ctrl.store.userPresenceOverrides;
+    const isOnline = overrides.has(user.userId) ? overrides.get(user.userId) : user.isOnline;
     return html`
       <div
         class="user-item ${isSelected ? "selected" : ""}"
@@ -485,7 +488,7 @@ export class UserListView extends LitElement {
         <div class="user-info">
           <div class="user-name">${user.displayName}</div>
           <div class="user-meta">
-            <span class="presence-dot ${user.isOnline ? "online" : "offline"}" title="${user.isOnline ? "在线" : "离线"}"></span>
+            <span class="presence-dot ${isOnline ? "online" : "offline"}" title="${isOnline ? "在线" : "离线"}"></span>
             <span class="role-badge ${user.role}">${this._roleLabel(user.role)}</span>
             ${
               isAdmin && user.status
@@ -513,6 +516,9 @@ export class UserListView extends LitElement {
     const isPending = user.status === "pending";
     const isApproving = this._actionLoading === user.userId + ":approve";
     const isRejecting = this._actionLoading === user.userId + ":reject";
+    // Merge real-time presence override from store
+    const overrides = this._ctrl.store.userPresenceOverrides;
+    const isOnline = overrides.has(user.userId) ? overrides.get(user.userId) : user.isOnline;
 
     return html`
       <div class="detail-content">
@@ -528,8 +534,8 @@ export class UserListView extends LitElement {
           <div class="field-row">
             <span class="field-label">在线状态</span>
             <span class="field-value" style="display:flex;align-items:center;gap:6px;">
-              <span class="presence-dot ${user.isOnline ? "online" : "offline"}"></span>
-              ${user.isOnline ? "在线" : "离线"}
+              <span class="presence-dot ${isOnline ? "online" : "offline"}"></span>
+              ${isOnline ? "在线" : "离线"}
             </span>
           </div>
           ${

@@ -8,6 +8,7 @@
  */
 
 import type { createSubsystemLogger } from "../logging/subsystem.js";
+import { sessionsHandlers } from "./server-methods/sessions.js";
 import type { GatewayRequestHandler, GatewayRequestHandlers } from "./server-methods/types.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
 
@@ -88,6 +89,28 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
       }
     };
 
+    // Shared reference to the live clients set — updated by _setActiveClients.
+    // Declared early so onClientDisconnected and auth.login wrapper can close over it.
+    let activeClients: Set<GatewayWsClient> = new Set();
+    const setActiveClients = (c: Set<GatewayWsClient>) => {
+      activeClients = c;
+    };
+
+    // Helper: build connId → MasAuthContext map from current activeClients
+    const buildConnectedUsers = () => {
+      const map = new Map<
+        string,
+        import("../../aiemas/src/gateway-bridge/context.js").MasAuthContext
+      >();
+      for (const c of activeClients) {
+        const auth = contextMod.getMasAuth(c);
+        if (auth) {
+          map.set(c.connId, auth);
+        }
+      }
+      return map;
+    };
+
     // Adapt SimpleHandler → GatewayRequestHandler
     const extraHandlers: GatewayRequestHandlers = {};
     for (const [method, handler] of Object.entries(plugin.extraHandlers)) {
@@ -112,6 +135,14 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
       } catch (err) {
         log.warn(`mas4s auth failed for conn=${client.connId}: ${String(err)}`);
         contextMod.setMasAuth(client, contextMod.NULL_MAS_AUTH);
+
+        const urlParams = new URL(
+          (upgradeReq as import("node:http").IncomingMessage).url ?? "/",
+          "http://localhost",
+        ).searchParams;
+        if (urlParams.has("masToken")) {
+          client.socket.close(4008, "MAS_AUTH_FAILED");
+        }
       }
     };
 
@@ -192,6 +223,16 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
         );
         if (masAuth.userId) {
           plugin.bridge.logout(masAuth.userId);
+          // Broadcast offline status to same-tenant peers
+          if (masAuth.tenantId) {
+            plugin.bridge.pushUserPresence(
+              masAuth.userId,
+              masAuth.tenantId,
+              false,
+              buildConnectedUsers(),
+              (connId, event, data) => sendToConnId(connId, activeClients, event, data),
+            );
+          }
         }
       } catch (err) {
         log.warn(`mas4s onClientDisconnected failed for conn=${client.connId}: ${String(err)}`);
@@ -199,12 +240,6 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
     };
 
     // Wrap session.invite and session.removeMember to push real-time notifications.
-    // We need access to the clients set, so we store a reference that gets updated.
-    let activeClients: Set<GatewayWsClient> = new Set();
-    const setActiveClients = (c: Set<GatewayWsClient>) => {
-      activeClients = c;
-    };
-
     const origInvite = extraHandlers["session.invite"];
     if (origInvite) {
       extraHandlers["session.invite"] = async (opts) => {
@@ -226,16 +261,7 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
 
         if (inviteOk && targetUserId && sessionKey) {
           try {
-            const connectedUsers = new Map<
-              string,
-              import("../../aiemas/src/gateway-bridge/context.js").MasAuthContext
-            >();
-            for (const c of activeClients) {
-              const auth = contextMod.getMasAuth(c);
-              if (auth) {
-                connectedUsers.set(c.connId, auth);
-              }
-            }
+            const connectedUsers = buildConnectedUsers();
             const callerAuth = opts.client
               ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
               : contextMod.NULL_MAS_AUTH;
@@ -282,16 +308,7 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
 
         if (removeOk && targetUserId && sessionKey) {
           try {
-            const connectedUsers = new Map<
-              string,
-              import("../../aiemas/src/gateway-bridge/context.js").MasAuthContext
-            >();
-            for (const c of activeClients) {
-              const auth = contextMod.getMasAuth(c);
-              if (auth) {
-                connectedUsers.set(c.connId, auth);
-              }
-            }
+            const connectedUsers = buildConnectedUsers();
             const callerAuth = opts.client
               ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
               : contextMod.NULL_MAS_AUTH;
@@ -305,6 +322,134 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
             log.warn(`mas4s pushSessionRemoved failed: ${String(err)}`);
           }
         }
+      };
+    }
+
+    // Wrap auth.login to broadcast user.presence online after successful login.
+    // Note: onClientConnected fires before login (masToken not yet in URL at WS upgrade),
+    // so we must broadcast here when we know the userId and tenantId from the login result.
+    const origAuthLogin = extraHandlers["auth.login"];
+    if (origAuthLogin) {
+      extraHandlers["auth.login"] = async (opts) => {
+        let loginOk = false;
+        let loginUserId: string | undefined;
+        let loginTenantId: string | undefined;
+
+        await origAuthLogin({
+          ...opts,
+          respond: (ok, payload, error, meta) => {
+            loginOk = ok;
+            if (ok && payload && typeof payload === "object") {
+              const p = payload as Record<string, unknown>;
+              // login response shape: { ok, token, user: { userId, tenantId, ... } }
+              const user = p["user"] as Record<string, unknown> | undefined;
+              loginUserId = typeof user?.["userId"] === "string" ? user["userId"] : undefined;
+              loginTenantId = typeof user?.["tenantId"] === "string" ? user["tenantId"] : undefined;
+            }
+            opts.respond(ok, payload, error, meta);
+          },
+        });
+
+        if (loginOk && loginUserId && loginTenantId) {
+          try {
+            plugin.bridge.pushUserPresence(
+              loginUserId,
+              loginTenantId,
+              true,
+              buildConnectedUsers(),
+              (connId, event, data) => sendToConnId(connId, activeClients, event, data),
+            );
+          } catch (err) {
+            log.warn(`mas4s pushUserPresence (login) failed: ${String(err)}`);
+          }
+        }
+      };
+    }
+
+    // Wrap user.logout to broadcast user.presence offline before the user disconnects.
+    const origUserLogout = extraHandlers["user.logout"];
+    if (origUserLogout) {
+      extraHandlers["user.logout"] = async (opts) => {
+        const masAuth = opts.client
+          ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
+          : contextMod.NULL_MAS_AUTH;
+        const logoutUserId = masAuth.userId;
+        const logoutTenantId = masAuth.tenantId;
+
+        await origUserLogout(opts);
+
+        if (logoutUserId && logoutTenantId) {
+          try {
+            plugin.bridge.pushUserPresence(
+              logoutUserId,
+              logoutTenantId,
+              false,
+              buildConnectedUsers(),
+              (connId, event, data) => sendToConnId(connId, activeClients, event, data),
+            );
+          } catch (err) {
+            log.warn(`mas4s pushUserPresence (logout) failed: ${String(err)}`);
+          }
+        }
+      };
+    }
+
+    // Wrap sessions.resolve to enforce membership check after key resolution.
+    // sessions.resolve params can carry sessionId/label/spawnedBy instead of key,
+    // so _extractSessionKey returns undefined and the pre-request interceptor cannot
+    // check membership before the handler runs. We override it as an extraHandler
+    // (which takes priority over coreGatewayHandlers) and validate the resolved key
+    // against session_memberships before returning it to the caller.
+    const coreSessionsResolve = sessionsHandlers["sessions.resolve"];
+    if (coreSessionsResolve) {
+      extraHandlers["sessions.resolve"] = async (opts) => {
+        const masAuth = opts.client
+          ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
+          : contextMod.NULL_MAS_AUTH;
+
+        // Compat mode: no userId, skip membership check
+        if (masAuth.userId === null) {
+          await coreSessionsResolve(opts);
+          return;
+        }
+
+        let resolvedKey: string | undefined;
+        let resolveOk = false;
+
+        // Run the core handler, capturing the resolved key from the response
+        await coreSessionsResolve({
+          ...opts,
+          respond: (ok, payload, error, meta) => {
+            if (ok && payload && typeof payload === "object") {
+              const key = (payload as Record<string, unknown>)["key"];
+              if (typeof key === "string") {
+                resolvedKey = key;
+                resolveOk = true;
+              }
+            }
+            if (!ok) {
+              // Pass through errors (session not found etc.) unchanged
+              opts.respond(ok, payload, error, meta);
+            }
+          },
+        });
+
+        if (!resolveOk || !resolvedKey) {
+          // Core handler already responded with an error above
+          return;
+        }
+
+        // Now check membership for the resolved key
+        const accessResult = plugin.bridge.checkSessionAccess(resolvedKey, masAuth);
+        if (!accessResult.allowed) {
+          opts.respond(false, undefined, {
+            code: accessResult.code,
+            message: accessResult.message,
+          });
+          return;
+        }
+
+        opts.respond(true, { ok: true, key: resolvedKey }, undefined);
       };
     }
 

@@ -65,6 +65,15 @@ export class AppStore {
   // ── 子 Agent 启动确认队列（第三期） ───────────────
   pendingSpawnConfirms: PendingSpawnConfirm[] = [];
 
+  // ── 用户在线状态（实时更新） ──────────────────────
+  // key: userId, value: isOnline
+  userPresenceOverrides: Map<string, boolean> = new Map();
+
+  updateUserPresence(userId: string, isOnline: boolean): void {
+    this.userPresenceOverrides.set(userId, isOnline);
+    this.notify();
+  }
+
   // ── 响应式通知 ────────────────────────────────────
   private _hosts: Set<ReactiveControllerHost> = new Set();
 
@@ -105,6 +114,11 @@ export class AppStore {
     if (this.activeSessionId === sessionKey) {
       this.activeSessionId = null;
     }
+    this.notify();
+  }
+
+  updateSessionLabel(sessionKey: string, label: string): void {
+    this.sessions = this.sessions.map((s) => (s.key === sessionKey ? { ...s, label } : s));
     this.notify();
   }
 

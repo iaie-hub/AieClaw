@@ -298,6 +298,26 @@ export class GatewayAuthBridge {
   }
 
   /**
+   * Push user.presence event to all connected users in the same tenant.
+   * Used to notify peers when a user comes online or goes offline.
+   */
+  pushUserPresence(
+    userId: string,
+    tenantId: string,
+    isOnline: boolean,
+    connectedUsers: Map<string, MasAuthContext>,
+    sendToClient: (connId: string, event: string, data: unknown) => void,
+  ): void {
+    const payload = { userId, tenantId, isOnline, ts: Date.now() };
+    for (const [connId, auth] of connectedUsers.entries()) {
+      // Broadcast to same-tenant peers only (not the user themselves)
+      if (auth.tenantId === tenantId && auth.userId !== userId) {
+        sendToClient(connId, "user.presence", payload);
+      }
+    }
+  }
+
+  /**
    * Push event:session.removed to target user's connected clients.
    */
   pushSessionRemoved(

@@ -1,5 +1,5 @@
 import { LitElement, html, css, nothing } from "lit";
-import { customElement, property } from "lit/decorators.js";
+import { customElement, property, state } from "lit/decorators.js";
 import type { MasSession } from "../types/session-types.js";
 
 /**
@@ -10,6 +10,12 @@ import type { MasSession } from "../types/session-types.js";
 export class SessionSidebar extends LitElement {
   @property({ attribute: false }) sessions: MasSession[] = [];
   @property({ type: String }) activeSessionKey: string | null = null;
+
+  @state() private _nameDialog: {
+    mode: "create" | "rename";
+    sessionKey?: string;
+    value: string;
+  } | null = null;
 
   static styles = css`
     :host {
@@ -134,20 +140,147 @@ export class SessionSidebar extends LitElement {
       flex-shrink: 0;
       margin-left: auto;
     }
+
+    .rename-btn {
+      opacity: 0;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #94a3b8;
+      font-size: 13px;
+      padding: 2px 4px;
+      border-radius: 4px;
+      flex-shrink: 0;
+      transition:
+        opacity 0.15s,
+        color 0.15s;
+      line-height: 1;
+    }
+
+    .session-item:hover .rename-btn {
+      opacity: 1;
+    }
+
+    .rename-btn:hover {
+      color: #3b82f6;
+    }
+
+    /* 创建/重命名弹层 */
+    .name-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .name-dialog {
+      background: white;
+      border-radius: 12px;
+      padding: 20px 24px;
+      width: 320px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .name-dialog h3 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: #1e293b;
+    }
+
+    .name-dialog input {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+      box-sizing: border-box;
+      transition: border-color 0.15s;
+    }
+
+    .name-dialog input:focus {
+      border-color: #3b82f6;
+    }
+
+    .name-dialog-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .name-dialog-actions button {
+      padding: 6px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      border: 1px solid #e2e8f0;
+      background: white;
+      color: #64748b;
+      transition: all 0.15s;
+    }
+
+    .name-dialog-actions button.primary {
+      background: #3b82f6;
+      color: white;
+      border-color: #3b82f6;
+    }
+
+    .name-dialog-actions button:hover {
+      opacity: 0.85;
+    }
   `;
 
-  private _showDropdown = false;
-
-  private _toggleDropdown = () => {
-    this._showDropdown = !this._showDropdown;
-    this.requestUpdate();
-  };
-
   private _onCreate() {
-    this._showDropdown = false;
-    this.requestUpdate();
-    const label = `会话 ${new Date().toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
-    this.dispatchEvent(new CustomEvent("session-create", { detail: { label }, bubbles: true }));
+    this._nameDialog = { mode: "create", value: "" };
+  }
+
+  private _onRename(e: Event, session: MasSession) {
+    // Stop propagation so the session-item click doesn't fire
+    e.stopPropagation();
+    this._nameDialog = { mode: "rename", sessionKey: session.key, value: session.label ?? "" };
+  }
+
+  private _onNameInput(e: Event) {
+    const input = e.target as HTMLInputElement;
+    if (this._nameDialog) {
+      this._nameDialog = { ...this._nameDialog, value: input.value };
+    }
+  }
+
+  private _onNameConfirm() {
+    if (!this._nameDialog) {
+      return;
+    }
+    const { mode, sessionKey, value } = this._nameDialog;
+    const label = value.trim();
+    if (!label) {
+      return;
+    }
+
+    if (mode === "create") {
+      this.dispatchEvent(new CustomEvent("session-create", { detail: { label }, bubbles: true }));
+    } else if (mode === "rename" && sessionKey) {
+      this.dispatchEvent(
+        new CustomEvent("session-rename", { detail: { sessionKey, label }, bubbles: true }),
+      );
+    }
+    this._nameDialog = null;
+  }
+
+  private _onNameKeydown(e: KeyboardEvent) {
+    if (e.key === "Enter") {
+      this._onNameConfirm();
+    }
+    if (e.key === "Escape") {
+      this._nameDialog = null;
+    }
   }
 
   private _onSessionClick(key: string) {
@@ -186,7 +319,40 @@ export class SessionSidebar extends LitElement {
             ? html`<span class="badge-count">${session.notificationCount}</span>`
             : nothing
         }
+        <button
+          class="rename-btn"
+          @click=${(e: Event) => this._onRename(e, session)}
+          title="重命名"
+          aria-label="重命名会话"
+        >✎</button>
       </button>
+    `;
+  }
+
+  private _renderNameDialog() {
+    if (!this._nameDialog) {
+      return nothing;
+    }
+    const { mode, value } = this._nameDialog;
+    const title = mode === "create" ? "新建会话" : "重命名会话";
+    return html`
+      <div class="name-overlay" @click=${() => (this._nameDialog = null)}>
+        <div class="name-dialog" @click=${(e: Event) => e.stopPropagation()}>
+          <h3>${title}</h3>
+          <input
+            type="text"
+            .value=${value}
+            placeholder="输入会话名称"
+            @input=${(e: Event) => this._onNameInput(e)}
+            @keydown=${(e: KeyboardEvent) => this._onNameKeydown(e)}
+            autofocus
+          />
+          <div class="name-dialog-actions">
+            <button @click=${() => (this._nameDialog = null)}>取消</button>
+            <button class="primary" @click=${() => this._onNameConfirm()}>确认</button>
+          </div>
+        </div>
+      </div>
     `;
   }
 
@@ -206,6 +372,8 @@ export class SessionSidebar extends LitElement {
         <div class="group-header" style="margin-top:8px">🔗 参与的会话</div>
         ${this._participatedSessions.map((s) => this._renderSession(s))}
       </div>
+
+      ${this._renderNameDialog()}
     `;
   }
 }

@@ -63,6 +63,15 @@ export function registerEventHandlers(): void {
         console.info("您已被移出会话");
         break;
       }
+      case "user.presence": {
+        const { userId, isOnline } = evt.payload as {
+          userId: string;
+          tenantId: string;
+          isOnline: boolean;
+        };
+        store.updateUserPresence(userId, isOnline);
+        break;
+      }
     }
   });
 }

@@ -44,6 +44,17 @@ export async function createSession(
 }
 
 /**
+ * 重命名会话：调用 sessions.patch 更新 label。
+ */
+export async function renameSession(
+  client: GatewayBrowserClient,
+  sessionKey: string,
+  label: string,
+): Promise<void> {
+  await client.request("sessions.patch", { key: sessionKey, label });
+}
+
+/**
  * 加入已有会话：通过 sessions.resolve 验证 sessionKey 存在，
  * 再通过 sessions.list 获取完整 row，返回 masType="participated" 的 MasSession。
  */
