@@ -111,6 +111,8 @@ export class GatewayBrowserClient {
   private connectTimer: number | null = null;
   private backoffMs = 800;
   private pendingConnectError: GatewayErrorInfo | undefined;
+  private _readyResolvers: Array<() => void> = [];
+  private _helloReceived = false;
 
   constructor(private opts: GatewayBrowserClientOptions) {}
 
@@ -204,6 +206,12 @@ export class GatewayBrowserClient {
     void this.request<GatewayHelloOk>("connect", params)
       .then((hello) => {
         this.backoffMs = 800;
+        this._helloReceived = true;
+        // 通知所有 waitReady() 的等待者
+        const resolvers = this._readyResolvers.splice(0);
+        for (const r of resolvers) {
+          r();
+        }
         this.opts.onHello?.(hello);
       })
       .catch((err: unknown) => {
@@ -271,6 +279,7 @@ export class GatewayBrowserClient {
 
   private queueConnect() {
     this.connectSent = false;
+    this._helloReceived = false;
     if (this.connectTimer !== null) {
       window.clearTimeout(this.connectTimer);
     }
@@ -290,5 +299,29 @@ export class GatewayBrowserClient {
     });
     this.ws.send(JSON.stringify(frame));
     return p;
+  }
+
+  /**
+   * 等待 gateway 握手完成（hello-ok 收到后）才可发业务请求。
+   * 若已握手则立即 resolve；否则等待 hello-ok 回调触发。
+   * timeoutMs 超时后 reject。
+   */
+  waitConnected(timeoutMs = 10_000): Promise<void> {
+    if (this._helloReceived) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        const idx = this._readyResolvers.indexOf(resolve);
+        if (idx !== -1) {
+          this._readyResolvers.splice(idx, 1);
+        }
+        reject(new Error("gateway connect timeout"));
+      }, timeoutMs);
+      this._readyResolvers.push(() => {
+        window.clearTimeout(timer);
+        resolve();
+      });
+    });
   }
 }

@@ -85,4 +85,12 @@ export function ensureMas4sSchema(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_memberships_user
     ON session_memberships(userId);
   `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_presence (
+      userId TEXT PRIMARY KEY REFERENCES users(userId),
+      lastSeenAt INTEGER NOT NULL,
+      isOnline INTEGER NOT NULL DEFAULT 0
+    );
+  `);
 }

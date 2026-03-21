@@ -217,108 +217,201 @@
 
 _属性是在系统所有有效执行中应保持为真的特征或行为——本质上是关于系统应做什么的形式化陈述。_
 
-### 属性 1：用户名唯一性
+### 属性 1：用户名租户内唯一性
 
-_对于任意_ 租户和用户名组合，同一 tenantId 下不应存在两个 username 相同的 User 记录
+_对于任意_ 租户 T 和用户名 U，在 T 下注册两个相同用户名 U 的用户，第二次注册应返回 `USERNAME_TAKEN` 错误，且 T 下仅存在一条 username=U 的 User 记录。
 
 **验证：需求 1.2**
 
 ---
 
-### 属性 2：密码不可逆
+### 属性 2：密码安全不变量
 
-_对于任意_ 已注册用户，持久化存储中不应包含密码明文，仅包含 bcrypt 哈希值
+_对于任意_ 注册请求中的密码 P（长度 ≥ 8），注册成功后持久化存储中不应包含 P 的明文，仅包含以 `$2b$` 开头的 bcrypt 哈希值；_对于任意_ 密码 P（长度 < 8），注册应被拒绝。
 
-**验证：需求 1.3**
+**验证：需求 1.3、11.4**
 
 ---
 
 ### 属性 3：AuthToken round-trip
 
-_对于任意_ 有效的 userId、tenantId 和 role 组合，`auth.verify(auth.login(username, password).token)` 应返回包含相同 userId、tenantId 和 role 的身份信息
+_对于任意_ 有效的注册参数（username、password、displayName），执行 `register → login → verify` 链路后，`verify` 返回的 `userId`、`tenantId`、`role` 应与注册时创建的用户一致，且 token 的 JWT header 中 `alg` 为 `HS256`。
 
-**验证：需求 2.1、2.5**
+**验证：需求 2.1、2.3、2.5、2.7**
 
 ---
 
 ### 属性 4：过期令牌拒绝
 
-_对于任意_ 已过期的 AuthToken，`auth.verify` 应返回 `TOKEN_EXPIRED` 错误，不应返回有效的身份信息
+_对于任意_ 已过期的 AuthToken（`exp < now`），`auth.verify` 应返回 `TOKEN_EXPIRED` 错误，不应返回有效的身份信息。
 
 **验证：需求 2.6**
 
 ---
 
-### 属性 5：会话隔离完备性
+### 属性 5：认证错误不泄露信息
 
-_对于任意_ 两个不同的 userId（A 和 B），若 B 没有会话 S 的 SessionMembership 记录，则 B 调用 `sessions.list` 的结果不应包含 S，B 调用 `sessions.resolve(S)` 应返回 `SESSION_ACCESS_DENIED`
-
-**验证：需求 4.2、4.3**
-
----
-
-### 属性 6：会话成员增长
-
-_对于任意_ 有效的 sessionKey 和 targetUserId，会话成员（owner 或 participant）调用 `session.invite` 后，targetUserId 应立即成为会话成员（无需确认），`session.members` 返回的列表长度应增加 1，且包含 targetUserId
-
-**验证：需求 5.1、5.2、5.6**
-
----
-
-### 属性 7：权限矩阵一致性
-
-_对于任意_ 角色和操作组合，权限校验结果应与以下矩阵一致：
-
-- admin: user.list ✓, user.update ✓, sessions.create ✓, chat.send ✓, exec.approval.resolve ✓（若为 owner）
-- member: user.list ✓, user.update ✗, sessions.create ✓, chat.send ✓, exec.approval.resolve ✓（若为 owner）
-- viewer: user.list ✓, user.update ✗, sessions.create ✗, chat.send ✗, exec.approval.resolve ✗
-
-**验证：需求 6.1 ~ 6.6**
-
----
-
-### 属性 8：广播隔离
-
-_对于任意_ 会话事件和已连接用户集合，事件仅应发送给拥有该 sessionKey 的 SessionMembership 的用户连接，不应泄露给无权限用户
-
-**验证：需求 7.1、7.2**
-
----
-
-### 属性 9：兼容模式透明性
-
-_对于任意_ 不携带 `auth.masToken` 的连接，系统行为应与多租户功能引入前完全一致（会话全部可见、事件全部广播、无权限校验）
-
-**验证：需求 3.4、4.6、7.4**
-
----
-
-### 属性 10：登录速率限制
-
-_对于任意_ IP 地址，在 1 分钟窗口内连续 10 次登录失败后，第 11 次尝试应返回 `RATE_LIMITED` 错误
-
-**验证：需求 11.1**
-
----
-
-### 属性 11：owner 不可自行退出
-
-_对于任意_ 会话的 owner 用户，调用 `session.leave` 应返回 `OWNER_CANNOT_LEAVE` 错误，SessionMembership 记录不应被删除
-
-**验证：需求 5.8**
-
----
-
-### 属性 12：认证错误不泄露信息
-
-_对于任意_ 登录失败场景（用户名不存在或密码错误），`auth.login` 应返回相同的错误码 `AUTH_FAILED`，不应通过错误信息区分失败原因。但 `ACCOUNT_PENDING_APPROVAL` 和 `ACCOUNT_REJECTED` 是独立的状态错误码，仅在凭据验证通过后才返回。
+_对于任意_ 登录失败场景（用户名不存在或密码错误），`auth.login` 应返回相同的错误码 `AUTH_FAILED`，不应通过错误码、错误消息或响应时间差异区分失败原因。`ACCOUNT_PENDING_APPROVAL` 和 `ACCOUNT_REJECTED` 仅在凭据验证通过后根据 status 返回。
 
 **验证：需求 2.2、2.8、2.9**
 
 ---
 
-### 属性 13：成员移除完整性
+### 属性 6：会话隔离完备性
 
-_对于任意_ 会话 S 的 owner 用户 A 和 participant 用户 B，A 调用 `session.removeMember(B)` 后，B 不再是会话成员，`session.members` 不包含 B，B 调用 `sessions.list` 不包含 S。若 B 在线，应收到 `event:session.removed` 推送。
+_对于任意_ 两个不同的已认证用户 A 和 B，若 B 没有会话 S 的 SessionMembership 记录，则：
+
+- B 调用 `sessions.list` 的结果不应包含 S
+- B 调用 `sessions.resolve(S)` 应返回 `SESSION_ACCESS_DENIED`
+- B 调用 `chat.send` 到 S 应返回 `SESSION_ACCESS_DENIED`
+
+**验证：需求 4.2、4.3、4.4**
+
+---
+
+### 属性 7：会话创建记录完整性
+
+_对于任意_ 已认证用户 U 创建的会话 S，创建后应同时存在 SessionOwnership 记录（sessionKey=S, userId=U）和 SessionMembership 记录（sessionKey=S, userId=U, role="owner"）。
+
+**验证：需求 4.1**
+
+---
+
+### 属性 8：会话邀请权限与成员增长
+
+_对于任意_ 会话 S 和用户 U，当 U 是 S 的成员（owner 或 participant）时 `session.invite` 应成功；成功后被邀人立即成为会话成员（无需确认），`session.members` 返回的列表长度应增加 1 且包含被邀请用户；若被邀人在线，应收到 `event:session.joined` 推送。非成员调用应返回 `SESSION_ACCESS_DENIED`。已是成员时应返回 `ALREADY_MEMBER`。
+
+**验证：需求 5.1、5.2、5.3、5.4、5.6、5.9**
+
+---
+
+### 属性 9：owner 不可自行退出
+
+_对于任意_ 会话 S 的 owner 用户 U，调用 `session.leave` 应返回 `OWNER_CANNOT_LEAVE` 错误，SessionMembership 记录不应被删除。
+
+**验证：需求 5.7、5.8**
+
+---
+
+### 属性 10：全局与会话级权限矩阵一致性
+
+_对于任意_ 全局角色 R 和操作 M 的组合，权限校验结果应与以下矩阵一致：
+
+- admin: user.list ✓, user.update ✓, sessions.create ✓, chat.send ✓
+- member: user.list ✓, user.update ✗, sessions.create ✓, chat.send ✓
+- viewer: user.list ✓, user.update ✗, sessions.create ✗, chat.send ✗
+
+_对于任意_ 会话级角色 SR 和操作 M 的组合：
+
+- owner: session.invite ✓, session.removeMember ✓, exec.approval.resolve ✓
+- participant: session.invite ✓, session.removeMember ✗, exec.approval.resolve ✗
+
+**验证：需求 6.1、6.2、6.3、6.4、6.5、6.6**
+
+---
+
+### 属性 11：事件广播隔离
+
+_对于任意_ 会话事件（chat/agent）和已连接用户集合，事件仅应发送给拥有该 sessionKey 的 SessionMembership 的用户连接；`exec.approval.requested` 事件仅应发送给该会话的 owner 用户。
+
+**验证：需求 7.1、7.2、7.3**
+
+---
+
+### 属性 12：兼容模式透明性
+
+_对于任意_ 不携带 `masToken` 的连接（userId=null），系统行为应与多租户功能引入前完全一致：会话全部可见、事件全部广播、无权限校验。
+
+**验证：需求 3.4、4.6、7.4**
+
+---
+
+### 属性 13：登录速率限制
+
+_对于任意_ IP 地址，在 1 分钟窗口内连续 10 次登录失败后，第 11 次尝试应返回 `RATE_LIMITED` 错误和 `retryAfterMs` 值。
+
+**验证：需求 11.1**
+
+---
+
+### 属性 14：权限失败审计日志
+
+_对于任意_ 权限校验失败事件，审计日志中应包含一条记录，包含 userId、操作名、目标资源、时间戳和结果字段。
+
+**验证：需求 11.3**
+
+---
+
+### 属性 15：数据持久化 round-trip
+
+_对于任意_ 通过 TenantService 创建的用户、租户、会话归属和会话成员数据，关闭并重新打开 SQLite 数据库后读取应得到等价的数据。
+
+**验证：需求 10.1、10.2、10.3、10.4**
+
+---
+
+### 属性 16：并发写入安全
+
+_对于任意_ 两个并发的写入操作（如同时注册两个用户），SQLite WAL 模式和 busy_timeout 应确保数据不丢失、不损坏，最终状态包含两次写入的结果。
+
+**验证：需求 10.6**
+
+---
+
+### 属性 17：消息发送者名替换
+
+_对于任意_ 已登录用户 U（displayName=D），发送消息时构造的消息体前缀应为 `"D: "` 而非硬编码的 `"我: "`。
+
+**验证：需求 9.5**
+
+---
+
+### 属性 18：会话类型标记
+
+_对于任意_ 用户创建的会话，AppStore 中应标记 `masType="initiated"`；_对于任意_ 通过邀请加入的会话，应标记 `masType="participated"`。
+
+**验证：需求 9.2、9.3**
+
+---
+
+### 属性 19：成员移除完整性
+
+_对于任意_ 会话 S 的 owner 用户 A 和 participant 用户 B，A 调用 `session.removeMember(B)` 后，B 不再是会话成员，`session.members` 不包含 B，B 调用 `sessions.list` 不包含 S。若 B 在线，应收到 `event:session.removed` 推送。owner 移除自己应返回 `OWNER_CANNOT_LEAVE`，目标不是成员应返回 `NOT_A_MEMBER`。
 
 **验证：需求 5.10、5.11、5.12、5.13**
+
+---
+
+### 需求 12：用户在线状态维护
+
+**用户故事：** 作为用户，我希望系统能追踪用户的在线状态，以便在查看用户列表时了解哪些用户当前在线，方便协作决策。
+
+#### 验收标准
+
+1. THE TenantService SHALL 在数据库中创建 `user_presence` 表（userId TEXT PRIMARY KEY REFERENCES users(userId), lastSeenAt INTEGER NOT NULL, isOnline INTEGER NOT NULL DEFAULT 0），记录每个用户最后一次心跳时间和在线状态
+2. THE TenantService SHALL 提供 `presence.update` 接口，接受有效的 AuthToken，将调用者在 `user_presence` 表中的 `lastSeenAt` 更新为当前时间戳并将 `isOnline` 设为 `1`；若该用户尚无 presence 记录则自动创建
+3. THE TenantService SHALL 在 `auth.refresh` 接口（需求 2.4）成功续期时，同时调用 `presence.update` 逻辑更新该用户的在线状态
+4. THE Frontend SHALL 在用户登录成功后，每隔 5 分钟自动调用一次 `auth.refresh` 接口刷新令牌，以维持在线状态并避免 token 过期
+5. THE TenantService SHALL 提供后台定时任务（间隔不超过 1 分钟），扫描 `user_presence` 表，将 `lastSeenAt` 距当前时间超过 15 分钟的用户的 `isOnline` 设为 `0`（标记为离线）
+6. WHEN `user.list` 接口被调用，THE TenantService SHALL 在返回的每个用户对象中附加 `isOnline` 字段（`boolean`），值来源于 `user_presence` 表；若该用户尚无 presence 记录，则 `isOnline` 默认为 `false`
+7. WHEN admin 调用 `user.list`，THE TenantService SHALL 返回所有用户的 `isOnline` 状态；WHEN member/viewer 调用 `user.list`，THE TenantService SHALL 同样返回 `isOnline` 状态（仅限 `status="approved"` 的用户）
+8. WHEN 用户主动退出登录（调用退出接口或前端清除 token），THE TenantService SHALL 立即将该用户的 `isOnline` 设为 `0`，`lastSeenAt` 更新为当前时间戳
+9. THE Frontend SHALL 在用户列表 UI 中为每个用户显示在线状态指示器（如绿色圆点表示在线，灰色圆点表示离线）
+
+---
+
+## 正确性属性（续）
+
+### 属性 20：在线状态超时一致性
+
+_对于任意_ 用户 U，若 U 最后一次调用 `auth.refresh`（或 `presence.update`）的时间距当前超过 15 分钟，则 `user.list` 返回的 U 的 `isOnline` 字段应为 `false`；若 U 在 15 分钟内调用过 `auth.refresh`，则 `isOnline` 应为 `true`。
+
+**验证：需求 12.3、12.5、12.6**
+
+---
+
+### 属性 21：退出登录即时离线
+
+_对于任意_ 已登录用户 U，U 主动退出登录后，`user.list` 返回的 U 的 `isOnline` 字段应立即变为 `false`，不等待超时扫描。
+
+**验证：需求 12.8**

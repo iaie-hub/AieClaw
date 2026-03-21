@@ -11,10 +11,11 @@ import "./components/session-sidebar.js";
 import "./components/main-workspace.js";
 import "./components/invite-dialog.js";
 import "./views/login-view.js";
+import "./views/user-list-view.js";
 
 type DialogState = { kind: "none" } | { kind: "invite" };
 
-type NavItem = "workspace" | "usage" | "agents" | "skills" | "cron" | "settings";
+type NavItem = "workspace" | "usage" | "agents" | "skills" | "cron" | "users" | "settings";
 
 /**
  * mas4s 根组件。三栏布局：primary-sidebar + session-sidebar + main-workspace。
@@ -27,10 +28,11 @@ export class Mas4sApp extends LitElement {
   @state() private _activeNav: NavItem = "workspace";
   @state() private _dialog: DialogState = { kind: "none" };
   @state() private _connected = false;
-  @state() private _gatewayUrl = localStorage.getItem("mas4s_ws_url") || "ws://localhost:18789";
-  @state() private _gatewayToken = localStorage.getItem("mas4s_ws_token") || "";
   @state() private _connectError = "";
   @state() private _masAuthState: "checking" | "init" | "login" | "authenticated" = "checking";
+
+  /** Token refresh timer handle (5-minute interval) */
+  private _refreshTimer: ReturnType<typeof setInterval> | null = null;
 
   static styles = css`
     :host {
@@ -59,36 +61,53 @@ export class Mas4sApp extends LitElement {
   }
 
   private async _checkSystemStatus() {
-    console.debug("[mas4s:app] _checkSystemStatus → url=%s", this._gatewayUrl);
+    const url = localStorage.getItem("mas4s_ws_url") || "ws://localhost:18789";
+    const token = localStorage.getItem("mas4s_ws_token") || undefined;
+    console.debug("[mas4s:app] _checkSystemStatus → url=%s", url);
     try {
-      const client = getClient({ url: this._gatewayUrl });
-      const res = await client.request("system.status");
+      const client = getClient({ url, token });
+      await client.waitConnected();
+      const res = await client.request<{ initialized: boolean }>("system.status");
       console.debug("[mas4s:app] _checkSystemStatus ← system.status res=%o", res);
       if (!res.initialized) {
         this._masAuthState = "init";
+        resetClient(); // close the status-check connection; no WS needed until login
       } else if (localStorage.getItem("mas4s_auth_token")) {
         this._masAuthState = "authenticated";
         this._doConnect();
+        this._startRefreshTimer();
       } else {
         this._masAuthState = "login";
+        resetClient(); // close the status-check connection; no WS needed until login
       }
       console.debug("[mas4s:app] _checkSystemStatus ← masAuthState=%s", this._masAuthState);
     } catch (err) {
       console.warn("[mas4s:app] _checkSystemStatus ← error, falling back to login:", err);
+      this._connectError = err instanceof Error ? err.message : String(err);
       this._masAuthState = "login";
+      resetClient();
     }
   }
 
   private _doConnect = () => {
-    console.debug("[mas4s:app] _doConnect → url=%s", this._gatewayUrl);
+    const url = localStorage.getItem("mas4s_ws_url") || "ws://localhost:18789";
+    const token = localStorage.getItem("mas4s_ws_token") || undefined;
+    console.debug("[mas4s:app] _doConnect → url=%s", url);
     this._connectError = "";
-    localStorage.setItem("mas4s_ws_url", this._gatewayUrl);
-    localStorage.setItem("mas4s_ws_token", this._gatewayToken);
+
+    // Append masToken as URL query param so the gateway bridge can extract it
+    // from the HTTP upgrade request (auth.masToken in connect frame is not used).
+    const masAuthToken = localStorage.getItem("mas4s_auth_token");
+    let wsUrl = url;
+    if (masAuthToken) {
+      const sep = wsUrl.includes("?") ? "&" : "?";
+      wsUrl = `${wsUrl}${sep}masToken=${encodeURIComponent(masAuthToken)}`;
+    }
 
     resetClient();
     getClient({
-      url: this._gatewayUrl,
-      token: this._gatewayToken || undefined,
+      url: wsUrl,
+      token,
       onHello: () => {
         console.debug("[mas4s:app] _doConnect ← onHello: connected=true");
         this._connected = true;
@@ -110,6 +129,7 @@ export class Mas4sApp extends LitElement {
             "[mas4s:app] _doConnect ← auth error (%s), redirecting to login",
             info.reason,
           );
+          this._stopRefreshTimer();
           localStorage.removeItem("mas4s_auth_token");
           this._masAuthState = "login";
           resetClient();
@@ -129,17 +149,62 @@ export class Mas4sApp extends LitElement {
     console.debug("[mas4s:app] _onLoginSuccess → masAuthState=authenticated, initiating connect");
     this._masAuthState = "authenticated";
     this._doConnect();
+    this._startRefreshTimer();
     console.debug("[mas4s:app] _onLoginSuccess ← done");
   };
 
   private _onLogout = () => {
     console.debug("[mas4s:app] _onLogout → clearing session state");
+    this._stopRefreshTimer();
+    // Notify backend to mark user offline BEFORE closing the connection
+    try {
+      const client = getClient();
+      void client.request("user.logout", {}).catch((err) => {
+        console.warn("[mas4s:app] _onLogout ← user.logout request failed:", err);
+      });
+    } catch {
+      // client may already be disconnected
+    }
     AppStore.instance.logout();
-    resetClient();
+    // Small delay to let the logout request fly before closing the socket
+    setTimeout(() => resetClient(), 100);
     this._connected = false;
     this._masAuthState = "login";
     console.debug("[mas4s:app] _onLogout ← masAuthState=login");
   };
+
+  /** Start 5-minute auto token refresh to maintain online presence */
+  private _startRefreshTimer() {
+    this._stopRefreshTimer();
+    this._refreshTimer = setInterval(
+      async () => {
+        try {
+          const client = getClient();
+          const token = localStorage.getItem("mas4s_auth_token");
+          if (!token) {
+            return;
+          }
+          const res = await client.request<{ ok: boolean; token?: string }>("auth.refresh", {
+            token,
+          });
+          if (res.ok && res.token) {
+            localStorage.setItem("mas4s_auth_token", res.token);
+          }
+        } catch (err) {
+          console.warn("[mas4s:app] auto-refresh failed:", err);
+        }
+      },
+      5 * 60 * 1000,
+    ); // 5 minutes
+  }
+
+  /** Stop the auto-refresh timer */
+  private _stopRefreshTimer() {
+    if (this._refreshTimer !== null) {
+      clearInterval(this._refreshTimer);
+      this._refreshTimer = null;
+    }
+  }
 
   // ── 会话操作 ──────────────────────────────────────
 
@@ -230,40 +295,22 @@ export class Mas4sApp extends LitElement {
 
   // ── 渲染 ──────────────────────────────────────────
 
-  private _renderLoginGate() {
-    return html`
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#f8fafc;">
-        <h2 style="margin-bottom:24px;color:#0f172a;">OpenClaw 网关仅仪表盘</h2>
-        <div style="display:flex;flex-direction:column;gap:16px;width:340px;background:white;padding:24px;border-radius:8px;box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.1);">
-          <label style="display:flex;flex-direction:column;gap:6px;font-size:14px;color:#475569;">
-            WebSocket URL
-            <input
-              type="text"
-              .value=${this._gatewayUrl}
-              @input=${(e: Event) => (this._gatewayUrl = (e.target as HTMLInputElement).value)}
-              style="padding:10px;border:1px solid #e2e8f0;border-radius:6px;font-size:14px;outline:none;"
-            />
-          </label>
-          <label style="display:flex;flex-direction:column;gap:6px;font-size:14px;color:#475569;">
-            网关令牌
-            <input
-              type="password"
-              .value=${this._gatewayToken}
-              @input=${(e: Event) => (this._gatewayToken = (e.target as HTMLInputElement).value)}
-              @keydown=${(e: KeyboardEvent) => e.key === "Enter" && this._doConnect()}
-              placeholder="OPENCLAW_GATEWAY_TOKEN (可选)"
-              style="padding:10px;border:1px solid #e2e8f0;border-radius:6px;font-size:14px;outline:none;"
-            />
-          </label>
-          <button
-            @click=${this._doConnect}
-            style="margin-top:8px;padding:10px;background:#dc2626;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500;font-size:15px;"
-          >连 接</button>
-          ${this._connectError ? html`<div style="color:#dc2626;font-size:13px;margin-top:8px;padding:8px;background:#fef2f2;border:1px solid #fecaca;border-radius:4px;">${this._connectError}</div>` : ""}
-        </div>
-      </div>
-    `;
-  }
+  /**
+   * login-view 网关配置区测试连接成功后派发此事件，携带 initialized 状态。
+   * 直接跳到对应状态，无需重复调用 _checkSystemStatus。
+   */
+  private _onGatewayConnect = (e: Event) => {
+    const { initialized } = (e as CustomEvent<{ initialized: boolean }>).detail;
+    this._connectError = "";
+    if (!initialized) {
+      this._masAuthState = "init";
+    } else if (localStorage.getItem("mas4s_auth_token")) {
+      this._masAuthState = "authenticated";
+      this._doConnect();
+    } else {
+      this._masAuthState = "login";
+    }
+  };
 
   private _renderDialog() {
     const store = this._ctrl.store;
@@ -289,6 +336,7 @@ export class Mas4sApp extends LitElement {
             display: flex;
             align-items: center;
             justify-content: center;
+            width: 100%;
             height: 100vh;
             background: #f8fafc;
             color: #64748b;
@@ -301,15 +349,15 @@ export class Mas4sApp extends LitElement {
     }
 
     if (this._masAuthState === "init") {
-      return html`<mas4s-login-view mode="init" @login-success=${this._onLoginSuccess}></mas4s-login-view>`;
+      return html`<mas4s-login-view mode="init" .connectError=${this._connectError} @login-success=${this._onLoginSuccess} @gateway-connect=${this._onGatewayConnect}></mas4s-login-view>`;
     }
 
     if (this._masAuthState === "login") {
-      return html`<mas4s-login-view mode="login" @login-success=${this._onLoginSuccess}></mas4s-login-view>`;
+      return html`<mas4s-login-view mode="login" .connectError=${this._connectError} @login-success=${this._onLoginSuccess} @gateway-connect=${this._onGatewayConnect}></mas4s-login-view>`;
     }
 
     if (!this._connected) {
-      return this._renderLoginGate();
+      return html`<mas4s-login-view mode="login" .connectError=${this._connectError} @login-success=${this._onLoginSuccess} @gateway-connect=${this._onGatewayConnect}></mas4s-login-view>`;
     }
 
     const store = this._ctrl.store;
@@ -333,21 +381,32 @@ export class Mas4sApp extends LitElement {
       }
 
       <div class="workspace-wrap">
-        <div style="display:flex;justify-content:flex-end;padding:6px 12px;background:#fff;border-bottom:1px solid #e2e8f0;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:#fff;border-bottom:1px solid #e2e8f0;">
+          <span style="font-size:13px;color:#94a3b8;padding-left:4px;">
+            ${store.currentUser ? `${store.currentUser.displayName} · ${{ admin: "管理员", member: "成员", viewer: "观察者" }[store.currentUser.role] ?? store.currentUser.role}` : ""}
+          </span>
           <button
             @click=${this._onLogout}
             style="padding:5px 12px;background:transparent;border:1px solid #e2e8f0;border-radius:6px;cursor:pointer;font-size:13px;color:#64748b;"
           >退出登录</button>
         </div>
-        <main-workspace
-          .activeNav=${this._activeNav}
-          .session=${store.activeSession ?? null}
-          .messages=${store.activeSessionId ? (store.messagesBySession.get(store.activeSessionId) ?? []) : []}
-          .pendingApprovals=${store.pendingApprovals}
-          @send-message=${this._onSendMessage}
-          @resolve-approval=${this._onResolveApproval}
-          @invite-open=${this._onInviteOpen}
-        ></main-workspace>
+        ${
+          this._activeNav === "users"
+            ? html`
+                <user-list-view style="flex: 1; overflow: hidden"></user-list-view>
+              `
+            : html`
+              <main-workspace
+                .activeNav=${this._activeNav}
+                .session=${store.activeSession ?? null}
+                .messages=${store.activeSessionId ? (store.messagesBySession.get(store.activeSessionId) ?? []) : []}
+                .pendingApprovals=${store.pendingApprovals}
+                @send-message=${this._onSendMessage}
+                @resolve-approval=${this._onResolveApproval}
+                @invite-open=${this._onInviteOpen}
+              ></main-workspace>
+            `
+        }
       </div>
 
       ${this._renderDialog()}

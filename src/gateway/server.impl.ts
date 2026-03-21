@@ -1203,6 +1203,7 @@ export async function startGatewayServer(
     context: gatewayRequestContext,
     onClientConnected: mas4s.onClientConnected,
     onSessionCreated: mas4s.onSessionCreated,
+    onClientDisconnected: mas4s.onClientDisconnected,
   });
   logGatewayStartup({
     cfg: cfgAtStart,

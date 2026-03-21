@@ -1,7 +1,7 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property } from "lit/decorators.js";
 
-export type NavItem = "workspace" | "usage" | "agents" | "skills" | "cron" | "settings";
+export type NavItem = "workspace" | "usage" | "agents" | "skills" | "cron" | "users" | "settings";
 
 const NAV_ITEMS: Array<{ id: NavItem; label: string; icon: string }> = [
   { id: "workspace", label: "工作台", icon: "💬" },
@@ -9,6 +9,7 @@ const NAV_ITEMS: Array<{ id: NavItem; label: string; icon: string }> = [
   { id: "agents", label: "智能体", icon: "🤖" },
   { id: "skills", label: "Skills", icon: "⚙️" },
   { id: "cron", label: "定时任务", icon: "⏱️" },
+  { id: "users", label: "用户列表", icon: "👥" },
 ];
 
 const BOTTOM_ITEMS: Array<{ id: NavItem; label: string; icon: string }> = [

@@ -39,11 +39,16 @@ export interface Mas4sIntegration {
    * Filter sessions.list results to only include sessions the user has membership for.
    */
   filterSessionsList: (sessions: unknown[], client: GatewayWsClient | null) => unknown[];
+  /**
+   * Called when a WS client disconnects. Marks the user offline if authenticated.
+   */
+  onClientDisconnected: (client: GatewayWsClient) => void;
 }
 
 const NOOP_INTEGRATION: Mas4sIntegration = {
   extraHandlers: {},
   onClientConnected: () => {},
+  onClientDisconnected: () => {},
   onSessionCreated: () => {},
   interceptRequest: () => ({ allowed: true }),
   filterBroadcast: () => null,
@@ -179,6 +184,20 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
       }
     };
 
+    const onClientDisconnected: Mas4sIntegration["onClientDisconnected"] = (client) => {
+      try {
+        const masAuth = contextMod.getMasAuth(client) ?? contextMod.NULL_MAS_AUTH;
+        log.info(
+          `mas4s onClientDisconnected conn=${client.connId} userId=${masAuth.userId ?? "null"}`,
+        );
+        if (masAuth.userId) {
+          plugin.bridge.logout(masAuth.userId);
+        }
+      } catch (err) {
+        log.warn(`mas4s onClientDisconnected failed for conn=${client.connId}: ${String(err)}`);
+      }
+    };
+
     // Wrap session.invite and session.removeMember to push real-time notifications.
     // We need access to the clients set, so we store a reference that gets updated.
     let activeClients: Set<GatewayWsClient> = new Set();
@@ -292,6 +311,7 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
     return {
       extraHandlers,
       onClientConnected,
+      onClientDisconnected,
       onSessionCreated,
       interceptRequest,
       filterBroadcast,

@@ -61,6 +61,12 @@ export async function createMas4sGatewayPlugin(
   const dbPath = config?.dbPath ?? join(homedir(), ".openclaw", "aiemas", "mas4s.db");
   const db = initDatabase(dbPath);
 
+  // Log user count on startup for operational visibility
+  const userCountRow = db.prepare("SELECT COUNT(*) AS count FROM users").get() as {
+    count: number;
+  };
+  console.log(`[mas4s] Gateway started: ${userCountRow.count} user(s) in database`);
+
   const bridge = new GatewayAuthBridge(tenantService, db);
 
   const extraHandlers: SimpleHandlers = {
@@ -303,6 +309,21 @@ export async function createMas4sGatewayPlugin(
         } else {
           respond(false, undefined, errorShape(result.code, result.message));
         }
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
+
+    "user.logout": async ({ client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        console.log(`[mas4s:plugin] user.logout userId=${auth.userId ?? "null"}`);
+        if (auth.userId) {
+          bridge.logout(auth.userId);
+        }
+        respond(true, { ok: true }, undefined);
       } catch (err) {
         const e =
           err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));

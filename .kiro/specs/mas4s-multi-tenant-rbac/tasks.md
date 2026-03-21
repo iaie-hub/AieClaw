@@ -275,7 +275,66 @@
     - **验证: 需求 9.2, 9.3**
     - 创建 `aiemas/ui/mas4s/src/store/app-store.property.test.ts`，验证创建的会话标记为 initiated，邀请加入的标记为 participated
 
-- [x] 13. 最终检查点 - 全部完成
+- [ ] 13. 用户在线状态维护（需求 12）
+  - [x] 13.1 扩展 SQLite schema 添加 user_presence 表
+    - 在 `aiemas/src/store/database.ts` 的 `ensureMas4sSchema` 函数中添加 `user_presence` 表：
+      ```sql
+      CREATE TABLE IF NOT EXISTS user_presence (
+        userId TEXT PRIMARY KEY REFERENCES users(userId),
+        lastSeenAt INTEGER NOT NULL,
+        isOnline INTEGER NOT NULL DEFAULT 0
+      );
+      ```
+    - _需求: 12.1_
+
+  - [x] 13.2 实现 presence 服务模块
+    - 创建 `aiemas/src/presence/presence-service.ts`，实现：
+      - `updatePresence(userId, db)`: UPSERT user_presence 记录，设 lastSeenAt=now, isOnline=1
+      - `markOffline(userId, db)`: 更新 isOnline=0, lastSeenAt=now
+      - `startOfflineScanner(db, intervalMs?)`: 启动后台定时任务（间隔 ≤ 1 分钟），扫描 lastSeenAt 超过 15 分钟的用户并设 isOnline=0
+      - `getPresence(userId, db)`: 返回 `{ isOnline: boolean, lastSeenAt: number | null }`
+    - _需求: 12.2, 12.5_
+
+  - [x] 13.3 修改 auth.refresh 集成 presence.update
+    - 修改 `aiemas/src/auth/jwt.ts` 中的 refreshToken 函数（或 TenantService 的 refresh 方法），在续期成功后调用 `updatePresence(userId, db)`
+    - _需求: 12.3_
+
+  - [x] 13.4 修改 user.list 附加 isOnline 字段
+    - 修改 `aiemas/src/users/user-service.ts` 的 `listUsers` 函数，在返回每个用户对象时 JOIN 或查询 user_presence 表，附加 `isOnline: boolean` 字段（无 presence 记录时默认 false）
+    - admin 和 member/viewer 均返回 isOnline（admin 返回全量用户，member/viewer 仅返回 approved 用户）
+    - _需求: 12.6, 12.7_
+
+  - [x] 13.5 修改退出登录立即标记离线
+    - 在 TenantService 或 GatewayAuthBridge 中添加 `logout(userId)` 方法，调用 `markOffline(userId, db)`
+    - 在 gateway 的 WS disconnect 或前端退出登录流程中调用此方法
+    - _需求: 12.8_
+
+  - [x] 13.6 前端：登录后每 5 分钟自动刷新 token
+    - 修改 `aiemas/ui/mas4s/src/app.ts` 或 `aiemas/ui/mas4s/src/store/app-store.ts`，在登录成功后启动定时器（setInterval，5 分钟），自动调用 `auth.refresh` 接口
+    - 退出登录时清除定时器
+    - _需求: 12.4_
+
+  - [x] 13.7 前端：用户列表显示在线状态指示器
+    - 修改 `aiemas/ui/mas4s/src/views/user-list-view.ts`（或相关用户列表组件），在每个用户条目旁显示在线状态指示器：
+      - isOnline=true：绿色圆点
+      - isOnline=false：灰色圆点
+    - _需求: 12.9_
+
+  - [ ]\* 13.8 编写在线状态超时一致性属性测试
+    - **属性 20: 在线状态超时一致性**
+    - **验证: 需求 12.3, 12.5, 12.6**
+    - 创建 `aiemas/src/presence/presence-service.property.test.ts`，验证：
+      - 任意用户 U，若 lastSeenAt 超过 15 分钟，user.list 返回 isOnline=false
+      - 若 lastSeenAt 在 15 分钟内，user.list 返回 isOnline=true
+    - **测试运行方式：`pnpm test -- aiemas/src`**
+
+  - [ ]\* 13.9 编写退出登录即时离线属性测试
+    - **属性 21: 退出登录即时离线**
+    - **验证: 需求 12.8**
+    - 在 `aiemas/src/presence/presence-service.property.test.ts` 中添加测试，验证任意已登录用户退出后 isOnline 立即变为 false
+    - **测试运行方式：`pnpm test -- aiemas/src`**
+
+- [x] 14. 最终检查点 - 全部完成
   - 确保所有测试通过，如有问题请向用户确认。
 
 ## 备注

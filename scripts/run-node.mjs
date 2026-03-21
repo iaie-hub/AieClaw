@@ -42,6 +42,9 @@ export const isBuildRelevantRunNodePath = (repoPath) => {
   if (normalizedPath.startsWith("extensions/")) {
     return isBuildRelevantSourcePath(normalizedPath.slice("extensions/".length));
   }
+  if (normalizedPath.startsWith("aiemas/")) {
+    return isBuildRelevantSourcePath(normalizedPath.slice("aiemas/".length));
+  }
   return false;
 };
 
@@ -63,6 +66,9 @@ export const isRestartRelevantRunNodePath = (repoPath) => {
   }
   if (normalizedPath.startsWith("extensions/")) {
     return isRestartRelevantExtensionPath(normalizedPath.slice("extensions/".length));
+  }
+  if (normalizedPath.startsWith("aiemas/")) {
+    return isBuildRelevantSourcePath(normalizedPath.slice("aiemas/".length));
   }
   return false;
 };

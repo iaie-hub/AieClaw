@@ -19,9 +19,15 @@ export function getClient(opts?: Partial<GatewayBrowserClientOptions>): GatewayB
   }
 
   const url = opts?.url ?? resolveGatewayUrl();
+  // Gateway token (OPENCLAW_GATEWAY_TOKEN) is needed for the connect handshake.
+  // If not explicitly provided, fall back to the stored gateway token.
+  // Note: mas4s_auth_token is the user JWT (passed separately as masToken in connect params),
+  // not the gateway token — do NOT use it here as the gateway token.
+  const gatewayToken = opts?.token ?? localStorage.getItem("mas4s_ws_token") ?? undefined;
   _client = new GatewayBrowserClient({
     url,
     ...opts,
+    token: gatewayToken,
     onEvent: (evt: GatewayEventFrame) => {
       // 调用所有已注册的事件处理器
       for (const handler of _pendingHandlers) {
@@ -52,32 +58,23 @@ export function resetClient(): void {
 }
 
 /**
- * 从当前页面 URL 推断 gateway WebSocket 地址。
- * 开发时默认连接 localhost:18789。
- * 若 localStorage 中存有 mas4s_auth_token，则附加 masToken 查询参数。
+ * 从 localStorage 或当前页面 URL 推断 gateway WebSocket 地址。
+ * 优先使用 localStorage 中保存的 mas4s_ws_url，其次根据当前页面 URL 推断。
  */
 function resolveGatewayUrl(baseUrl?: string): string {
-  let url: string;
   if (baseUrl) {
-    url = baseUrl;
-  } else {
-    const loc = window.location;
-    const proto = loc.protocol === "https:" ? "wss:" : "ws:";
-    if (loc.hostname === "localhost" || loc.hostname === "127.0.0.1") {
-      url = `${proto}//${loc.hostname}:18789/ws`;
-    } else {
-      url = `${proto}//${loc.host}/ws`;
-    }
+    return baseUrl;
   }
-
-  // Inject masToken if available
-  const masToken = localStorage.getItem("mas4s_auth_token");
-  if (masToken) {
-    const separator = url.includes("?") ? "&" : "?";
-    url = `${url}${separator}masToken=${encodeURIComponent(masToken)}`;
+  const stored = localStorage.getItem("mas4s_ws_url");
+  if (stored) {
+    return stored;
   }
-
-  return url;
+  const loc = window.location;
+  const proto = loc.protocol === "https:" ? "wss:" : "ws:";
+  if (loc.hostname === "localhost" || loc.hostname === "127.0.0.1") {
+    return `${proto}//${loc.hostname}:18789/ws`;
+  }
+  return `${proto}//${loc.host}/ws`;
 }
 
 export type { GatewayHelloOk, GatewayEventFrame };

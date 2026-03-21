@@ -105,6 +105,10 @@ export function registerUser(
       "INSERT INTO users (userId, username, displayName, passwordHash, role, tenantId, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(userId, username, displayName, passwordHash, "admin", tenantId, "approved", now);
 
+    console.log(
+      `[mas4s] System initialized: created initial admin user "${username}" (Tenant: ${tenantId})`,
+    );
+
     return {
       userId,
       username,
@@ -122,17 +126,30 @@ export function registerUser(
   let status: User["status"] = "pending";
 
   if (!resolvedTenantId) {
-    // No tenantId specified: auto-create new tenant, set user as admin
-    resolvedTenantId = randomUUID();
-    const now = Date.now();
-    db.prepare("INSERT INTO tenants (tenantId, name, createdAt) VALUES (?, ?, ?)").run(
-      resolvedTenantId,
-      `${displayName}'s Tenant`,
-      now,
-    );
-    role = "admin";
-    status = "approved"; // auto-created tenant owner is always approved
-  } else if (callerRole === "admin") {
+    // No tenantId specified for self-registration:
+    // Join the default (first) tenant instead of creating a new one,
+    // so that the new user becomes a pending member of the main workspace.
+    const defaultTenantRow = db
+      .prepare("SELECT tenantId FROM tenants ORDER BY createdAt ASC LIMIT 1")
+      .get() as { tenantId: string } | undefined;
+
+    if (defaultTenantRow) {
+      resolvedTenantId = defaultTenantRow.tenantId;
+    } else {
+      // Fallback in case of corruption
+      resolvedTenantId = randomUUID();
+      const now = Date.now();
+      db.prepare("INSERT INTO tenants (tenantId, name, createdAt) VALUES (?, ?, ?)").run(
+        resolvedTenantId,
+        "Fallback Tenant",
+        now,
+      );
+      role = "admin";
+      status = "approved";
+    }
+  }
+
+  if (callerRole === "admin") {
     // Admin creating user: skip approval
     status = "approved";
   }
@@ -157,6 +174,10 @@ export function registerUser(
     "INSERT INTO users (userId, username, displayName, passwordHash, role, tenantId, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(userId, username, displayName, passwordHash, role, resolvedTenantId, status, now);
 
+  console.log(
+    `[mas4s] User registered: ${username} (Role: ${role}, Tenant: ${resolvedTenantId}, Status: ${status})`,
+  );
+
   return {
     userId,
     username,
@@ -178,21 +199,29 @@ export function listUsers(
   if (callerRole === "admin") {
     const rows = db
       .prepare(
-        "SELECT userId, username, displayName, role, tenantId, status, createdAt FROM users WHERE tenantId = ?",
+        `SELECT u.userId, u.username, u.displayName, u.role, u.tenantId, u.status, u.createdAt,
+                COALESCE(p.isOnline, 0) AS isOnline
+         FROM users u
+         LEFT JOIN user_presence p ON u.userId = p.userId
+         WHERE u.tenantId = ?`,
       )
-      .all(tenantId) as PublicUser[];
-    return rows;
+      .all(tenantId) as (PublicUser & { isOnline: number })[];
+    return rows.map((r) => ({ ...r, isOnline: r.isOnline === 1 }));
   }
 
   // member/viewer: only approved users, without status field
   const rows = db
     .prepare(
-      "SELECT userId, username, displayName, role, tenantId, createdAt FROM users WHERE tenantId = ? AND status = 'approved'",
+      `SELECT u.userId, u.username, u.displayName, u.role, u.tenantId, u.createdAt,
+              COALESCE(p.isOnline, 0) AS isOnline
+       FROM users u
+       LEFT JOIN user_presence p ON u.userId = p.userId
+       WHERE u.tenantId = ? AND u.status = 'approved'`,
     )
-    .all(tenantId) as Omit<PublicUser, "status">[];
+    .all(tenantId) as (Omit<PublicUser, "status"> & { isOnline: number })[];
 
-  // Return without status field
-  return rows as PublicUser[];
+  // Return with implicit approved status
+  return rows.map((r) => ({ ...r, status: "approved" as const, isOnline: r.isOnline === 1 }));
 }
 
 // ── Update user ───────────────────────────────────────────────────────────────

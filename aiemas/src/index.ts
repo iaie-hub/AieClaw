@@ -5,6 +5,7 @@ import { logPermissionFailure } from "./audit/audit-logger.js";
 import { signToken, verifyToken, refreshToken, getJwtSecret } from "./auth/jwt.js";
 import { AUTH_FAILED, ACCOUNT_PENDING_APPROVAL, ACCOUNT_REJECTED } from "./errors.js";
 import type { GlobalRole, PublicUser } from "./models.js";
+import { updatePresence, markOffline, startOfflineScanner } from "./presence/presence-service.js";
 import { checkPermission as _checkPermission } from "./rbac/permission-checker.js";
 import type { SessionPermissionContext, PermissionResult } from "./rbac/permission-checker.js";
 import { initDatabase } from "./store/database.js";
@@ -70,6 +71,9 @@ export interface TenantService {
     clientIp: string,
   ): { allowed: true } | { allowed: false; retryAfterMs: number };
 
+  // Presence
+  logout(userId: string): void;
+
   // System status
   getSystemStatus(): { initialized: boolean };
 
@@ -85,6 +89,7 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
 
   // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
   let db: DatabaseSync | undefined;
+  let _stopOfflineScanner: (() => void) | undefined;
 
   // In-memory sliding window rate limiter: ip -> timestamps of failures
   const failureMap = new Map<string, number[]>();
@@ -98,6 +103,7 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
 
   return {
     async init(): Promise<void> {
+      console.log(`[mas4s] Initializing TenantService at "${dbPath}"...`);
       // Set JWT secret from config if provided
       if (config?.jwtSecret) {
         process.env["MAS4S_JWT_SECRET"] = config.jwtSecret;
@@ -106,6 +112,9 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
       getJwtSecret();
       // Initialize database
       db = initDatabase(dbPath);
+      // Start offline presence scanner (runs every 60s)
+      _stopOfflineScanner = startOfflineScanner(db);
+      console.log("[mas4s] TenantService initialized successfully.");
     },
 
     login(params) {
@@ -134,6 +143,9 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
 
       // Verify password
       if (!verifyPassword(password, user.passwordHash)) {
+        console.log(
+          `[mas4s] Login failed for user "${username}": invalid password (IP: ${clientIp ?? "unknown"})`,
+        );
         if (clientIp) {
           recordLoginFailure(failureMap, clientIp);
         }
@@ -151,6 +163,9 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
       // Sign token
       const token = signToken({ userId: user.userId, tenantId: user.tenantId, role: user.role });
 
+      // Mark user as online on successful login
+      updatePresence(database, user.userId);
+
       const publicUser: PublicUser = {
         userId: user.userId,
         username: user.username,
@@ -160,6 +175,10 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
         status: user.status,
         createdAt: user.createdAt,
       };
+
+      console.log(
+        `[mas4s] Login successful: ${username} (ID: ${user.userId}, Tenant: ${user.tenantId})`,
+      );
 
       return { ok: true, token, user: publicUser };
     },
@@ -177,6 +196,9 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
     refresh(token) {
       try {
         const newToken = refreshToken(token);
+        // Update presence on successful refresh
+        const claims = verifyToken(newToken);
+        updatePresence(getDb(), claims.userId);
         return { ok: true, token: newToken };
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -234,6 +256,10 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
 
     getSystemStatus() {
       return getSystemStatus(getDb());
+    },
+
+    logout(userId: string) {
+      markOffline(getDb(), userId);
     },
   };
 }

@@ -1,6 +1,7 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import type { SessionRunStatus } from "../lib/types.js";
+import { AppStoreController } from "../store/app-store.js";
 import { resolveStatusType } from "../types/session-types.js";
 import "./notif-badge.js";
 
@@ -24,6 +25,8 @@ const STATUS_COLORS: Record<string, string> = {
  */
 @customElement("main-header")
 export class MainHeader extends LitElement {
+  private _ctrl = new AppStoreController(this);
+
   @property({ type: String }) title = "";
   @property({ type: String }) status: SessionRunStatus | undefined = undefined;
   @property({ type: Number }) approvalCount = 0;
@@ -159,8 +162,8 @@ export class MainHeader extends LitElement {
       <div class="right">
         <notif-badge .count=${this.approvalCount}></notif-badge>
         <div class="user-info">
-          <div class="user-avatar">A</div>
-          <span class="user-name">admin</span>
+          <div class="user-avatar">${this._ctrl.store.currentUser?.displayName?.charAt(0).toUpperCase() || "U"}</div>
+          <span class="user-name">${this._ctrl.store.currentUser?.displayName || "User"}</span>
         </div>
       </div>
     `;

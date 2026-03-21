@@ -140,6 +140,9 @@ export class GatewayAuthBridge {
       return;
     }
     sessionManager.recordSessionCreated(this.db, sessionKey, masAuth.userId, masAuth.tenantId);
+    console.log(
+      `[mas4s] Session created: ${sessionKey} (User: ${masAuth.userId}, Tenant: ${masAuth.tenantId})`,
+    );
   }
 
   /**
@@ -227,6 +230,14 @@ export class GatewayAuthBridge {
    */
   getSessionOwnerUserIds(sessionKey: string): string[] {
     return sessionManager.getSessionOwnerUserIds(this.db, sessionKey);
+  }
+
+  /**
+   * Mark a user as offline (called on logout or WS disconnect).
+   */
+  logout(userId: string): void {
+    console.log(`[mas4s:bridge] logout → marking offline userId=${userId}`);
+    this.tenantService.logout(userId);
   }
 
   /**

@@ -90,6 +90,7 @@ export type AttachGatewayWsConnectionHandlerParams = GatewayWsSharedHandlerParam
   buildRequestContext: () => GatewayRequestContext;
   onClientConnected?: (client: GatewayWsClient, upgradeReq: { url?: string }) => void;
   onSessionCreated?: (sessionKey: string, label: string, client: GatewayWsClient) => void;
+  onClientDisconnected?: (client: GatewayWsClient) => void;
 };
 
 export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnectionHandlerParams) {
@@ -244,6 +245,10 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       if (client?.presenceKey) {
         upsertPresence(client.presenceKey, { reason: "disconnect" });
         broadcastPresenceSnapshot({ broadcast, incrementPresenceVersion, getHealthVersion });
+      }
+      // Notify mas4s plugin so it can mark the user offline
+      if (client) {
+        params.onClientDisconnected?.(client);
       }
       const context = buildRequestContext();
       context.unsubscribeAllSessionEvents(connId);

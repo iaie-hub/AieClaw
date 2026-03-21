@@ -22,6 +22,7 @@ type GatewayWsRuntimeParams = GatewayWsSharedHandlerParams & {
   context: GatewayRequestContext;
   onClientConnected?: (client: GatewayWsClient, upgradeReq: { url?: string }) => void;
   onSessionCreated?: (sessionKey: string, label: string, client: GatewayWsClient) => void;
+  onClientDisconnected?: (client: GatewayWsClient) => void;
 };
 
 export function attachGatewayWsHandlers(params: GatewayWsRuntimeParams) {
@@ -45,5 +46,6 @@ export function attachGatewayWsHandlers(params: GatewayWsRuntimeParams) {
     buildRequestContext: () => params.context,
     onClientConnected: params.onClientConnected,
     onSessionCreated: params.onSessionCreated,
+    onClientDisconnected: params.onClientDisconnected,
   });
 }
