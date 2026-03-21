@@ -520,19 +520,14 @@ export class LoginView extends LitElement {
 
       if (isInit) {
         this._initSuccess = true;
-        this.mode = "login";
-        this._username = username;
-        this._password = "";
-        this._passwordConfirm = "";
-        this._displayName = "";
       } else {
         this._pendingApproval = true;
-        this.mode = "login";
-        this._username = username;
-        this._password = "";
-        this._passwordConfirm = "";
-        this._displayName = "";
       }
+      this.mode = "login";
+      this._username = username;
+      this._password = "";
+      this._passwordConfirm = "";
+      this._displayName = "";
     } catch (err) {
       this._handleError(err);
     } finally {
