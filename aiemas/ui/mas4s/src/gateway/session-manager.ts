@@ -44,8 +44,20 @@ export async function createSession(
 }
 
 /**
- * 重命名会话：调用 sessions.patch 更新 label。
+ * 拉取当前用户有权限的会话列表（按 session_memberships 过滤）。
+ * 在连接成功后调用，用于恢复历史会话。
  */
+export async function fetchSessions(client: GatewayBrowserClient): Promise<MasSession[]> {
+  const result = await client.request<{ sessions: GatewaySessionRow[] }>("sessions.list", {});
+  return (result.sessions ?? []).map((row) => ({
+    ...row,
+    kind: row.kind === "group" ? "group" : row.kind,
+    masType: "initiated" as const,
+    hasNotification: false,
+    notificationCount: 0,
+    participants: [],
+  }));
+}
 export async function renameSession(
   client: GatewayBrowserClient,
   sessionKey: string,

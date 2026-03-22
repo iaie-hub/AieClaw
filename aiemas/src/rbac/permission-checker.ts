@@ -33,6 +33,7 @@ export const GLOBAL_ROLE_PERMISSIONS: Record<string, Set<GlobalRole>> = {
   "auth.login": new Set([]), // no auth required
   "auth.refresh": new Set(["admin", "member", "viewer"]),
   "auth.verify": new Set([]), // no auth required
+  "user.logout": new Set(["admin", "member", "viewer"]), // any authenticated user can log out
 };
 
 /**

@@ -77,7 +77,8 @@ export function registerEventHandlers(): void {
 }
 
 function handleChatEvent(store: AppStore, payload: unknown): void {
-  const { sessionKey, state, message } = payload as {
+  const { runId, sessionKey, state, message } = payload as {
+    runId?: string;
     sessionKey: string;
     state: "delta" | "final" | "clear";
     message?: unknown;
@@ -99,6 +100,8 @@ function handleChatEvent(store: AppStore, payload: unknown): void {
 
   const chatMsg: ChatMessage = {
     ...normalized,
+    // 用 runId 作为流式消息的稳定 id，供去重匹配
+    id: normalized.id ?? runId,
     senderLabel: senderLabel ?? normalized.senderLabel,
     content: firstText
       ? [{ type: "text" as const, text: cleanText }, ...normalized.content.slice(1)]
@@ -106,38 +109,62 @@ function handleChatEvent(store: AppStore, payload: unknown): void {
     subType: senderLabel ? ("colleague" as const) : undefined,
   };
 
+  // assistant delta 由 event:"agent" stream:"assistant" 负责流式渲染，
+  // 此处跳过，避免与 agent 事件重复追加。
+  // user 消息和 final 状态（最终确认）仍由此处处理。
+  if (normalized.role === "assistant" && state === "delta") {
+    return;
+  }
+
   updateChatStream(store, sessionKey, chatMsg, state === "final");
 }
 
 function handleAgentEvent(store: AppStore, payload: unknown): void {
-  // 第一期：仅记录 thinking delta，第二期实现 reasoning-block 渲染
-  const { sessionKey, stream, delta } = payload as {
+  const { runId, sessionKey, stream, data } = payload as {
+    runId?: string;
     sessionKey?: string;
     stream?: string;
-    delta?: string;
+    data?: { text?: string; delta?: string };
   };
-  if (!sessionKey || stream !== "thinking" || !delta) {
+
+  if (!sessionKey) {
     return;
   }
-  // TODO: 第二期 — 追加到 AppStore 的推理缓存
-  void store;
+
+  if (stream === "assistant" && data?.text !== undefined && runId) {
+    // 用 runId 作为稳定 id，流式更新 assistant 消息气泡
+    const streamMsg: ChatMessage = {
+      role: "assistant",
+      content: [{ type: "text", text: data.text }],
+      timestamp: Date.now(),
+      id: runId,
+      senderLabel: null,
+    };
+    updateChatStream(store, sessionKey, streamMsg, false);
+    return;
+  }
+
+  if (stream === "thinking" && data?.delta) {
+    // TODO: 第二期 — 追加到 AppStore 的推理缓存
+    void store;
+  }
 }
 
 /**
  * 流式消息更新策略：
- * - delta：若最后一条消息 id 相同则更新内容，否则追加新消息
- * - final：同上，但标记为最终版本
+ * - 若最后一条 assistant 消息 id 相同则更新内容（无论 delta 还是 final）
+ * - 否则追加新消息
  */
 export function updateChatStream(
   store: AppStore,
   sessionKey: string,
   msg: ChatMessage,
-  isFinal: boolean,
+  _isFinal: boolean,
 ): void {
   const msgs = store.messagesBySession.get(sessionKey) ?? [];
   const last = msgs[msgs.length - 1];
 
-  if (!isFinal && last?.role === "assistant" && last.id && last.id === msg.id) {
+  if (last?.role === "assistant" && last.id && last.id === msg.id) {
     store.updateLastMessage(sessionKey, { ...last, content: msg.content });
   } else {
     store.appendMessage(sessionKey, msg);

@@ -59,8 +59,10 @@ export class MainWorkspace extends LitElement {
         .title=${hasSession ? `会话：${this.session!.label ?? this.session!.key}` : ""}
         .status=${this.session?.status}
         .approvalCount=${this.pendingApprovals.length}
+        .pendingApprovals=${this.pendingApprovals}
         .showInvite=${hasSession}
         @invite-click=${this._onInviteClick}
+        @resolve-approval=${this._onResolve}
       ></main-header>
 
       <div class="workspace-content">

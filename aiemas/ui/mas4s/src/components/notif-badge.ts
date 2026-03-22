@@ -4,6 +4,7 @@ import { customElement, property } from "lit/decorators.js";
 /**
  * Bell 角标组件。
  * count > 0 时显示数字，count === 0 时隐藏数字。
+ * 点击时派发 notif-open 事件。
  */
 @customElement("notif-badge")
 export class NotifBadge extends LitElement {
@@ -35,6 +36,12 @@ export class NotifBadge extends LitElement {
       color: #3b82f6;
     }
 
+    .bell-btn.active {
+      border-color: #93c5fd;
+      color: #3b82f6;
+      background: #eff6ff;
+    }
+
     .badge {
       position: absolute;
       top: -4px;
@@ -48,12 +55,22 @@ export class NotifBadge extends LitElement {
       min-width: 16px;
       text-align: center;
       line-height: 14px;
+      pointer-events: none;
     }
   `;
 
+  private _onClick = () => {
+    this.dispatchEvent(new CustomEvent("notif-open", { bubbles: true, composed: true }));
+  };
+
   render() {
     return html`
-      <button class="bell-btn" aria-label="审批通知 ${this.count} 条">
+      <button
+        class="bell-btn"
+        aria-label="审批通知 ${this.count} 条"
+        aria-haspopup="true"
+        @click=${this._onClick}
+      >
         🔔
       </button>
       ${this.count > 0 ? html`<span class="badge">${this.count}</span>` : nothing}

@@ -16,6 +16,24 @@ const BOTTOM_ITEMS: Array<{ id: NavItem; label: string; icon: string }> = [
   { id: "settings", label: "设置", icon: "🔧" },
 ];
 
+const LOGOUT_ICON = html`
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <polyline points="16 17 21 12 16 7" />
+    <line x1="21" y1="12" x2="9" y2="12" />
+  </svg>
+`;
+
 /**
  * 一级导航侧边栏（80px 宽）。
  * 触发 nav-change 事件通知父组件切换视图。
@@ -132,6 +150,10 @@ export class PrimarySidebar extends LitElement {
     this.dispatchEvent(new CustomEvent("nav-change", { detail: { nav: id }, bubbles: true }));
   }
 
+  private _onLogoutClick() {
+    this.dispatchEvent(new CustomEvent("logout", { bubbles: true }));
+  }
+
   private _renderItem(item: { id: NavItem; label: string; icon: string }) {
     const isActive = this.activeNav === item.id;
     return html`
@@ -155,6 +177,14 @@ export class PrimarySidebar extends LitElement {
         <div class="spacer"></div>
       </nav>
       <div class="bottom-nav">
+        <button
+          class="nav-item"
+          @click=${() => this._onLogoutClick()}
+          aria-label="退出登录"
+        >
+          <div class="nav-icon-wrapper">${LOGOUT_ICON}</div>
+          <span>登出</span>
+        </button>
         ${BOTTOM_ITEMS.map((item) => this._renderItem(item))}
       </div>
     `;
