@@ -32,10 +32,22 @@ export class GatewayAuthBridge {
       throw new TenantServiceError(MAS_AUTH_FAILED, `MAS authentication failed: ${result.error}`);
     }
 
+    // Resolve displayName from DB so gateway can populate SenderName in chat.send
+    let displayName: string | undefined;
+    try {
+      const row = this.db
+        .prepare("SELECT displayName FROM users WHERE userId = ?")
+        .get(result.userId) as { displayName?: string } | undefined;
+      displayName = row?.displayName ?? undefined;
+    } catch {
+      // Non-fatal: displayName stays undefined, SenderName will fall back to userId
+    }
+
     return {
       userId: result.userId,
       tenantId: result.tenantId,
       masRole: result.role,
+      displayName,
     };
   }
 

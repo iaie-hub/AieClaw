@@ -13,6 +13,17 @@ export interface CurrentUser {
   tenantId: string;
 }
 
+/** 工具执行流条目 */
+export interface ToolStreamEntry {
+  toolCallId: string;
+  runId: string;
+  sessionKey: string;
+  name: string;
+  args?: unknown;
+  output?: string;
+  startedAt: number;
+}
+
 /** 子 Agent 启动确认项（第三期，Prompt Engineering 方案） */
 export interface PendingSpawnConfirm {
   sessionKey: string;
@@ -58,6 +69,11 @@ export class AppStore {
 
   // ── 消息缓存（sessionKey → 消息数组） ────────────
   messagesBySession: Map<string, ChatMessage[]> = new Map();
+
+  // ── 工具流缓存（toolCallId → 工具执行状态） ──────
+  // key: toolCallId, value: { name, args, output, sessionKey, runId }
+  toolStreamById: Map<string, ToolStreamEntry> = new Map();
+  toolStreamOrder: string[] = [];
 
   // ── 审批队列（跨会话聚合） ────────────────────────
   pendingApprovals: ApprovalRequest[] = [];
@@ -145,6 +161,59 @@ export class AppStore {
   clearMessages(sessionKey: string): void {
     this.messagesBySession.set(sessionKey, []);
     this.notify();
+  }
+
+  // ── 工具流操作 ────────────────────────────────────
+
+  upsertToolStream(entry: ToolStreamEntry): void {
+    this.toolStreamById.set(entry.toolCallId, entry);
+    if (!this.toolStreamOrder.includes(entry.toolCallId)) {
+      this.toolStreamOrder.push(entry.toolCallId);
+    }
+    // 将工具执行状态同步为消息追加到对应会话
+    this._syncToolStreamMessage(entry);
+    this.notify();
+  }
+
+  resetToolStream(sessionKey?: string): void {
+    if (sessionKey) {
+      // 只清除指定会话的工具流
+      for (const id of this.toolStreamOrder) {
+        const entry = this.toolStreamById.get(id);
+        if (entry?.sessionKey === sessionKey) {
+          this.toolStreamById.delete(id);
+          this.toolStreamOrder = this.toolStreamOrder.filter((x) => x !== id);
+        }
+      }
+    } else {
+      this.toolStreamById.clear();
+      this.toolStreamOrder = [];
+    }
+    this.notify();
+  }
+
+  private _syncToolStreamMessage(entry: ToolStreamEntry): void {
+    const { sessionKey, toolCallId, name, args, output, startedAt } = entry;
+    const content: ChatMessage["content"] = [{ type: "tool_call", name, args }];
+    if (output) {
+      content.push({ type: "tool_result", name, text: output });
+    }
+    const msg: ChatMessage = {
+      role: "assistant",
+      content,
+      timestamp: startedAt,
+      id: `tool:${toolCallId}`,
+      senderLabel: null,
+    };
+    const msgs = this.messagesBySession.get(sessionKey) ?? [];
+    const existingIdx = msgs.findIndex((m) => m.id === msg.id);
+    if (existingIdx >= 0) {
+      const updated = [...msgs];
+      updated[existingIdx] = msg;
+      this.messagesBySession.set(sessionKey, updated);
+    } else {
+      this.messagesBySession.set(sessionKey, [...msgs, msg]);
+    }
   }
 
   // ── 审批操作 ──────────────────────────────────────

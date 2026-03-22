@@ -189,7 +189,7 @@ export class GatewayBrowserClient {
         id: "webchat-ui",
         version: this.opts.clientVersion ?? "mas4s-ui",
         platform: "web",
-        mode: "webchat",
+        mode: "ui",
         instanceId: this.opts.instanceId,
       },
       role: "operator",

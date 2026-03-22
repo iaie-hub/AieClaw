@@ -223,12 +223,18 @@ export async function applySessionsPatchToStore(params: {
       if (!parsed.ok) {
         return invalid(parsed.error);
       }
-      for (const [key, entry] of Object.entries(store)) {
-        if (key === storeKey) {
-          continue;
-        }
-        if (entry?.label === parsed.label) {
-          return invalid(`label already in use: ${parsed.label}`);
+      // Group sessions (mas4s, channel groups) allow duplicate labels —
+      // multiple users may independently name their sessions the same thing.
+      // Only enforce uniqueness for non-group sessions (direct/main sessions).
+      const isGroupSession = storeKey.includes(":group:") || storeKey.includes(":channel:");
+      if (!isGroupSession) {
+        for (const [key, entry] of Object.entries(store)) {
+          if (key === storeKey) {
+            continue;
+          }
+          if (entry?.label === parsed.label) {
+            return invalid(`label already in use: ${parsed.label}`);
+          }
         }
       }
       next.label = parsed.label;

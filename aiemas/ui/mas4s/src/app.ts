@@ -46,6 +46,9 @@ export class Mas4sApp extends LitElement {
     setDialog: (kind) => {
       this._dialog = kind;
     },
+    onWorkspaceEnter: () => {
+      void this._session.onSessionRefresh();
+    },
   });
 
   @state() private _masAuthState: MasAuthState = "checking";
@@ -113,6 +116,8 @@ export class Mas4sApp extends LitElement {
       onSessionSelect: (e) => this._session.onSessionSelect(e),
       onSessionCreate: (e) => this._session.onSessionCreate(e),
       onSessionRename: (e) => this._session.onSessionRename(e),
+      onSessionDelete: (e) => this._session.onSessionDelete(e),
+      onSessionRefresh: () => void this._session.onSessionRefresh(),
       onSendMessage: (e) => this._message.onSendMessage(e),
       onResolveApproval: (e) => this._message.onResolveApproval(e),
       onInviteOpen: () => this._ui.onInviteOpen(),

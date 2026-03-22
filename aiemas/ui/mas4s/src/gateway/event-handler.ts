@@ -7,6 +7,46 @@ import type { MasSession } from "../types/session-types.js";
 import { parseSenderPrefix } from "../utils/message-format.js";
 import { addEventHandler } from "./client.js";
 
+const TOOL_OUTPUT_CHAR_LIMIT = 120_000;
+
+function formatToolOutput(value: unknown): string | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (typeof value === "string") {
+    return value.length > TOOL_OUTPUT_CHAR_LIMIT
+      ? value.slice(0, TOOL_OUTPUT_CHAR_LIMIT) + "\n…(truncated)"
+      : value;
+  }
+  // object: try to extract text content first
+  const rec = value as Record<string, unknown>;
+  if (typeof rec.text === "string") {
+    return formatToolOutput(rec.text);
+  }
+  if (Array.isArray(rec.content)) {
+    const parts = rec.content
+      .map((item) => {
+        const x = item as Record<string, unknown>;
+        return x.type === "text" && typeof x.text === "string" ? x.text : null;
+      })
+      .filter((s): s is string => s !== null);
+    if (parts.length > 0) {
+      return formatToolOutput(parts.join("\n"));
+    }
+  }
+  try {
+    const json = JSON.stringify(value, null, 2);
+    return json.length > TOOL_OUTPUT_CHAR_LIMIT
+      ? json.slice(0, TOOL_OUTPUT_CHAR_LIMIT) + "\n…(truncated)"
+      : json;
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
+}
+
 /**
  * 注册所有 WebSocket 事件处理器。
  * 必须在 getClient() 之前调用，处理器通过 addEventHandler 注册到构造时的 onEvent 回调。
@@ -86,6 +126,7 @@ function handleChatEvent(store: AppStore, payload: unknown): void {
 
   if (state === "clear") {
     store.clearMessages(sessionKey);
+    store.resetToolStream(sessionKey);
     return;
   }
 
@@ -124,7 +165,16 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
     runId?: string;
     sessionKey?: string;
     stream?: string;
-    data?: { text?: string; delta?: string };
+    data?: {
+      text?: string;
+      delta?: string;
+      name?: string;
+      args?: unknown;
+      result?: string;
+      toolCallId?: string;
+      phase?: string;
+      partialResult?: string;
+    };
   };
 
   if (!sessionKey) {
@@ -141,6 +191,32 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
       senderLabel: null,
     };
     updateChatStream(store, sessionKey, streamMsg, false);
+    return;
+  }
+
+  // tool 流：phase=start/update/result，对标原 ui/app-tool-stream.ts handleAgentEvent
+  if (stream === "tool" && data?.toolCallId && runId) {
+    const toolCallId = data.toolCallId;
+    const name = data.name ?? "tool";
+    const phase = data.phase ?? "";
+
+    const existing = store.toolStreamById.get(toolCallId);
+    const output =
+      phase === "update"
+        ? formatToolOutput(data.partialResult)
+        : phase === "result"
+          ? formatToolOutput(data.result)
+          : existing?.output;
+
+    store.upsertToolStream({
+      toolCallId,
+      runId,
+      sessionKey,
+      name,
+      args: phase === "start" ? data.args : existing?.args,
+      output: output ?? undefined,
+      startedAt: existing?.startedAt ?? Date.now(),
+    });
     return;
   }
 

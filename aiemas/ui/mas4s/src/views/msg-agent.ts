@@ -1,10 +1,11 @@
-import { LitElement, html, css } from "lit";
+import { LitElement, html, css, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
-import type { ChatMessage } from "../types/chat-types.js";
+import type { ChatMessage, MessageContentItem } from "../types/chat-types.js";
+import "./msg-tool-card.js";
 
 /**
  * Agent 消息气泡（左对齐，绿色渐变头像）。
- * 第一期：推理折叠块占位（第二期实现）。
+ * 渲染文本内容 + tool_call / tool_result 卡片。
  */
 @customElement("msg-agent")
 export class MsgAgent extends LitElement {
@@ -81,13 +82,36 @@ export class MsgAgent extends LitElement {
       color: #1e293b;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
     }
+
+    .tool-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-top: 8px;
+    }
   `;
 
+  private _renderContent(items: MessageContentItem[]) {
+    const textItems = items.filter((c) => c.type === "text");
+    const toolItems = items.filter((c) => c.type === "tool_call" || c.type === "tool_result");
+
+    const text = textItems.map((c) => c.text ?? "").join("");
+
+    return html`
+      ${text ? html`<div class="message-bubble">${text}</div>` : nothing}
+      ${
+        toolItems.length > 0
+          ? html`
+            <div class="tool-cards">
+              ${toolItems.map((item) => html`<msg-tool-card .item=${item}></msg-tool-card>`)}
+            </div>
+          `
+          : nothing
+      }
+    `;
+  }
+
   render() {
-    const text = this.message.content
-      .filter((c) => c.type === "text")
-      .map((c) => c.text ?? "")
-      .join("");
     const name = this.message.senderLabel ?? "Agent";
 
     return html`
@@ -98,8 +122,7 @@ export class MsgAgent extends LitElement {
             ${name}
             <span class="agent-tag">Agent</span>
           </div>
-          <!-- 第二期：reasoning-block 占位 -->
-          <div class="message-bubble">${text}</div>
+          ${this._renderContent(this.message.content)}
         </div>
       </div>
     `;

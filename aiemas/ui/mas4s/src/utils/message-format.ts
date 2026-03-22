@@ -1,20 +1,14 @@
 /**
  * 多人会话消息格式化工具。
  *
- * 约定：多人会话中，发送者名以 "Name: " 前缀注入到消息体，
- * 接收方通过 parseSenderPrefix 解析还原。
+ * 发送者身份通过 WS 连接元数据（masToken → displayName → client.connect.client.displayName）
+ * 传递给 gateway，由 chat.send 构建 MsgContext.SenderName。
+ * message 字段只传纯文本，不再拼 "Name: " 前缀。
  */
-
-/**
- * 构造多人会话消息体（注入发送者前缀）。
- * 约定：message = "Alice: 实际内容"
- */
-export function buildGroupMessage(senderName: string, text: string): string {
-  return `${senderName}: ${text}`;
-}
 
 /**
  * 解析消息前缀，提取发送者名和正文。
+ * 兼容旧格式（历史消息可能含前缀），新消息不再生成前缀。
  * 若无前缀则 senderLabel 为 null。
  *
  * 格式："{发送者名（1-40字符，不含冒号/换行）}: {正文}"
@@ -33,6 +27,7 @@ export function parseSenderPrefix(text: string): {
 
 /**
  * 构造 chat.send 请求 envelope。
+ * message 只传纯文本，发送者身份由连接上下文携带。
  */
 export function buildChatSendParams(opts: {
   sessionKey: string;

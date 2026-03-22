@@ -1427,7 +1427,7 @@ export const chatHandlers: GatewayRequestHandlers = {
         ExplicitDeliverRoute: explicitDeliverRoute,
         AccountId: accountId,
         MessageThreadId: messageThreadId,
-        ChatType: "direct",
+        ChatType: entry?.chatType ?? "direct",
         CommandAuthorized: true,
         MessageSid: clientRunId,
         SenderId: clientInfo?.id,

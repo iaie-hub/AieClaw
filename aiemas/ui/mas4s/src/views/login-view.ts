@@ -40,6 +40,10 @@ export class LoginView extends LitElement {
   @state() private _showPasswordConfirm = false;
   @state() private _showWsToken = false;
 
+  // 记住密码 / 自动登录
+  @state() private _rememberMe = false;
+  @state() private _autoLogin = false;
+
   private _countdownTimer: ReturnType<typeof setInterval> | null = null;
 
   static styles = css`
@@ -293,7 +297,59 @@ export class LoginView extends LitElement {
       opacity: 0.6;
       cursor: not-allowed;
     }
+
+    .options-row {
+      display: flex;
+      gap: 16px;
+      margin-top: 12px;
+      justify-content: flex-end;
+    }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: #475569;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+      width: 15px;
+      height: 15px;
+      accent-color: #dc2626;
+      cursor: pointer;
+    }
+
+    .checkbox-label input[type="checkbox"]:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
   `;
+
+  connectedCallback() {
+    super.connectedCallback();
+    // 恢复记住密码
+    const saved = localStorage.getItem("mas4s_remember_me");
+    if (saved) {
+      try {
+        const { username, password } = JSON.parse(saved) as { username: string; password: string };
+        this._username = username;
+        this._password = password;
+        this._rememberMe = true;
+      } catch {
+        // 忽略损坏的存储数据
+      }
+    }
+    // 恢复自动登录标志
+    this._autoLogin = localStorage.getItem("mas4s_auto_login") === "1";
+    // 自动登录：等 DOM 就绪后触发
+    if (this._autoLogin && this._username && this._password) {
+      // 使用 microtask 确保组件完全初始化
+      void Promise.resolve().then(() => this._onLogin());
+    }
+  }
 
   disconnectedCallback() {
     this._clearCountdown();
@@ -476,6 +532,21 @@ export class LoginView extends LitElement {
       }
 
       localStorage.setItem("mas4s_auth_token", token);
+      // 记住密码处理
+      if (this._rememberMe) {
+        localStorage.setItem(
+          "mas4s_remember_me",
+          JSON.stringify({ username: this._username, password: this._password }),
+        );
+      } else {
+        localStorage.removeItem("mas4s_remember_me");
+      }
+      // 自动登录处理
+      if (this._autoLogin) {
+        localStorage.setItem("mas4s_auto_login", "1");
+      } else {
+        localStorage.removeItem("mas4s_auto_login");
+      }
       AppStore.instance.setCurrentUser({
         userId: user.userId,
         username: user.username,
@@ -561,7 +632,7 @@ export class LoginView extends LitElement {
           class="gw-toggle ${expanded ? "open" : ""}"
           @click=${() => (this._gwExpanded = !this._gwExpanded)}
         >
-          <span>网关连接配置</span>
+          <span>网关配置</span>
           <span class="arrow">▼</span>
         </button>
         ${
@@ -677,6 +748,30 @@ export class LoginView extends LitElement {
         }
       </button>
       ${this._error ? html`<div class="error">${this._error}</div>` : ""}
+      <div class="options-row">
+        <label class="checkbox-label">
+          <input
+            type="checkbox"
+            .checked=${this._rememberMe}
+            @change=${(e: Event) => (this._rememberMe = (e.target as HTMLInputElement).checked)}
+          />
+          记住密码
+        </label>
+        <label class="checkbox-label">
+          <input
+            type="checkbox"
+            .checked=${this._autoLogin}
+            @change=${(e: Event) => {
+              this._autoLogin = (e.target as HTMLInputElement).checked;
+              // 勾选自动登录时自动勾选记住密码
+              if (this._autoLogin) {
+                this._rememberMe = true;
+              }
+            }}
+          />
+          自动登录
+        </label>
+      </div>
       <div class="link-row">
         没有账号？<button class="link" @click=${this._switchToRegister}>注册新账号</button>
       </div>

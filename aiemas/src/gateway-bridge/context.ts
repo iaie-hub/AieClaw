@@ -5,6 +5,8 @@ export interface MasAuthContext {
   userId: string | null;
   tenantId: string | null;
   masRole: GlobalRole | null;
+  /** Display name resolved from DB at connect time; used to populate SenderName in chat.send */
+  displayName?: string;
 }
 
 // WeakMap to attach MasAuthContext to any object (GatewayWsClient) without modifying its type

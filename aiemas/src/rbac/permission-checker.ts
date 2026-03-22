@@ -13,16 +13,23 @@ export type PermissionResult =
 /**
  * Global role permission matrix.
  * Empty Set means no auth required (public endpoint).
+ *
+ * Methods NOT listed here fall back to GATEWAY_SCOPE_FALLBACK classification:
+ *   read  → admin | member | viewer
+ *   write → admin | member
+ *   admin → admin only
+ *   unknown → denied
  */
 export const GLOBAL_ROLE_PERMISSIONS: Record<string, Set<GlobalRole>> = {
   "system.status": new Set([]), // no auth required
   "user.register": new Set(["admin"]), // self-registration handled separately
   "user.approve": new Set(["admin"]),
   "user.reject": new Set(["admin"]),
-  "user.list": new Set(["admin", "member", "viewer"]), // all authenticated users
+  "user.list": new Set(["admin", "member", "viewer"]),
   "user.update": new Set(["admin"]),
   "sessions.create": new Set(["admin", "member"]),
   "chat.send": new Set(["admin", "member"]),
+  "chat.history": new Set(["admin", "member", "viewer"]),
   "sessions.list": new Set(["admin", "member", "viewer"]),
   "sessions.resolve": new Set(["admin", "member", "viewer"]),
   "session.invite": new Set(["admin", "member"]),
@@ -33,8 +40,131 @@ export const GLOBAL_ROLE_PERMISSIONS: Record<string, Set<GlobalRole>> = {
   "auth.login": new Set([]), // no auth required
   "auth.refresh": new Set(["admin", "member", "viewer"]),
   "auth.verify": new Set([]), // no auth required
-  "user.logout": new Set(["admin", "member", "viewer"]), // any authenticated user can log out
+  "user.logout": new Set(["admin", "member", "viewer"]),
 };
+
+/**
+ * Fallback scope classification mirroring src/gateway/method-scopes.ts.
+ * Kept in sync manually; avoids a cross-package import that breaks the build.
+ *
+ * read  → admin | member | viewer
+ * write → admin | member
+ * admin → admin only
+ */
+const GATEWAY_READ_METHODS = new Set([
+  "health",
+  "doctor.memory.status",
+  "logs.tail",
+  "channels.status",
+  "status",
+  "usage.status",
+  "usage.cost",
+  "tts.status",
+  "tts.providers",
+  "models.list",
+  "tools.catalog",
+  "agents.list",
+  "agent.identity.get",
+  "skills.status",
+  "voicewake.get",
+  "sessions.list",
+  "sessions.get",
+  "sessions.preview",
+  "sessions.resolve",
+  "sessions.subscribe",
+  "sessions.unsubscribe",
+  "sessions.messages.subscribe",
+  "sessions.messages.unsubscribe",
+  "sessions.usage",
+  "sessions.usage.timeseries",
+  "sessions.usage.logs",
+  "cron.list",
+  "cron.status",
+  "cron.runs",
+  "gateway.identity.get",
+  "system-presence",
+  "last-heartbeat",
+  "node.list",
+  "node.describe",
+  "chat.history",
+  "config.get",
+  "config.schema.lookup",
+  "talk.config",
+  "agents.files.list",
+  "agents.files.get",
+]);
+
+const GATEWAY_WRITE_METHODS = new Set([
+  "send",
+  "poll",
+  "agent",
+  "agent.wait",
+  "wake",
+  "talk.mode",
+  "talk.speak",
+  "tts.enable",
+  "tts.disable",
+  "tts.convert",
+  "tts.setProvider",
+  "voicewake.set",
+  "node.invoke",
+  "chat.send",
+  "chat.abort",
+  "sessions.create",
+  "sessions.send",
+  "sessions.abort",
+  "browser.request",
+  "push.test",
+  "node.pending.enqueue",
+]);
+
+const GATEWAY_ADMIN_METHODS = new Set([
+  "channels.logout",
+  "agents.create",
+  "agents.update",
+  "agents.delete",
+  "skills.install",
+  "skills.update",
+  "secrets.reload",
+  "secrets.resolve",
+  "cron.add",
+  "cron.update",
+  "cron.remove",
+  "cron.run",
+  "sessions.patch",
+  "sessions.reset",
+  "sessions.delete",
+  "sessions.compact",
+  "connect",
+  "chat.inject",
+  "web.login.start",
+  "web.login.wait",
+  "set-heartbeats",
+  "system-event",
+  "agents.files.set",
+]);
+
+const GATEWAY_ADMIN_PREFIXES = ["exec.approvals.", "config.", "wizard.", "update."] as const;
+
+/**
+ * Derive allowed roles for methods not listed in GLOBAL_ROLE_PERMISSIONS,
+ * using the gateway scope classification as a fallback.
+ */
+function deriveAllowedRoles(method: string): Set<GlobalRole> | undefined {
+  if (GATEWAY_READ_METHODS.has(method)) {
+    return new Set(["admin", "member", "viewer"]);
+  }
+  if (GATEWAY_WRITE_METHODS.has(method)) {
+    return new Set(["admin", "member"]);
+  }
+  if (
+    GATEWAY_ADMIN_METHODS.has(method) ||
+    GATEWAY_ADMIN_PREFIXES.some((p) => method.startsWith(p))
+  ) {
+    return new Set(["admin"]);
+  }
+  return undefined; // truly unknown → deny
+}
 
 /**
  * Session-level role permission matrix.
@@ -52,7 +182,8 @@ export const SESSION_ROLE_PERMISSIONS: Record<string, Set<SessionRole>> = {
  * Logic:
  * 1. If method has an empty global-role set → public endpoint, always allowed.
  * 2. If userId is null (compat mode) → skip all checks, allowed.
- * 3. If role is null or not in the allowed global-role set → PERMISSION_DENIED.
+ * 3. Explicit GLOBAL_ROLE_PERMISSIONS match first; otherwise fall back to
+ *    gateway scope classification (deriveAllowedRoles). Unknown methods → denied.
  * 4. If method has session-level restrictions and sessionContext is provided →
  *    check sessionRole against SESSION_ROLE_PERMISSIONS.
  * 5. On denial, call auditLogger if provided.
@@ -76,8 +207,9 @@ export function checkPermission(
     return { allowed: true };
   }
 
-  // Step 3: global role check
-  if (role === null || globalAllowed === undefined || !globalAllowed.has(role)) {
+  // Step 3: explicit matrix first, then gateway scope fallback
+  const effectiveAllowed = globalAllowed ?? deriveAllowedRoles(method);
+  if (role === null || effectiveAllowed === undefined || !effectiveAllowed.has(role)) {
     const reason = `Role '${role ?? "none"}' is not permitted to call '${method}'`;
     auditLogger?.(userId, method, reason);
     return { allowed: false, code: "PERMISSION_DENIED", reason };

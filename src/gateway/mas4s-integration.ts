@@ -132,6 +132,12 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
         );
         const masAuth = plugin.bridge.authenticateConnect({ masToken });
         contextMod.setMasAuth(client, masAuth);
+
+        // Inject displayName into client.connect.client so chat.send can populate SenderName.
+        // This mirrors how channel integrations (e.g. Feishu) pass sender identity via MsgContext.
+        if (masAuth.displayName && client.connect?.client) {
+          client.connect.client.displayName = masAuth.displayName;
+        }
       } catch (err) {
         log.warn(`mas4s auth failed for conn=${client.connId}: ${String(err)}`);
         contextMod.setMasAuth(client, contextMod.NULL_MAS_AUTH);

@@ -17,6 +17,10 @@ export class SessionSidebar extends LitElement {
     value: string;
   } | null = null;
 
+  @state() private _deleteConfirm: { sessionKey: string; label: string } | null = null;
+
+  @state() private _refreshing = false;
+
   static styles = css`
     :host {
       display: flex;
@@ -41,6 +45,49 @@ export class SessionSidebar extends LitElement {
       border-bottom: 1px solid #e2e8f0;
       color: #1e293b;
       flex-shrink: 0;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .refresh-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
+      border: none;
+      color: white;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 6px rgba(16, 185, 129, 0.35);
+      transition: all 0.2s;
+    }
+
+    .refresh-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 10px rgba(16, 185, 129, 0.45);
+    }
+
+    .refresh-btn:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .refresh-btn.spinning svg {
+      animation: spin 0.6s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
     }
 
     .add-btn {
@@ -87,7 +134,7 @@ export class SessionSidebar extends LitElement {
       height: 44px;
       display: flex;
       align-items: center;
-      padding: 0 16px;
+      padding: 0 8px 0 16px;
       cursor: pointer;
       border-radius: 8px;
       margin: 2px 10px;
@@ -141,7 +188,17 @@ export class SessionSidebar extends LitElement {
       margin-left: auto;
     }
 
-    .rename-btn {
+    .item-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+      margin-left: 4px;
+      margin-right: 12px;
+    }
+
+    .rename-btn,
+    .delete-btn {
       opacity: 0;
       background: none;
       border: none;
@@ -155,14 +212,108 @@ export class SessionSidebar extends LitElement {
         opacity 0.15s,
         color 0.15s;
       line-height: 1;
+      position: relative;
     }
 
-    .session-item:hover .rename-btn {
+    .session-item:hover .rename-btn,
+    .session-item:hover .delete-btn {
       opacity: 1;
     }
 
     .rename-btn:hover {
       color: #3b82f6;
+    }
+
+    .delete-btn:hover {
+      color: #ef4444;
+    }
+
+    /* CSS tooltip */
+    .rename-btn::after,
+    .delete-btn::after {
+      content: attr(data-tip);
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e293b;
+      color: #fff;
+      font-size: 11px;
+      white-space: nowrap;
+      padding: 3px 7px;
+      border-radius: 5px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+      z-index: 100;
+    }
+
+    .rename-btn:hover::after,
+    .delete-btn:hover::after {
+      opacity: 1;
+    }
+
+    /* 删除确认对话框 */
+    .confirm-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .confirm-dialog {
+      background: white;
+      border-radius: 12px;
+      padding: 20px 24px;
+      width: 320px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .confirm-dialog h3 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: #1e293b;
+    }
+
+    .confirm-dialog p {
+      margin: 0;
+      font-size: 13px;
+      color: #64748b;
+      line-height: 1.5;
+    }
+
+    .confirm-dialog-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .confirm-dialog-actions button {
+      padding: 6px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      border: 1px solid #e2e8f0;
+      background: white;
+      color: #64748b;
+      transition: all 0.15s;
+    }
+
+    .confirm-dialog-actions button.danger {
+      background: #ef4444;
+      color: white;
+      border-color: #ef4444;
+    }
+
+    .confirm-dialog-actions button:hover {
+      opacity: 0.85;
     }
 
     /* 创建/重命名弹层 */
@@ -241,10 +392,52 @@ export class SessionSidebar extends LitElement {
     this._nameDialog = { mode: "create", value: "" };
   }
 
+  private _onRefresh() {
+    if (this._refreshing) {
+      return;
+    }
+    this._refreshing = true;
+    this.dispatchEvent(new CustomEvent("session-refresh", { bubbles: true }));
+    // 最多 3s 后自动复位，防止事件未响应时按钮卡住
+    setTimeout(() => {
+      this._refreshing = false;
+    }, 3000);
+  }
+
+  /** 由外部在刷新完成后调用，复位旋转状态 */
+  refreshDone() {
+    this._refreshing = false;
+  }
+
   private _onRename(e: Event, session: MasSession) {
     // Stop propagation so the session-item click doesn't fire
     e.stopPropagation();
-    this._nameDialog = { mode: "rename", sessionKey: session.key, value: session.label ?? "" };
+    this._nameDialog = {
+      mode: "rename",
+      sessionKey: session.key,
+      value: session.label ?? session.displayName ?? "",
+    };
+  }
+
+  private _onDelete(e: Event, session: MasSession) {
+    e.stopPropagation();
+    this._deleteConfirm = {
+      sessionKey: session.key,
+      label: session.label ?? session.displayName ?? session.key,
+    };
+  }
+
+  private _onDeleteConfirm() {
+    if (!this._deleteConfirm) {
+      return;
+    }
+    this.dispatchEvent(
+      new CustomEvent("session-delete", {
+        detail: { sessionKey: this._deleteConfirm.sessionKey },
+        bubbles: true,
+      }),
+    );
+    this._deleteConfirm = null;
   }
 
   private _onNameInput(e: Event) {
@@ -299,11 +492,19 @@ export class SessionSidebar extends LitElement {
 
   private _renderSession(session: MasSession) {
     const isActive = session.key === this.activeSessionKey;
-    const label = session.label ?? session.key;
+    const label = session.label ?? session.displayName ?? session.key;
     return html`
-      <button
+      <div
         class="session-item ${isActive ? "active" : ""}"
+        role="button"
+        tabindex="0"
         @click=${() => this._onSessionClick(session.key)}
+        @keydown=${(e: KeyboardEvent) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            this._onSessionClick(session.key);
+          }
+        }}
         title=${label}
       >
         <span class="session-label">${label}</span>
@@ -319,13 +520,53 @@ export class SessionSidebar extends LitElement {
             ? html`<span class="badge-count">${session.notificationCount}</span>`
             : nothing
         }
-        <button
-          class="rename-btn"
-          @click=${(e: Event) => this._onRename(e, session)}
-          title="重命名"
-          aria-label="重命名会话"
-        >✎</button>
-      </button>
+        <div class="item-actions">
+          <button
+            class="rename-btn"
+            data-tip="重命名"
+            @click=${(e: Event) => this._onRename(e, session)}
+            aria-label="重命名会话"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+          </button>
+          <button
+            class="delete-btn"
+            data-tip="删除会话"
+            @click=${(e: Event) => this._onDelete(e, session)}
+            aria-label="删除会话"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+              <path d="M10 11v6"/>
+              <path d="M14 11v6"/>
+              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  private _renderDeleteConfirm() {
+    if (!this._deleteConfirm) {
+      return nothing;
+    }
+    const { label } = this._deleteConfirm;
+    return html`
+      <div class="confirm-overlay" @click=${() => (this._deleteConfirm = null)}>
+        <div class="confirm-dialog" @click=${(e: Event) => e.stopPropagation()}>
+          <h3>删除会话</h3>
+          <p>确定要删除会话「${label}」吗？此操作不可撤销，消息记录也将一并删除。</p>
+          <div class="confirm-dialog-actions">
+            <button @click=${() => (this._deleteConfirm = null)}>取消</button>
+            <button class="danger" @click=${() => this._onDeleteConfirm()}>删除</button>
+          </div>
+        </div>
+      </div>
     `;
   }
 
@@ -360,9 +601,18 @@ export class SessionSidebar extends LitElement {
     return html`
       <div class="sidebar-header">
         <span>会话列表</span>
-        <button class="add-btn" @click=${() => this._onCreate()} aria-label="发起新会话" title="发起新会话">
-          +
-        </button>
+        <div class="header-actions">
+          <button
+            class="refresh-btn ${this._refreshing ? "spinning" : ""}"
+            @click=${() => this._onRefresh()}
+            aria-label="刷新会话列表"
+            title="刷新会话列表"
+            ?disabled=${this._refreshing}
+          ><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button>
+          <button class="add-btn" @click=${() => this._onCreate()} aria-label="发起新会话" title="发起新会话">
+            +
+          </button>
+        </div>
       </div>
 
       <div class="session-list">
@@ -374,6 +624,7 @@ export class SessionSidebar extends LitElement {
       </div>
 
       ${this._renderNameDialog()}
+      ${this._renderDeleteConfirm()}
     `;
   }
 }

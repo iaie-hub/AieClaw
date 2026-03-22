@@ -1,6 +1,6 @@
 import { getClient } from "../gateway/client.js";
 import type { AppStore } from "../store/app-store.js";
-import { buildGroupMessage, buildChatSendParams } from "../utils/message-format.js";
+import { buildChatSendParams } from "../utils/message-format.js";
 
 /**
  * 消息发送与审批控制器。
@@ -41,7 +41,7 @@ export class MessageController {
         "chat.send",
         buildChatSendParams({
           sessionKey: session.key,
-          message: buildGroupMessage(displayName, rawText),
+          message: rawText,
         }),
       );
       console.debug("[mas4s:message] send ← chat.send ok");

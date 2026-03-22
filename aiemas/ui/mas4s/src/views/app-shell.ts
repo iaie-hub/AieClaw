@@ -1,6 +1,7 @@
 import { html, type TemplateResult } from "lit";
 import type { NavItem, DialogKind } from "../controllers/ui-state-controller.js";
 import type { AppStore } from "../store/app-store.js";
+import "./exec-approval-overlay.js";
 
 export interface AppShellHandlers {
   onLoginSuccess: () => void;
@@ -10,6 +11,8 @@ export interface AppShellHandlers {
   onSessionSelect: (e: CustomEvent<{ sessionKey: string }>) => void;
   onSessionCreate: (e: CustomEvent<{ label: string }>) => void;
   onSessionRename: (e: CustomEvent<{ sessionKey: string; label: string }>) => void;
+  onSessionDelete: (e: CustomEvent<{ sessionKey: string }>) => void;
+  onSessionRefresh: () => void;
   onSendMessage: (e: CustomEvent<{ text: string }>) => void;
   onResolveApproval: (e: CustomEvent<{ id: string; decision: string }>) => void;
   onInviteOpen: () => void;
@@ -75,6 +78,8 @@ export function renderMain(
             @session-select=${h.onSessionSelect}
             @session-create=${h.onSessionCreate}
             @session-rename=${h.onSessionRename}
+            @session-delete=${h.onSessionDelete}
+            @session-refresh=${h.onSessionRefresh}
           ></session-sidebar>
         `
         : ""
@@ -113,6 +118,18 @@ export function renderMain(
             .session=${store.activeSession}
             @close=${h.onDialogClose}
           ></invite-dialog>
+        `
+        : ""
+    }
+
+    <!-- 人工审核浮层（exec-approval HITL） -->
+    ${
+      store.pendingApprovals.length > 0
+        ? html`
+          <exec-approval-overlay
+            .queue=${store.pendingApprovals}
+            @resolve-approval=${h.onResolveApproval}
+          ></exec-approval-overlay>
         `
         : ""
     }

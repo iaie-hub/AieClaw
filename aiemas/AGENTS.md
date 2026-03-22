@@ -77,7 +77,7 @@ aiemas/
 
 ## 1. 架构与目录约束 (Architecture & Directory)
 
-- **最小入侵原 Gateway**：尽量少改动原 gateway (`src/gateway/`)，AIEMAS 的多租户服务等新增功能必须闭环在 `aiemas/src` 目录内实现。
+- **最小入侵原 Gateway**：尽量少改动原 gateway (`src/gateway/`)，AIEMAS 的服务等新增功能必须闭环在 `aiemas/src` 目录内实现。
 - **桥接层定位**：`GatewayAuthBridge` 必须作为独立模块实现在 `aiemas/src/gateway-bridge/`。原 gateway 仅通过挂载调用该桥接层暴露的钩子（hooks）即可。
 
 ## 2. 数据存储与持久化 (Data Storage & Persistence)

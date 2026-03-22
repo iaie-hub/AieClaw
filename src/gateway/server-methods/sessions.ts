@@ -18,6 +18,7 @@ import {
   type SessionEntry,
   updateSessionStore,
 } from "../../config/sessions.js";
+import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
   normalizeAgentId,
   parseAgentSessionKey,
@@ -74,6 +75,8 @@ import type {
   RespondFn,
 } from "./types.js";
 import { assertValidParams } from "./validation.js";
+
+const log = createSubsystemLogger("gateway/sessions");
 
 function requireSessionKey(key: unknown, respond: RespondFn): string | null {
   const raw =
@@ -638,6 +641,12 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const agentId = normalizeAgentId(
       typeof p.agentId === "string" && p.agentId.trim() ? p.agentId : resolveDefaultAgentId(cfg),
     );
+    log.debug("sessions.create → start", {
+      key: requestedKey,
+      agentId,
+      label: typeof p.label === "string" ? p.label.trim() : undefined,
+      model: typeof p.model === "string" ? p.model.trim() : undefined,
+    });
     if (requestedKey) {
       const requestedAgentId = parseAgentSessionKey(requestedKey)?.agentId;
       if (
@@ -703,6 +712,11 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       };
     });
     if (!created.ok) {
+      log.warn("sessions.create ← patch failed", {
+        key: target.canonicalKey,
+        error: created.error?.message,
+        errorCode: created.error?.code,
+      });
       respond(false, undefined, created.error);
       return;
     }
@@ -713,6 +727,11 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       agentId: targetAgentId,
     });
     if (!ensured.ok) {
+      log.warn("sessions.create ← transcript file creation failed", {
+        key: target.canonicalKey,
+        sessionId: created.entry.sessionId,
+        error: ensured.error,
+      });
       await updateSessionStore(target.storePath, (store) => {
         delete store[target.canonicalKey];
       });
@@ -776,6 +795,12 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       },
       undefined,
     );
+    log.info("sessions.create ← ok", {
+      key: target.canonicalKey,
+      sessionId: created.entry.sessionId,
+      label: created.entry.label,
+      runStarted,
+    });
     emitSessionsChanged(context, {
       sessionKey: target.canonicalKey,
       reason: "create",
