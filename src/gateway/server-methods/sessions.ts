@@ -180,12 +180,23 @@ function rejectWebchatSessionMutation(params: {
   isWebchatConnect: (params: GatewayClient["connect"] | null | undefined) => boolean;
   respond: RespondFn;
 }): boolean {
-  if (!params.client?.connect || !params.isWebchatConnect(params.client.connect)) {
+  const clientId = params.client?.connect?.client?.id ?? "(none)";
+  const clientMode = params.client?.connect?.client?.mode ?? "(none)";
+  const isWebchat = Boolean(
+    params.client?.connect && params.isWebchatConnect(params.client.connect),
+  );
+  log.warn(`[sessions.${params.action}] webchat-check`, { clientId, clientMode, isWebchat });
+  if (!params.client?.connect || !isWebchat) {
+    return false;
+  }
+  // mode 不是 "webchat" 时（如 "ui"），允许管理操作（mas4s 等内部管理工具）
+  if (params.client.connect.client.mode !== "webchat") {
     return false;
   }
   if (params.client.connect.client.id === GATEWAY_CLIENT_IDS.CONTROL_UI) {
     return false;
   }
+  log.warn(`[sessions.${params.action}] rejected: webchat client`, { clientId, clientMode });
   params.respond(
     false,
     undefined,
@@ -909,6 +920,12 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     if (!key) {
       return;
     }
+    log.warn("[sessions.patch] incoming", {
+      key,
+      label: p.label ?? "(none)",
+      clientId: client?.connect?.client?.id ?? "(none)",
+      clientMode: client?.connect?.client?.mode ?? "(none)",
+    });
     if (rejectWebchatSessionMutation({ action: "patch", client, isWebchatConnect, respond })) {
       return;
     }
