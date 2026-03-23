@@ -88,6 +88,9 @@ export type AttachGatewayWsConnectionHandlerParams = GatewayWsSharedHandlerParam
     },
   ) => void;
   buildRequestContext: () => GatewayRequestContext;
+  onClientConnected?: (client: GatewayWsClient, upgradeReq: { url?: string }) => void;
+  onSessionCreated?: (sessionKey: string, label: string, client: GatewayWsClient) => void;
+  onClientDisconnected?: (client: GatewayWsClient) => void;
 };
 
 export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnectionHandlerParams) {
@@ -110,6 +113,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     broadcast,
     buildRequestContext,
   } = params;
+  const onClientConnected = params.onClientConnected;
   const originCheckMetrics: WsOriginCheckMetrics = { hostHeaderFallbackAccepted: 0 };
 
   wss.on("connection", (socket, upgradeReq) => {
@@ -242,8 +246,13 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
         upsertPresence(client.presenceKey, { reason: "disconnect" });
         broadcastPresenceSnapshot({ broadcast, incrementPresenceVersion, getHealthVersion });
       }
+      // Notify mas4s plugin so it can mark the user offline
+      if (client) {
+        params.onClientDisconnected?.(client);
+      }
+      const context = buildRequestContext();
+      context.unsubscribeAllSessionEvents(connId);
       if (client?.connect?.role === "node") {
-        const context = buildRequestContext();
         const nodeId = context.nodeRegistry.unregister(connId);
         if (nodeId) {
           removeRemoteNodeInfo(nodeId);
@@ -303,6 +312,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       setClient: (next) => {
         client = next;
         clients.add(next);
+        onClientConnected?.(next, upgradeReq);
       },
       setHandshakeState: (next) => {
         handshakeState = next;

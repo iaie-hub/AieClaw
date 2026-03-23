@@ -28,7 +28,7 @@ import {
 } from "./controllers/exec-approval.ts";
 import { loadHealthState } from "./controllers/health.ts";
 import { loadNodes } from "./controllers/nodes.ts";
-import { loadSessions } from "./controllers/sessions.ts";
+import { loadSessions, subscribeSessions } from "./controllers/sessions.ts";
 import {
   resolveGatewayErrorDetailCode,
   type GatewayEventFrame,
@@ -213,6 +213,7 @@ export function connectGateway(host: GatewayHost) {
       (host as unknown as { chatStream: string | null }).chatStream = null;
       (host as unknown as { chatStreamStartedAt: number | null }).chatStreamStartedAt = null;
       resetToolStream(host as unknown as Parameters<typeof resetToolStream>[0]);
+      void subscribeSessions(host as unknown as OpenClawApp);
       void loadAssistantIdentity(host as unknown as OpenClawApp);
       void loadAgents(host as unknown as OpenClawApp);
       void loadHealthState(host as unknown as OpenClawApp);
@@ -371,6 +372,11 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
     return;
   }
 
+  if (evt.event === "sessions.changed") {
+    void loadSessions(host as unknown as OpenClawApp);
+    return;
+  }
+
   if (evt.event === "cron" && host.tab === "cron") {
     void loadCron(host as unknown as Parameters<typeof loadCron>[0]);
   }
@@ -396,6 +402,27 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
     const resolved = parseExecApprovalResolved(evt.payload);
     if (resolved) {
       host.execApprovalQueue = removeExecApproval(host.execApprovalQueue, resolved.id);
+      // 找到对应的审核决策消息，追加系统处理结果
+      const messages = (host as unknown as { chatMessages: unknown[] }).chatMessages;
+      if (Array.isArray(messages)) {
+        const idx = messages.findLastIndex(
+          (m) => (m as Record<string, unknown>)._approvalId === resolved.id,
+        );
+        if (idx !== -1) {
+          const msg = messages[idx] as Record<string, unknown>;
+          const content = Array.isArray(msg.content) ? [...msg.content] : [];
+          const statusText =
+            resolved.decision === "deny"
+              ? "系统: 已拒绝执行"
+              : resolved.decision === "allow-always"
+                ? "系统: 已放行并加入白名单"
+                : "系统: 已放行（本次）";
+          content.push({ type: "text", text: statusText });
+          const updated = [...messages];
+          updated[idx] = { ...msg, content };
+          (host as unknown as { chatMessages: unknown[] }).chatMessages = updated;
+        }
+      }
     }
     return;
   }

@@ -2,7 +2,7 @@ import { withPluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway
 import { formatControlPlaneActor, resolveControlPlaneActor } from "./control-plane-audit.js";
 import { consumeControlPlaneWriteBudget } from "./control-plane-rate-limit.js";
 import { ADMIN_SCOPE, authorizeOperatorScopesForMethod } from "./method-scopes.js";
-import { ErrorCodes, errorShape } from "./protocol/index.js";
+import { type ErrorCode, ErrorCodes, errorShape } from "./protocol/index.js";
 import { isRoleAuthorizedForMethod, parseGatewayRole } from "./role-policy.js";
 import { agentHandlers } from "./server-methods/agent.js";
 import { agentsHandlers } from "./server-methods/agents.js";
@@ -140,6 +140,18 @@ export async function handleGatewayRequest(
       errorShape(ErrorCodes.INVALID_REQUEST, `unknown method: ${req.method}`),
     );
     return;
+  }
+  // Optional mas4s pre-request hook (RBAC + session access check)
+  if (context.onBeforeRequest) {
+    const check = context.onBeforeRequest(
+      req.method,
+      (req.params ?? {}) as Record<string, unknown>,
+      client,
+    );
+    if (!check.allowed) {
+      respond(false, undefined, errorShape(check.code as ErrorCode, check.message));
+      return;
+    }
   }
   const invokeHandler = () =>
     handler({

@@ -12,7 +12,7 @@ import type {
 } from "../../image-generation/types.js";
 import { getImageMetadata } from "../../media/image-ops.js";
 import { saveMediaBuffer } from "../../media/store.js";
-import { loadWebMedia } from "../../plugin-sdk/web-media.js";
+import { loadWebMedia } from "../../media/web-media.js";
 import { resolveUserPath } from "../../utils.js";
 import { ToolInputError, readNumberParam, readStringParam } from "./common.js";
 import { decodeDataUrl } from "./image-tool.helpers.js";
@@ -610,7 +610,6 @@ export function createImageGenerateTool(options?: {
         .filter((entry): entry is string => Boolean(entry));
       const lines = [
         `Generated ${savedImages.length} image${savedImages.length === 1 ? "" : "s"} with ${result.provider}/${result.model}.`,
-        ...savedImages.map((image) => `MEDIA:${image.path}`),
       ];
 
       return {
@@ -619,6 +618,9 @@ export function createImageGenerateTool(options?: {
           provider: result.provider,
           model: result.model,
           count: savedImages.length,
+          media: {
+            mediaUrls: savedImages.map((image) => image.path),
+          },
           paths: savedImages.map((image) => image.path),
           ...(imageInputs.length === 1
             ? {

@@ -2,7 +2,6 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { parseReplyDirectives } from "../auto-reply/reply/reply-directives.js";
 import { createStreamingDirectiveAccumulator } from "../auto-reply/reply/streaming-directives.js";
 import { formatToolAggregate } from "../auto-reply/tool-meta.js";
-import { emitAgentEvent } from "../infra/agent-events.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import type { InlineCodeState } from "../markdown/code-spans.js";
 import { buildCodeSpanIndex, createInlineCodeState } from "../markdown/code-spans.js";
@@ -11,7 +10,9 @@ import {
   isMessagingToolDuplicateNormalized,
   normalizeTextForComparison,
 } from "./pi-embedded-helpers.js";
+import type { BlockReplyPayload } from "./pi-embedded-payloads.js";
 import { createEmbeddedPiSessionEventHandler } from "./pi-embedded-subscribe.handlers.js";
+import { consumePendingToolMediaIntoReply } from "./pi-embedded-subscribe.handlers.messages.js";
 import type {
   EmbeddedPiSubscribeContext,
   EmbeddedPiSubscribeState,
@@ -78,6 +79,8 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     pendingMessagingTargets: new Map(),
     successfulCronAdds: 0,
     pendingMessagingMediaUrls: new Map(),
+    pendingToolMediaUrls: [],
+    pendingToolAudioAsVoice: false,
     deterministicApprovalPromptSent: false,
   };
   const usageTotals = {
@@ -112,6 +115,9 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
       .catch((err) => {
         log.warn(`block reply callback failed: ${String(err)}`);
       });
+  };
+  const emitBlockReply = (payload: BlockReplyPayload) => {
+    emitBlockReplySafely(consumePendingToolMediaIntoReply(state, payload));
   };
 
   const resetAssistantMessageState = (nextAssistantTextBaseline: number) => {
@@ -523,7 +529,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     if (!cleanedText && (!mediaUrls || mediaUrls.length === 0) && !audioAsVoice) {
       return;
     }
-    emitBlockReplySafely({
+    emitBlockReply({
       text: cleanedText,
       mediaUrls: mediaUrls?.length ? mediaUrls : undefined,
       audioAsVoice,
@@ -564,21 +570,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     if (formatted === state.lastStreamedReasoning) {
       return;
     }
-    // Compute delta: new text since the last emitted reasoning.
-    // Guard against non-prefix changes (e.g. trim/format altering earlier content).
-    const prior = state.lastStreamedReasoning ?? "";
-    const delta = formatted.startsWith(prior) ? formatted.slice(prior.length) : formatted;
     state.lastStreamedReasoning = formatted;
-
-    // Broadcast thinking event to WebSocket clients in real-time
-    emitAgentEvent({
-      runId: params.runId,
-      stream: "thinking",
-      data: {
-        text: formatted,
-        delta,
-      },
-    });
 
     void params.onReasoningStream({
       text: formatted,
@@ -599,6 +591,8 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     pendingMessagingTargets.clear();
     state.successfulCronAdds = 0;
     state.pendingMessagingMediaUrls.clear();
+    state.pendingToolMediaUrls = [];
+    state.pendingToolAudioAsVoice = false;
     state.deterministicApprovalPromptSent = false;
     resetAssistantMessageState(0);
   };
@@ -624,6 +618,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     stripBlockTags,
     emitBlockChunk,
     flushBlockReplyBuffer,
+    emitBlockReply,
     emitReasoningStream,
     consumeReplyDirectives,
     consumePartialReplyDirectives,

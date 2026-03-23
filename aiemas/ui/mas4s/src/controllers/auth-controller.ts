@@ -1,0 +1,237 @@
+import { getClient, resetClient } from "../gateway/client.js";
+import { fetchSessions } from "../gateway/session-manager.js";
+import type { AppStore } from "../store/app-store.js";
+
+export type MasAuthState = "checking" | "init" | "login" | "authenticated";
+
+/**
+ * AuthController 通过此接口通知宿主更新渲染状态，
+ * 避免控制器直接依赖 LitElement。
+ */
+export interface AuthStateCallback {
+  setAuthState(state: MasAuthState): void;
+  setConnected(connected: boolean): void;
+  setConnectError(error: string): void;
+}
+
+/**
+ * 连接与认证控制器。
+ * 封装 gateway WebSocket 连接、system.status 检查、
+ * 登录成功/登出、token 自动刷新等逻辑。
+ */
+export class AuthController {
+  private _refreshTimer: ReturnType<typeof setInterval> | null = null;
+
+  constructor(
+    private readonly store: AppStore,
+    private readonly cb: AuthStateCallback,
+  ) {}
+
+  // ── 启动检查 ──────────────────────────────────────
+
+  async checkSystemStatus(): Promise<void> {
+    const url = localStorage.getItem("mas4s_ws_url") || "ws://localhost:18789";
+    const token = localStorage.getItem("mas4s_ws_token") || undefined;
+    console.debug("[mas4s:auth] checkSystemStatus → url=%s", url);
+    try {
+      const client = getClient({ url, token });
+      await client.waitConnected();
+      const res = await client.request<{ initialized: boolean }>("system.status");
+      console.debug("[mas4s:auth] checkSystemStatus ← res=%o", res);
+      if (!res.initialized) {
+        this.cb.setAuthState("init");
+        resetClient();
+      } else if (localStorage.getItem("mas4s_auth_token")) {
+        // HMR 或页面刷新后 store 单例可能被重建，currentUser 丢失。
+        // 没有 auth.me 接口恢复用户信息，清除 token 回到登录页。
+        if (!this.store.currentUser) {
+          console.warn(
+            "[mas4s:auth] checkSystemStatus → token present but currentUser lost (HMR?), redirecting to login",
+          );
+          localStorage.removeItem("mas4s_auth_token");
+          this.cb.setAuthState("login");
+          resetClient();
+        } else {
+          this.cb.setAuthState("authenticated");
+          this.doConnect();
+          this.startRefreshTimer();
+        }
+      } else {
+        this.cb.setAuthState("login");
+        resetClient();
+      }
+    } catch (err) {
+      console.warn("[mas4s:auth] checkSystemStatus ← error, falling back to login:", err);
+      this.cb.setConnectError(err instanceof Error ? err.message : String(err));
+      this.cb.setAuthState("login");
+      resetClient();
+    }
+  }
+
+  // ── WebSocket 连接 ────────────────────────────────
+
+  doConnect(): void {
+    const url = localStorage.getItem("mas4s_ws_url") || "ws://localhost:18789";
+    const token = localStorage.getItem("mas4s_ws_token") || undefined;
+    console.debug("[mas4s:auth] doConnect → url=%s", url);
+    this.cb.setConnectError("");
+
+    // Append masToken as URL query param so the gateway bridge can extract it
+    // from the HTTP upgrade request (auth.masToken in connect frame is not used).
+    const masAuthToken = localStorage.getItem("mas4s_auth_token");
+    let wsUrl = url;
+    if (masAuthToken) {
+      const sep = wsUrl.includes("?") ? "&" : "?";
+      wsUrl = `${wsUrl}${sep}masToken=${encodeURIComponent(masAuthToken)}`;
+    }
+
+    resetClient();
+    getClient({
+      url: wsUrl,
+      token,
+      onHello: () => {
+        console.debug("[mas4s:auth] doConnect ← onHello: connected=true");
+        this._wasConnected = true;
+        this.cb.setConnected(true);
+        // 连接成功后立即拉取历史会话，恢复 gateway 重启前的会话列表
+        void fetchSessions(getClient())
+          .then((sessions) => {
+            this.store.setSessions(sessions);
+            console.debug("[mas4s:auth] doConnect ← sessions loaded: count=%d", sessions.length);
+          })
+          .catch((err) => {
+            console.warn("[mas4s:auth] doConnect ← fetchSessions failed:", err);
+          });
+      },
+      onClose: (info) => {
+        console.debug(
+          "[mas4s:auth] doConnect ← onClose: code=%s reason=%s",
+          info.code,
+          info.reason,
+        );
+        const wasConnected = this._wasConnected;
+        this.cb.setConnected(false);
+        this._wasConnected = false;
+
+        // Suppress stale error from the async close event fired after onLogout
+        if (this._loggingOut) {
+          this._loggingOut = false;
+          return;
+        }
+
+        if (
+          info.reason &&
+          (info.reason.includes("TOKEN_EXPIRED") || info.reason.includes("MAS_AUTH_FAILED"))
+        ) {
+          console.warn(
+            "[mas4s:auth] doConnect ← auth error (%s), redirecting to login",
+            info.reason,
+          );
+          this.stopRefreshTimer();
+          localStorage.removeItem("mas4s_auth_token");
+          this.cb.setAuthState("login");
+          resetClient();
+          return;
+        }
+
+        this.cb.setConnectError(
+          `连接断开 (${info.code}): ${info.reason || "目标地址拒绝连接或无效"}`,
+        );
+        if (!wasConnected) {
+          resetClient();
+        }
+      },
+    });
+    console.debug("[mas4s:auth] doConnect → client created, awaiting hello");
+  }
+
+  // onHello 触发前需要跟踪"是否曾经连接成功"，用于 onClose 判断
+  private _wasConnected = false;
+  // Set during logout to suppress stale connectError from the async close event
+  private _loggingOut = false;
+
+  // ── 登录 / 登出 ───────────────────────────────────
+
+  onLoginSuccess(): void {
+    console.debug("[mas4s:auth] onLoginSuccess → authenticated");
+    this.cb.setAuthState("authenticated");
+    this.doConnect();
+    this.startRefreshTimer();
+  }
+
+  onLogout(): void {
+    console.debug("[mas4s:auth] onLogout → clearing state");
+    this.stopRefreshTimer();
+    // Clear auth token BEFORE closing the connection so no reconnect path
+    // (scheduleReconnect, onGatewayConnect, checkSystemStatus) can re-enter
+    // "authenticated" with a stale token.
+    localStorage.removeItem("mas4s_auth_token");
+    this.store.logout();
+    this.store.setSessions([]);
+    // Flag to suppress the stale connectError from the async close event
+    this._loggingOut = true;
+    // Close the WebSocket immediately. The server-side onClientDisconnected
+    // handler will mark the user offline, so a separate user.logout request
+    // is unnecessary and avoids the race window where the still-alive
+    // client could auto-reconnect with a stale masToken URL.
+    resetClient();
+    this.cb.setConnected(false);
+    this.cb.setConnectError("");
+    this.cb.setAuthState("login");
+  }
+
+  // ── gateway-connect 事件（login-view 测试连接后派发） ──
+
+  onGatewayConnect(initialized: boolean): void {
+    this.cb.setConnectError("");
+    if (!initialized) {
+      this.cb.setAuthState("init");
+    } else if (localStorage.getItem("mas4s_auth_token")) {
+      if (!this.store.currentUser) {
+        console.warn(
+          "[mas4s:auth] onGatewayConnect → token present but currentUser lost, redirecting to login",
+        );
+        localStorage.removeItem("mas4s_auth_token");
+        this.cb.setAuthState("login");
+      } else {
+        this.cb.setAuthState("authenticated");
+        this.doConnect();
+      }
+    } else {
+      this.cb.setAuthState("login");
+    }
+  }
+
+  // ── Token 自动刷新（5 分钟） ──────────────────────
+
+  startRefreshTimer(): void {
+    this.stopRefreshTimer();
+    this._refreshTimer = setInterval(
+      async () => {
+        try {
+          const client = getClient();
+          const token = localStorage.getItem("mas4s_auth_token");
+          if (!token) {
+            return;
+          }
+          const res = await client.request<{ ok: boolean; token?: string }>("auth.refresh", {
+            token,
+          });
+          if (res.ok && res.token) {
+            localStorage.setItem("mas4s_auth_token", res.token);
+          }
+        } catch (err) {
+          console.warn("[mas4s:auth] auto-refresh failed:", err);
+        }
+      },
+      5 * 60 * 1000,
+    );
+  }
+
+  stopRefreshTimer(): void {
+    if (this._refreshTimer !== null) {
+      clearInterval(this._refreshTimer);
+      this._refreshTimer = null;
+    }
+  }
+}

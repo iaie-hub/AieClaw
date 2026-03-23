@@ -9,7 +9,7 @@ import { runRuntimePostBuild } from "./runtime-postbuild.mjs";
 const buildScript = "scripts/tsdown-build.mjs";
 const compilerArgs = [buildScript, "--no-clean"];
 
-const runNodeSourceRoots = ["src", "extensions"];
+const runNodeSourceRoots = ["src", "extensions", "aiemas"];
 const runNodeConfigFiles = ["tsconfig.json", "package.json", "tsdown.config.ts"];
 export const runNodeWatchedPaths = [...runNodeSourceRoots, ...runNodeConfigFiles];
 const extensionSourceFilePattern = /\.(?:[cm]?[jt]sx?)$/;
@@ -42,6 +42,9 @@ export const isBuildRelevantRunNodePath = (repoPath) => {
   if (normalizedPath.startsWith("extensions/")) {
     return isBuildRelevantSourcePath(normalizedPath.slice("extensions/".length));
   }
+  if (normalizedPath.startsWith("aiemas/")) {
+    return isBuildRelevantSourcePath(normalizedPath.slice("aiemas/".length));
+  }
   return false;
 };
 
@@ -63,6 +66,9 @@ export const isRestartRelevantRunNodePath = (repoPath) => {
   }
   if (normalizedPath.startsWith("extensions/")) {
     return isRestartRelevantExtensionPath(normalizedPath.slice("extensions/".length));
+  }
+  if (normalizedPath.startsWith("aiemas/")) {
+    return isBuildRelevantSourcePath(normalizedPath.slice("aiemas/".length));
   }
   return false;
 };

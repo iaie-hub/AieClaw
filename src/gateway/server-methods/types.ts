@@ -61,12 +61,19 @@ export type GatewayRequestContext = {
   chatAbortedRuns: Map<string, number>;
   chatRunBuffers: Map<string, string>;
   chatDeltaSentAt: Map<string, number>;
+  chatDeltaLastBroadcastLen: Map<string, number>;
   addChatRun: (sessionId: string, entry: { sessionKey: string; clientRunId: string }) => void;
   removeChatRun: (
     sessionId: string,
     clientRunId: string,
     sessionKey?: string,
   ) => { sessionKey: string; clientRunId: string } | undefined;
+  subscribeSessionEvents: (connId: string) => void;
+  unsubscribeSessionEvents: (connId: string) => void;
+  subscribeSessionMessageEvents: (connId: string, sessionKey: string) => void;
+  unsubscribeSessionMessageEvents: (connId: string, sessionKey: string) => void;
+  unsubscribeAllSessionEvents: (connId: string) => void;
+  getSessionEventSubscriberConnIds: () => ReadonlySet<string>;
   registerToolEventRecipient: (runId: string, connId: string) => void;
   dedupe: Map<string, DedupeEntry>;
   wizardSessions: Map<string, WizardSession>;
@@ -92,6 +99,21 @@ export type GatewayRequestContext = {
     prompter: import("../../wizard/prompts.js").WizardPrompter,
   ) => Promise<void>;
   broadcastVoiceWakeChanged: (triggers: string[]) => void;
+  /** Optional mas4s hook: called after sessions.create to record ownership. */
+  onSessionCreated?: (sessionKey: string, label: string, client: GatewayClient) => void;
+  /**
+   * Optional mas4s hook: called before dispatching any request.
+   * Returns null to allow, or an error shape to reject.
+   */
+  onBeforeRequest?: (
+    method: string,
+    params: Record<string, unknown>,
+    client: GatewayClient | null,
+  ) => { allowed: true } | { allowed: false; code: string; message: string };
+  /**
+   * Optional mas4s hook: called after sessions.list to filter results by membership.
+   */
+  filterSessionsList?: (sessions: unknown[], client: GatewayClient | null) => unknown[];
 };
 
 export type GatewayRequestOptions = {
