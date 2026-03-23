@@ -115,6 +115,46 @@ export function registerEventHandlers(): void {
         store.updateUserPresence(userId, isOnline);
         break;
       }
+      case "session.archived": {
+        const { sessionKey, archivedAt } = evt.payload as {
+          sessionKey: string;
+          archivedAt: number;
+          archivedBy: string;
+        };
+        store.updateSessionArchived(sessionKey, archivedAt);
+        console.info("会话已归档，无法继续发送消息");
+        break;
+      }
+      case "session.unarchived": {
+        const { sessionKey } = evt.payload as {
+          sessionKey: string;
+          unarchivedBy: string;
+        };
+        store.updateSessionArchived(sessionKey, null);
+        break;
+      }
+      case "session.summary.updated": {
+        const { sessionKey: summarySessionKey } = evt.payload as {
+          sessionKey: string;
+          generatedAt: number;
+        };
+        // 需求4.11：自动拉取最新持久化摘要并写入 store
+        void (async () => {
+          try {
+            const { getClient } = await import("./client.js");
+            const { getSummary } = await import("./session-archive.js");
+            const result = await getSummary(getClient(), summarySessionKey);
+            if (result) {
+              store.setSummary(summarySessionKey, result);
+            } else {
+              store.notify();
+            }
+          } catch {
+            store.notify();
+          }
+        })();
+        break;
+      }
     }
   });
 }

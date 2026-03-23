@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as fc from "fast-check";
 import { describe, it, expect, afterEach } from "vitest";
-import { initDatabase } from "./database.js";
+import { ensureMas4sSchema, initDatabase } from "./database.js";
 
 // Track temp paths for cleanup
 const tempPaths: string[] = [];
@@ -332,6 +332,74 @@ describe("Property 16: 并发写入安全", () => {
         expect(userCount).toBe(n);
         expect(ownershipCount).toBe(n);
         expect(membershipCount).toBe(n);
+      }),
+      { numRuns: 100 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Feature: mas4s-session-collaboration, Property 9: Schema 迁移幂等性
+// Validates: Requirements 5.1, 5.2, 5.3
+// ---------------------------------------------------------------------------
+
+describe("Property 9: Schema 迁移幂等性", () => {
+  it("重复调用 ensureMas4sSchema 不抛出错误且数据库状态不变", () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 2, max: 5 }), (repeatCount) => {
+        const dbPath = tmpDbPath();
+        const db = initDatabase(dbPath);
+
+        // Capture schema state after initial init
+        const tablesBefore = (
+          db
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            .all() as Array<{ name: string }>
+        ).map((r) => r.name);
+
+        const ownershipColsBefore = (
+          db.prepare("PRAGMA table_info(session_ownership)").all() as Array<{ name: string }>
+        ).map((c) => c.name);
+
+        const summariesColsBefore = (
+          db.prepare("PRAGMA table_info(session_summaries)").all() as Array<{ name: string }>
+        ).map((c) => c.name);
+
+        // Call ensureMas4sSchema multiple times — must not throw
+        for (let i = 0; i < repeatCount; i++) {
+          expect(() => ensureMas4sSchema(db)).not.toThrow();
+        }
+
+        // Verify schema state is unchanged
+        const tablesAfter = (
+          db
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            .all() as Array<{ name: string }>
+        ).map((r) => r.name);
+
+        const ownershipColsAfter = (
+          db.prepare("PRAGMA table_info(session_ownership)").all() as Array<{ name: string }>
+        ).map((c) => c.name);
+
+        const summariesColsAfter = (
+          db.prepare("PRAGMA table_info(session_summaries)").all() as Array<{ name: string }>
+        ).map((c) => c.name);
+
+        expect(tablesAfter).toEqual(tablesBefore);
+        expect(ownershipColsAfter).toEqual(ownershipColsBefore);
+        expect(summariesColsAfter).toEqual(summariesColsBefore);
+
+        // Verify archivedAt column exists on session_ownership
+        expect(ownershipColsAfter).toContain("archivedAt");
+
+        // Verify session_summaries has expected columns
+        expect(summariesColsAfter).toContain("sessionKey");
+        expect(summariesColsAfter).toContain("textSummary");
+        expect(summariesColsAfter).toContain("toolSummary");
+        expect(summariesColsAfter).toContain("generatedAt");
+        expect(summariesColsAfter).toContain("generatedBy");
+
+        db.close();
       }),
       { numRuns: 100 },
     );

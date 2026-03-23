@@ -20,7 +20,12 @@ export interface User {
 }
 
 /** 不含 passwordHash 的公开用户信息 */
-export type PublicUser = Omit<User, "passwordHash">;
+export type PublicUser = Omit<User, "passwordHash"> & {
+  isOnline?: boolean;
+  lastSeenAt?: number | null;
+  lastLoginAt?: number | null;
+  lastOfflineAt?: number | null;
+};
 
 export interface SessionOwnership {
   sessionKey: string;
@@ -41,4 +46,12 @@ export interface SessionMember {
   displayName: string;
   role: SessionRole;
   joinedAt: number;
+}
+
+export interface SessionSummary {
+  sessionKey: string;
+  textSummary: string | null;
+  toolSummary: string | null;
+  generatedAt: number;
+  generatedBy: string;
 }

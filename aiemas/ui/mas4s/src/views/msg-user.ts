@@ -52,6 +52,13 @@ export class MsgUser extends LitElement {
       font-size: 12px;
     }
 
+    .message-time {
+      font-size: 11px;
+      color: #94a3b8;
+      font-variant-numeric: tabular-nums;
+      font-weight: 400;
+    }
+
     .message-bubble {
       padding: 14px 18px;
       border-radius: 16px;
@@ -132,12 +139,21 @@ export class MsgUser extends LitElement {
       .map((c) => c.text ?? "")
       .join("");
     const name = this.message.senderLabel ?? "You";
+    const ts = this.message.timestamp;
+    const timeStr = ts
+      ? (() => {
+          const d = new Date(ts);
+          const p = (n: number) => String(n).padStart(2, "0");
+          return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+        })()
+      : "";
 
     return html`
       <div class="message-row">
         <div class="message-content">
           <div class="message-name">
-            ${name} <span class="check-icon">✓</span>
+            ${name}
+            ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
           </div>
           ${text.trim() ? html`<div class="message-bubble">${markdownMath(text)}</div>` : nothing}
         </div>

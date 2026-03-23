@@ -7,7 +7,11 @@ import * as fc from "fast-check";
  * 经 parseSenderPrefix 解析后，senderLabel 应与 displayName 一致。
  */
 import { describe, it, expect } from "vitest";
-import { buildGroupMessage, parseSenderPrefix } from "./message-format.js";
+import { parseSenderPrefix } from "./message-format.js";
+
+function buildGroupMessage(name: string, text: string) {
+  return `${name}: ${text}`;
+}
 
 describe("Property 17: message sender name replacement", () => {
   // senderName: 1-40 word chars + spaces, no colon or newline

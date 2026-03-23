@@ -39,6 +39,7 @@ function createMockTenantService(): TenantService {
     checkPermission: () => ({ allowed: true }),
     checkLoginRateLimit: () => ({ allowed: true }),
     getSystemStatus: () => ({ initialized: false }),
+    logout: () => {},
     init: async () => {},
   };
 }
@@ -119,6 +120,10 @@ describe("Property 6: 会话隔离完备性", () => {
             return;
           }
 
+          // Clean up any leftover session data from previous iterations
+          db.prepare("DELETE FROM session_memberships WHERE sessionKey = ?").run(sessionKey);
+          db.prepare("DELETE FROM session_ownership WHERE sessionKey = ?").run(sessionKey);
+
           insertUser(db, ownerUserId, tenantId, "Owner");
           insertUser(db, otherUserId, tenantId, "Other");
 
@@ -145,6 +150,60 @@ describe("Property 6: 会话隔离完备性", () => {
         },
       ),
       { numRuns: 50 },
+    );
+  });
+
+  /**
+   * filterSessionsForUser attaches correct masRole.
+   */
+  it("filterSessionsForUser attaches correct masRole", () => {
+    fc.assert(
+      fc.property(
+        arbUserId,
+        arbUserId,
+        arbSessionKey,
+        arbTenantId,
+        (ownerUserId, participantUserId, sessionKey, tenantId) => {
+          if (ownerUserId === participantUserId) {
+            return;
+          }
+
+          db.prepare("DELETE FROM session_memberships WHERE sessionKey = ?").run(sessionKey);
+          db.prepare("DELETE FROM session_ownership WHERE sessionKey = ?").run(sessionKey);
+
+          insertUser(db, ownerUserId, tenantId, "Owner");
+          insertUser(db, participantUserId, tenantId, "Participant");
+
+          sessionManager.recordSessionCreated(db, sessionKey, ownerUserId, tenantId);
+          sessionManager.inviteToSession(db, sessionKey, participantUserId, ownerUserId);
+
+          const ownerAuth: MasAuthContext = { userId: ownerUserId, tenantId, masRole: "member" };
+          const participantAuth: MasAuthContext = {
+            userId: participantUserId,
+            tenantId,
+            masRole: "member",
+          };
+
+          const rawSessions = [{ key: sessionKey, label: "test" }];
+
+          // Owner should see masRole: 'owner'
+          const ownerFiltered = bridge.filterSessionsForUser(rawSessions, ownerAuth) as (Record<
+            string,
+            unknown
+          > & { masRole: string })[];
+          expect(ownerFiltered).toHaveLength(1);
+          expect(ownerFiltered[0].masRole).toBe("owner");
+
+          // Participant should see masRole: 'participant'
+          const participantFiltered = bridge.filterSessionsForUser(
+            rawSessions,
+            participantAuth,
+          ) as (Record<string, unknown> & { masRole: string })[];
+          expect(participantFiltered).toHaveLength(1);
+          expect(participantFiltered[0].masRole).toBe("participant");
+        },
+      ),
+      { numRuns: 30 },
     );
   });
 });
@@ -460,6 +519,10 @@ describe("Property 11: 事件广播隔离", () => {
             return;
           }
 
+          // Clean up any leftover session data from previous iterations
+          db.prepare("DELETE FROM session_memberships WHERE sessionKey = ?").run(sessionKey);
+          db.prepare("DELETE FROM session_ownership WHERE sessionKey = ?").run(sessionKey);
+
           insertUser(db, ownerUserId, tenantId, "Owner");
           insertUser(db, memberUserId, tenantId, "Member");
           insertUser(db, outsiderUserId, tenantId, "Outsider");
@@ -503,6 +566,10 @@ describe("Property 11: 事件广播隔离", () => {
           if (ownerUserId === participantUserId) {
             return;
           }
+
+          // Clean up any leftover session data from previous iterations
+          db.prepare("DELETE FROM session_memberships WHERE sessionKey = ?").run(sessionKey);
+          db.prepare("DELETE FROM session_ownership WHERE sessionKey = ?").run(sessionKey);
 
           insertUser(db, ownerUserId, tenantId, "Owner");
           insertUser(db, participantUserId, tenantId, "Participant");

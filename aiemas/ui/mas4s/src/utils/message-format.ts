@@ -26,6 +26,13 @@ export function parseSenderPrefix(text: string): {
 }
 
 /**
+ * 构造 "Name: text" 格式消息。
+ */
+export function buildGroupMessage(name: string, text: string): string {
+  return `${name}: ${text}`;
+}
+
+/**
  * 构造 chat.send 请求 envelope。
  * message 只传纯文本，发送者身份由连接上下文携带。
  */

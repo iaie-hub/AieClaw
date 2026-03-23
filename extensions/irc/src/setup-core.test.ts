@@ -127,19 +127,19 @@ describe("irc setup core", () => {
 
   it("validates required input and applies normalized account config", () => {
     expect(
-      ircSetupAdapter.validateInput({
+      ircSetupAdapter.validateInput?.({
         input: { host: "", nick: "openclaw" },
       } as never),
     ).toBe("IRC requires host.");
 
     expect(
-      ircSetupAdapter.validateInput({
+      ircSetupAdapter.validateInput?.({
         input: { host: "irc.libera.chat", nick: "" },
       } as never),
     ).toBe("IRC requires nick.");
 
     expect(
-      ircSetupAdapter.validateInput({
+      ircSetupAdapter.validateInput?.({
         input: { host: "irc.libera.chat", nick: "openclaw" },
       } as never),
     ).toBeNull();

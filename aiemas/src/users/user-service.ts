@@ -7,7 +7,21 @@ import {
   USERNAME_TAKEN,
   WEAK_PASSWORD,
 } from "../errors.js";
-import type { GlobalRole, PublicUser, Tenant, User } from "../models.js";
+import type { GlobalRole, PublicUser, Tenant, User, UserStatus } from "../models.js";
+
+interface UserWithPresenceRow {
+  userId: string;
+  username: string;
+  displayName: string;
+  role: GlobalRole;
+  tenantId: string;
+  status: UserStatus;
+  createdAt: number;
+  isOnline: number;
+  lastSeenAt: number | null;
+  lastLoginAt: number | null;
+  lastOfflineAt: number | null;
+}
 
 // ── Password hashing ──────────────────────────────────────────────────────────
 // NOTE: bcrypt is not available in this project's package.json.
@@ -200,28 +214,43 @@ export function listUsers(
     const rows = db
       .prepare(
         `SELECT u.userId, u.username, u.displayName, u.role, u.tenantId, u.status, u.createdAt,
-                COALESCE(p.isOnline, 0) AS isOnline
+                COALESCE(p.isOnline, 0) AS isOnline, p.lastSeenAt, p.lastLoginAt, p.lastOfflineAt
          FROM users u
          LEFT JOIN user_presence p ON u.userId = p.userId
          WHERE u.tenantId = ?`,
       )
-      .all(tenantId) as (PublicUser & { isOnline: number })[];
-    return rows.map((r) => ({ ...r, isOnline: r.isOnline === 1 }));
+      .all(tenantId) as unknown as UserWithPresenceRow[];
+    return rows.map((r) => ({
+      ...r,
+      isOnline: r.isOnline === 1,
+    }));
   }
 
   // member/viewer: only approved users, without status field
   const rows = db
     .prepare(
       `SELECT u.userId, u.username, u.displayName, u.role, u.tenantId, u.createdAt,
-              COALESCE(p.isOnline, 0) AS isOnline
+              COALESCE(p.isOnline, 0) AS isOnline, p.lastSeenAt, p.lastLoginAt, p.lastOfflineAt
        FROM users u
        LEFT JOIN user_presence p ON u.userId = p.userId
        WHERE u.tenantId = ? AND u.status = 'approved'`,
     )
-    .all(tenantId) as (Omit<PublicUser, "status"> & { isOnline: number })[];
+    .all(tenantId) as unknown as UserWithPresenceRow[];
 
   // Return with implicit approved status
-  return rows.map((r) => ({ ...r, status: "approved" as const, isOnline: r.isOnline === 1 }));
+  return rows.map((r) => ({
+    userId: r.userId,
+    username: r.username,
+    displayName: r.displayName,
+    role: r.role,
+    tenantId: r.tenantId,
+    status: "approved" as const,
+    createdAt: r.createdAt,
+    isOnline: r.isOnline === 1,
+    lastSeenAt: r.lastSeenAt,
+    lastLoginAt: r.lastLoginAt,
+    lastOfflineAt: r.lastOfflineAt,
+  }));
 }
 
 // ── Update user ───────────────────────────────────────────────────────────────
@@ -252,15 +281,22 @@ export function updateUser(
 
   const user = db
     .prepare(
-      "SELECT userId, username, displayName, role, tenantId, status, createdAt FROM users WHERE userId = ?",
+      `SELECT u.userId, u.username, u.displayName, u.role, u.tenantId, u.status, u.createdAt,
+              COALESCE(p.isOnline, 0) AS isOnline, p.lastSeenAt, p.lastLoginAt, p.lastOfflineAt
+       FROM users u
+       LEFT JOIN user_presence p ON u.userId = p.userId
+       WHERE u.userId = ?`,
     )
-    .get(userId) as PublicUser | undefined;
+    .get(userId) as unknown as UserWithPresenceRow | undefined;
 
   if (!user) {
     throw new TenantServiceError("USER_NOT_FOUND", `User ${userId} not found.`);
   }
 
-  return user;
+  return {
+    ...user,
+    isOnline: user.isOnline === 1,
+  };
 }
 
 // ── Approve / Reject user ─────────────────────────────────────────────────────

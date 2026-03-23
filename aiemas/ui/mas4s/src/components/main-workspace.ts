@@ -61,8 +61,11 @@ export class MainWorkspace extends LitElement {
         .approvalCount=${this.pendingApprovals.length}
         .pendingApprovals=${this.pendingApprovals}
         .showInvite=${hasSession}
+        .session=${this.session}
         @invite-click=${this._onInviteClick}
         @resolve-approval=${this._onResolve}
+        @session-archive=${this._onSessionArchive}
+        @session-unarchive=${this._onSessionUnarchive}
       ></main-header>
 
       <div class="workspace-content">
@@ -89,6 +92,14 @@ export class MainWorkspace extends LitElement {
     this.dispatchEvent(
       new CustomEvent("resolve-approval", { detail: e.detail, bubbles: true, composed: true }),
     );
+  };
+
+  private _onSessionArchive = (e: CustomEvent) => {
+    this.dispatchEvent(new CustomEvent("session-archive", { detail: e.detail, bubbles: true }));
+  };
+
+  private _onSessionUnarchive = (e: CustomEvent) => {
+    this.dispatchEvent(new CustomEvent("session-unarchive", { detail: e.detail, bubbles: true }));
   };
 }
 

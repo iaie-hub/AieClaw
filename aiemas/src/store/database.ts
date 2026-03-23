@@ -90,7 +90,36 @@ export function ensureMas4sSchema(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS user_presence (
       userId TEXT PRIMARY KEY REFERENCES users(userId),
       lastSeenAt INTEGER NOT NULL,
-      isOnline INTEGER NOT NULL DEFAULT 0
+      isOnline INTEGER NOT NULL DEFAULT 0,
+      lastLoginAt INTEGER,
+      lastOfflineAt INTEGER
+    );
+  `);
+
+  // Idempotent migration: add lastLoginAt/lastOfflineAt columns to user_presence if they don't exist
+  const presenceCols = db.prepare("PRAGMA table_info(user_presence)").all() as Array<{
+    name: string;
+  }>;
+  if (!presenceCols.some((c) => c.name === "lastLoginAt")) {
+    db.exec("ALTER TABLE user_presence ADD COLUMN lastLoginAt INTEGER");
+  }
+  if (!presenceCols.some((c) => c.name === "lastOfflineAt")) {
+    db.exec("ALTER TABLE user_presence ADD COLUMN lastOfflineAt INTEGER");
+  }
+
+  // Idempotent migration: add archivedAt column to session_ownership if it doesn't exist
+  const cols = db.prepare("PRAGMA table_info(session_ownership)").all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "archivedAt")) {
+    db.exec("ALTER TABLE session_ownership ADD COLUMN archivedAt INTEGER");
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS session_summaries (
+      sessionKey TEXT PRIMARY KEY,
+      textSummary TEXT,
+      toolSummary TEXT,
+      generatedAt INTEGER NOT NULL,
+      generatedBy TEXT NOT NULL
     );
   `);
 }

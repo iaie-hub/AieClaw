@@ -1,4 +1,6 @@
 import { getClient } from "../gateway/client.js";
+import { archiveSession, unarchiveSession } from "../gateway/session-archive.js";
+import { inviteUser, listSessionMembers, removeMember } from "../gateway/session-invite.js";
 import {
   createSession,
   deleteSession,
@@ -110,6 +112,65 @@ export class SessionController {
         .catch((err) => {
           console.warn("[mas4s:session] select ← fetchSessionHistory failed:", err);
         });
+    }
+  };
+
+  onSessionArchive = async (e: CustomEvent<{ sessionKey: string }>) => {
+    const { sessionKey } = e.detail;
+    const client = getClient();
+    try {
+      await archiveSession(client, sessionKey);
+      // 后端会推送 session.archived 事件，event-handler 会更新 store
+    } catch (err) {
+      console.error("[mas4s:session] archiveSession failed:", err);
+    }
+  };
+
+  onSessionUnarchive = async (e: CustomEvent<{ sessionKey: string }>) => {
+    const { sessionKey } = e.detail;
+    const client = getClient();
+    try {
+      await unarchiveSession(client, sessionKey);
+      // 后端会推送 session.unarchived 事件
+    } catch (err) {
+      console.error("[mas4s:session] unarchiveSession failed:", err);
+    }
+  };
+
+  onSessionMembersFetch = async (e: CustomEvent<{ sessionKey: string }>) => {
+    const { sessionKey } = e.detail;
+    const client = getClient();
+    try {
+      const members = await listSessionMembers(client, sessionKey);
+      this.store.updateSessionParticipants(sessionKey, members);
+    } catch (err) {
+      console.error("[mas4s:session] listSessionMembers failed:", err);
+    }
+  };
+
+  onUserInvite = async (e: CustomEvent<{ sessionKey: string; userId: string }>) => {
+    const { sessionKey, userId } = e.detail;
+    const client = getClient();
+    try {
+      await inviteUser(client, sessionKey, userId);
+      // 邀请成功后刷新成员列表
+      const members = await listSessionMembers(client, sessionKey);
+      this.store.updateSessionParticipants(sessionKey, members);
+    } catch (err) {
+      console.error("[mas4s:session] inviteUser failed:", err);
+    }
+  };
+
+  onMemberRemove = async (e: CustomEvent<{ sessionKey: string; userId: string }>) => {
+    const { sessionKey, userId } = e.detail;
+    const client = getClient();
+    try {
+      await removeMember(client, sessionKey, userId);
+      // 移除成功后刷新成员列表
+      const members = await listSessionMembers(client, sessionKey);
+      this.store.updateSessionParticipants(sessionKey, members);
+    } catch (err) {
+      console.error("[mas4s:session] removeMember failed:", err);
     }
   };
 }

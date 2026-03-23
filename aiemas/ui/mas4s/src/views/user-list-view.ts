@@ -14,6 +14,9 @@ export interface UserRecord {
   tenantId: string;
   status?: UserStatus;
   isOnline?: boolean;
+  lastSeenAt?: number;
+  lastLoginAt?: number;
+  lastOfflineAt?: number;
   createdAt: number;
 }
 
@@ -542,11 +545,31 @@ export class UserListView extends LitElement {
             isAdmin && user.status
               ? html`
                 <div class="field-row">
-                  <span class="field-label">状态</span>
+                  <span class="field-label">审核状态</span>
                   <span class="status-chip ${user.status}">
                     <span class="status-dot ${user.status}"></span>
                     ${this._statusLabel(user.status)}
                   </span>
+                </div>
+              `
+              : ""
+          }
+          ${
+            user.lastLoginAt
+              ? html`
+                <div class="field-row">
+                  <span class="field-label">上次登录</span>
+                  <span class="field-value">${new Date(user.lastLoginAt).toLocaleString("zh-CN")}</span>
+                </div>
+              `
+              : ""
+          }
+          ${
+            !isOnline && user.lastOfflineAt
+              ? html`
+                <div class="field-row">
+                  <span class="field-label">上次离线</span>
+                  <span class="field-value">${new Date(user.lastOfflineAt).toLocaleString("zh-CN")}</span>
                 </div>
               `
               : ""

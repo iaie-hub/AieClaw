@@ -6,7 +6,7 @@ import {
   OWNER_CANNOT_LEAVE,
   SESSION_ACCESS_DENIED,
 } from "../errors.js";
-import type { SessionMember } from "../models.js";
+import type { SessionMember, SessionSummary } from "../models.js";
 
 /**
  * Record session creation: create SessionOwnership AND SessionMembership (role="owner")
@@ -207,4 +207,108 @@ export function getSessionOwnerUserIds(db: DatabaseSync, sessionKey: string): st
     .prepare("SELECT userId FROM session_memberships WHERE sessionKey = ? AND role = 'owner'")
     .all(sessionKey) as Array<{ userId: string }>;
   return rows.map((r) => r.userId);
+}
+
+/**
+ * Archive a session. Only the owner can archive.
+ * Idempotent: if already archived, returns the existing archivedAt timestamp without updating.
+ * Returns the archivedAt timestamp.
+ */
+export function archiveSession(db: DatabaseSync, sessionKey: string, callerUserId: string): number {
+  // Verify caller is the owner
+  const callerRow = db
+    .prepare("SELECT role FROM session_memberships WHERE sessionKey = ? AND userId = ?")
+    .get(sessionKey, callerUserId) as { role: string } | undefined;
+
+  if (!callerRow || callerRow.role !== "owner") {
+    throw new TenantServiceError(
+      SESSION_ACCESS_DENIED,
+      "Only the session owner can archive the session",
+    );
+  }
+
+  // Check if already archived (idempotent)
+  const ownership = db
+    .prepare("SELECT archivedAt FROM session_ownership WHERE sessionKey = ?")
+    .get(sessionKey) as { archivedAt: number | null } | undefined;
+
+  if (ownership?.archivedAt != null) {
+    return ownership.archivedAt;
+  }
+
+  const now = Date.now();
+  db.prepare("UPDATE session_ownership SET archivedAt = ? WHERE sessionKey = ?").run(
+    now,
+    sessionKey,
+  );
+  return now;
+}
+
+/**
+ * Check if a session is archived (archivedAt is not NULL).
+ */
+export function isSessionArchived(db: DatabaseSync, sessionKey: string): boolean {
+  const row = db
+    .prepare("SELECT archivedAt FROM session_ownership WHERE sessionKey = ?")
+    .get(sessionKey) as { archivedAt: number | null } | undefined;
+  return row?.archivedAt != null;
+}
+
+/**
+ * Unarchive a session (reset archivedAt to NULL). Only the owner can unarchive.
+ */
+export function unarchiveSession(db: DatabaseSync, sessionKey: string, callerUserId: string): void {
+  // Verify caller is the owner
+  const callerRow = db
+    .prepare("SELECT role FROM session_memberships WHERE sessionKey = ? AND userId = ?")
+    .get(sessionKey, callerUserId) as { role: string } | undefined;
+
+  if (!callerRow || callerRow.role !== "owner") {
+    throw new TenantServiceError(
+      SESSION_ACCESS_DENIED,
+      "Only the session owner can unarchive the session",
+    );
+  }
+
+  db.prepare("UPDATE session_ownership SET archivedAt = NULL WHERE sessionKey = ?").run(sessionKey);
+}
+
+/**
+ * Insert or replace a session summary in the session_summaries table.
+ * Uses INSERT OR REPLACE for upsert semantics.
+ */
+export function upsertSummary(
+  db: DatabaseSync,
+  sessionKey: string,
+  textSummary: string | null,
+  toolSummary: string | null,
+  generatedBy: string,
+): SessionSummary {
+  const now = Date.now();
+  db.prepare(
+    "INSERT OR REPLACE INTO session_summaries (sessionKey, textSummary, toolSummary, generatedAt, generatedBy) VALUES (?, ?, ?, ?, ?)",
+  ).run(sessionKey, textSummary, toolSummary, now, generatedBy);
+
+  return { sessionKey, textSummary, toolSummary, generatedAt: now, generatedBy };
+}
+
+/**
+ * Get the session summary for a given sessionKey.
+ * Returns null if no summary exists.
+ */
+export function getSummary(db: DatabaseSync, sessionKey: string): SessionSummary | null {
+  const row = db
+    .prepare(
+      "SELECT sessionKey, textSummary, toolSummary, generatedAt, generatedBy FROM session_summaries WHERE sessionKey = ?",
+    )
+    .get(sessionKey) as SessionSummary | undefined;
+  return row ?? null;
+}
+
+/**
+ * Delete the session summary for a given sessionKey.
+ * Idempotent: does not throw if no summary exists.
+ */
+export function deleteSummary(db: DatabaseSync, sessionKey: string): void {
+  db.prepare("DELETE FROM session_summaries WHERE sessionKey = ?").run(sessionKey);
 }

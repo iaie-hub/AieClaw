@@ -371,6 +371,9 @@ export function archiveSession(db: DatabaseSync, sessionKey: string, callerUserI
 // 检查会话是否已归档
 export function isSessionArchived(db: DatabaseSync, sessionKey: string): boolean;
 
+// 启用已归档会话（将 archivedAt 重置为 NULL）
+export function unarchiveSession(db: DatabaseSync, sessionKey: string, callerUserId: string): void;
+
 // 写入/覆盖摘要
 export function upsertSummary(
   db: DatabaseSync,
@@ -552,6 +555,11 @@ case "session.archived": {
   console.info("会话已归档，无法继续发送消息");
   break;
 }
+case "session.unarchived": {
+  const { sessionKey } = evt.payload as { sessionKey: string; unarchivedBy: string };
+  store.updateSessionArchived(sessionKey, null);
+  break;
+}
 case "session.summary.updated": {
   const { sessionKey } = evt.payload as { sessionKey: string; generatedAt: number };
   // 触发摘要刷新（由组件监听 store 变化后主动拉取）
@@ -569,8 +577,9 @@ case "session.summary.updated": {
 
 #### ChatInput（输入框禁用逻辑）
 
-- 当 `activeSession.archivedAt` 不为 null 时，输入框 `disabled` 属性为 `true`
-- 输入框占位文本变为"会话已归档，无法发送消息"
+- 当 `activeSession.archivedAt` 不为 null 时，输入框 `disabled` 属性为 `true`，placeholder 显示"会话已归档，无法发送消息"，发送按钮同步禁用
+- 当前端收到 `event:session.archived` 时，输入框立即禁用（无需刷新页面）
+- 当前端收到 `event:session.unarchived` 时，输入框立即恢复可用状态
 
 #### SummaryPanel（新增组件）
 
@@ -668,6 +677,14 @@ _对于任意_ 非 Session_Member 用户 U，U 调用 `session.summary.get` 或 
 _对于任意_ 已包含 `archivedAt` 字段的 `session_ownership` 表或已存在的 `session_summaries` 表，重复调用 `ensureMas4sSchema` 不应抛出错误，数据库状态应保持不变。
 
 **验证：需求 5.1、5.2、5.3**
+
+---
+
+### 属性 10：归档与启用互逆性
+
+_对于任意_ 会话 S，调用 `session.archive` 后 `isSessionArchived` 返回 `true`；随后调用 `session.unarchive` 后 `isSessionArchived` 应返回 `false`，`chat.send` 应恢复正常（不再返回 `SESSION_ARCHIVED`）。
+
+**验证：需求 3.11、3.14**
 
 ---
 

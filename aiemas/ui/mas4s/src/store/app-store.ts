@@ -1,7 +1,7 @@
 import type { ReactiveController, ReactiveControllerHost } from "lit";
 import type { ApprovalRequest } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
-import type { MasSession } from "../types/session-types.js";
+import type { MasSession, SessionSummary, MasParticipant } from "../types/session-types.js";
 
 export type GlobalRole = "admin" | "member" | "viewer";
 
@@ -85,6 +85,9 @@ export class AppStore {
   // key: userId, value: isOnline
   userPresenceOverrides: Map<string, boolean> = new Map();
 
+  // ── 会话摘要缓存（sessionKey → 摘要） ────────────
+  summaryBySession: Map<string, SessionSummary> = new Map();
+
   updateUserPresence(userId: string, isOnline: boolean): void {
     this.userPresenceOverrides.set(userId, isOnline);
     this.notify();
@@ -136,6 +139,27 @@ export class AppStore {
   updateSessionLabel(sessionKey: string, label: string): void {
     this.sessions = this.sessions.map((s) => (s.key === sessionKey ? { ...s, label } : s));
     this.notify();
+  }
+
+  updateSessionArchived(sessionKey: string, archivedAt: number | null): void {
+    this.sessions = this.sessions.map((s) => (s.key === sessionKey ? { ...s, archivedAt } : s));
+    this.notify();
+  }
+
+  updateSessionParticipants(sessionKey: string, participants: MasParticipant[]): void {
+    this.sessions = this.sessions.map((s) => (s.key === sessionKey ? { ...s, participants } : s));
+    this.notify();
+  }
+
+  // ── 摘要操作 ──────────────────────────────────────
+
+  setSummary(sessionKey: string, summary: SessionSummary): void {
+    this.summaryBySession.set(sessionKey, summary);
+    this.notify();
+  }
+
+  getSummary(sessionKey: string): SessionSummary | undefined {
+    return this.summaryBySession.get(sessionKey);
   }
 
   // ── 消息操作 ──────────────────────────────────────

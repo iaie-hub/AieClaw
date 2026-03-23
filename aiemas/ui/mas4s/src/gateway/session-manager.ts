@@ -1,8 +1,10 @@
 import type { GatewayBrowserClient } from "../lib/gateway.js";
 import { normalizeMessage } from "../lib/message-normalizer.js";
 import type { GatewaySessionRow } from "../lib/types.js";
+import { AppStore } from "../store/app-store.js";
 import type { ChatMessage } from "../types/chat-types.js";
 import type { MasSession } from "../types/session-types.js";
+import { getSummary } from "./session-archive.js";
 
 /**
  * 通过 WebSocket chat.history 拉取会话历史消息。
@@ -80,10 +82,12 @@ export async function createSession(
  * label 优先使用 row.label，回退到 row.displayName（gateway 从 channel/subject 派生），
  * 确保渲染层始终有可用的显示名称。
  */
-function rowToMasSession(
-  row: GatewaySessionRow,
-  masType: "initiated" | "participated",
-): MasSession {
+function rowToMasSession(row: GatewaySessionRow): MasSession {
+  let masType: "initiated" | "participated" = "initiated";
+  if (row.masRole === "participant") {
+    masType = "participated";
+  }
+
   return {
     ...row,
     label: row.label ?? row.displayName,
@@ -101,7 +105,27 @@ function rowToMasSession(
  */
 export async function fetchSessions(client: GatewayBrowserClient): Promise<MasSession[]> {
   const result = await client.request<{ sessions: GatewaySessionRow[] }>("sessions.list", {});
-  return (result.sessions ?? []).map((row) => rowToMasSession(row, "initiated"));
+  const sessions = (result.sessions ?? []).map((row) => rowToMasSession(row));
+
+  // Batch-load persisted summaries for sessions that have one (requirement 4.10)
+  const withSummary = sessions.filter((s) => s.hasSummary === true);
+  if (withSummary.length > 0) {
+    const store = AppStore.instance;
+    await Promise.all(
+      withSummary.map(async (session) => {
+        try {
+          const summary = await getSummary(client, session.key);
+          if (summary) {
+            store.setSummary(session.key, summary);
+          }
+        } catch {
+          // Single failure must not block other sessions
+        }
+      }),
+    );
+  }
+
+  return sessions;
 }
 export async function renameSession(
   client: GatewayBrowserClient,
@@ -149,7 +173,7 @@ export async function joinSession(
   const row = listResult.sessions.find((s) => s.key === canonicalKey);
 
   if (row) {
-    return rowToMasSession(row, "participated");
+    return rowToMasSession(row);
   }
   return {
     key: canonicalKey,

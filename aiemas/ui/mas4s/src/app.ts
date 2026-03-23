@@ -118,7 +118,17 @@ export class Mas4sApp extends LitElement {
       onSessionCreate: (e) => this._session.onSessionCreate(e),
       onSessionRename: (e) => this._session.onSessionRename(e),
       onSessionDelete: (e) => this._session.onSessionDelete(e),
-      onSessionRefresh: () => void this._session.onSessionRefresh(),
+      onSessionRefresh: (e: Event) => void this._session.onSessionRefresh(e),
+      onSessionArchive: (e: CustomEvent<{ sessionKey: string }>) =>
+        this._session.onSessionArchive(e),
+      onSessionUnarchive: (e: CustomEvent<{ sessionKey: string }>) =>
+        this._session.onSessionUnarchive(e),
+      onSessionMembersFetch: (e: CustomEvent<{ sessionKey: string }>) =>
+        this._session.onSessionMembersFetch(e),
+      onUserInvite: (e: CustomEvent<{ sessionKey: string; userId: string }>) =>
+        this._session.onUserInvite(e),
+      onMemberRemove: (e: CustomEvent<{ sessionKey: string; userId: string }>) =>
+        this._session.onMemberRemove(e),
       onSendMessage: (e) => this._message.onSendMessage(e),
       onResolveApproval: (e) => this._message.onResolveApproval(e),
       onInviteOpen: () => this._ui.onInviteOpen(),

@@ -12,7 +12,12 @@ export interface AppShellHandlers {
   onSessionCreate: (e: CustomEvent<{ label: string }>) => void;
   onSessionRename: (e: CustomEvent<{ sessionKey: string; label: string }>) => void;
   onSessionDelete: (e: CustomEvent<{ sessionKey: string }>) => void;
-  onSessionRefresh: () => void;
+  onSessionRefresh: (e: Event) => void;
+  onSessionArchive: (e: CustomEvent<{ sessionKey: string }>) => void;
+  onSessionUnarchive: (e: CustomEvent<{ sessionKey: string }>) => void;
+  onSessionMembersFetch: (e: CustomEvent<{ sessionKey: string }>) => void;
+  onUserInvite: (e: CustomEvent<{ sessionKey: string; userId: string }>) => void;
+  onMemberRemove: (e: CustomEvent<{ sessionKey: string; userId: string }>) => void;
   onSendMessage: (e: CustomEvent<{ text: string }>) => void;
   onResolveApproval: (e: CustomEvent<{ id: string; decision: string }>) => void;
   onInviteOpen: () => void;
@@ -105,6 +110,8 @@ export function renderMain(
               @send-message=${h.onSendMessage}
               @resolve-approval=${h.onResolveApproval}
               @invite-open=${h.onInviteOpen}
+              @session-archive=${h.onSessionArchive}
+              @session-unarchive=${h.onSessionUnarchive}
             ></main-workspace>
           `
       }
@@ -117,6 +124,9 @@ export function renderMain(
           <invite-dialog
             .session=${store.activeSession}
             @close=${h.onDialogClose}
+            @members-fetch=${h.onSessionMembersFetch}
+            @user-invite=${h.onUserInvite}
+            @member-remove=${h.onMemberRemove}
           ></invite-dialog>
         `
         : ""

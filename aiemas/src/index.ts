@@ -16,6 +16,7 @@ import {
   approveUser,
   rejectUser,
   findUserByUsername,
+  findUserById,
   verifyPassword,
   getSystemStatus,
 } from "./users/user-service.js";
@@ -43,11 +44,7 @@ export interface TenantService {
     | { ok: true; token: string; user: PublicUser }
     | { ok: false; error: string; retryAfterMs?: number };
 
-  verify(
-    token: string,
-  ):
-    | { ok: true; userId: string; tenantId: string; role: GlobalRole }
-    | { ok: false; error: string };
+  verify(token: string): { ok: true; user: PublicUser } | { ok: false; error: string };
 
   refresh(token: string): { ok: true; token: string } | { ok: false; error: string };
 
@@ -73,6 +70,7 @@ export interface TenantService {
 
   // Presence
   logout(userId: string): void;
+  updatePresence(userId: string, isActualLogin?: boolean): void;
 
   // System status
   getSystemStatus(): { initialized: boolean };
@@ -163,8 +161,8 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
       // Sign token
       const token = signToken({ userId: user.userId, tenantId: user.tenantId, role: user.role });
 
-      // Mark user as online on successful login
-      updatePresence(database, user.userId);
+      // Mark user as online on successful login (actual login = true)
+      updatePresence(database, user.userId, true);
 
       const publicUser: PublicUser = {
         userId: user.userId,
@@ -186,7 +184,24 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
     verify(token) {
       try {
         const claims = verifyToken(token);
-        return { ok: true, userId: claims.userId, tenantId: claims.tenantId, role: claims.role };
+        const user = findUserById(getDb(), claims.userId);
+        if (!user || user.status !== "approved") {
+          return { ok: false, error: "ACCOUNT_INVALID" };
+        }
+
+        // Update presence on successful verify (heartbeat/reconnect)
+        updatePresence(getDb(), claims.userId, false);
+
+        const publicUser: PublicUser = {
+          userId: user.userId,
+          username: user.username,
+          displayName: user.displayName,
+          role: user.role,
+          tenantId: user.tenantId,
+          status: user.status,
+          createdAt: user.createdAt,
+        };
+        return { ok: true, user: publicUser };
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         return { ok: false, error: message };
@@ -198,7 +213,7 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
         const newToken = refreshToken(token);
         // Update presence on successful refresh
         const claims = verifyToken(newToken);
-        updatePresence(getDb(), claims.userId);
+        updatePresence(getDb(), claims.userId, false);
         return { ok: true, token: newToken };
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -260,6 +275,10 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
 
     logout(userId: string) {
       markOffline(getDb(), userId);
+    },
+
+    updatePresence(userId: string, isActualLogin?: boolean) {
+      updatePresence(getDb(), userId, isActualLogin);
     },
   };
 }

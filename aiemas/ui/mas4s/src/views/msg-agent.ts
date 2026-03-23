@@ -41,11 +41,17 @@ export class MsgAgent extends LitElement {
       align-items: center;
       justify-content: center;
       color: #fff;
-      font-size: 18px;
       margin: 0 16px 0 0;
       flex-shrink: 0;
-      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
       background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      /* SVG icon instead of emoji */
+    }
+
+    .avatar-icon {
+      width: 22px;
+      height: 22px;
+      opacity: 0.95;
     }
 
     .message-content {
@@ -61,6 +67,13 @@ export class MsgAgent extends LitElement {
       display: flex;
       align-items: center;
       gap: 6px;
+    }
+
+    .message-time {
+      font-size: 11px;
+      color: #94a3b8;
+      font-variant-numeric: tabular-nums;
+      font-weight: 400;
     }
 
     .agent-tag {
@@ -277,14 +290,36 @@ export class MsgAgent extends LitElement {
 
   render() {
     const name = this.message.senderLabel ?? "Agent";
+    const ts = this.message.timestamp;
+    const timeStr = ts
+      ? (() => {
+          const d = new Date(ts);
+          const p = (n: number) => String(n).padStart(2, "0");
+          return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+        })()
+      : "";
 
     return html`
       <div class="message-row">
-        <div class="message-avatar">🤖</div>
+        <div class="message-avatar">
+          <!-- 机器人/AI SVG 图标 -->
+          <svg class="avatar-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="3" y="8" width="18" height="12" rx="3" fill="rgba(255,255,255,0.25)" stroke="white" stroke-width="1.5"/>
+            <circle cx="9" cy="14" r="2" fill="white"/>
+            <circle cx="15" cy="14" r="2" fill="white"/>
+            <path d="M9 8V6" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M15 8V6" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+            <circle cx="9" cy="5" r="1" fill="white"/>
+            <circle cx="15" cy="5" r="1" fill="white"/>
+            <path d="M12 6V4" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+            <circle cx="12" cy="3" r="1.2" fill="white"/>
+            <path d="M7 20v1M17 20v1" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </div>
         <div class="message-content">
           <div class="message-name">
             ${name}
-            <span class="agent-tag">Agent</span>
+            ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
           </div>
           ${this._renderContent(this.message.content)}
         </div>

@@ -4,6 +4,7 @@ import { createTenantService } from "../index.js";
 import { GatewayAuthBridge } from "./bridge.js";
 import { getMasAuth, NULL_MAS_AUTH } from "./context.js";
 import { extractMasTokenFromUrl } from "./integration.js";
+import type { ChatHistoryMessage } from "./summary-llm.js";
 
 /**
  * Generic handler type that avoids importing from src/gateway/ directly.
@@ -17,11 +18,24 @@ type SimpleHandler = (opts: {
 
 type SimpleHandlers = Record<string, SimpleHandler>;
 
+/**
+ * Callback to dispatch an internal gateway request.
+ * Set by the integration layer after plugin creation.
+ * Returns the response payload on success, throws on failure.
+ */
+export type GatewayDispatchFn = (
+  method: string,
+  params: Record<string, unknown>,
+  client: unknown,
+) => Promise<unknown>;
+
 export interface Mas4sGatewayPlugin {
   bridge: GatewayAuthBridge;
   tenantService: TenantService;
   extraHandlers: SimpleHandlers;
   extractMasTokenFromUrl: typeof extractMasTokenFromUrl;
+  /** Set by integration layer to enable internal gateway calls (e.g. chat.history). */
+  gatewayDispatch: GatewayDispatchFn | null;
 }
 
 function errorShape(code: string, message: string): { code: string; message: string } {
@@ -330,12 +344,128 @@ export async function createMas4sGatewayPlugin(
         respond(false, undefined, errorShape(e.code, e.message));
       }
     },
+
+    "session.archive": async ({ params, client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        const callerUserId = auth.userId;
+        if (!callerUserId) {
+          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
+          return;
+        }
+        const sessionKey = str(params["sessionKey"]);
+        const fetchHistory = buildFetchHistory(plugin, sessionKey, client);
+        const result = await bridge.archiveSession({ sessionKey, callerUserId, fetchHistory });
+        if (result.ok) {
+          respond(true, result, undefined);
+        } else {
+          respond(false, undefined, errorShape(result.code, result.message));
+        }
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
+
+    "session.unarchive": async ({ params, client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        const callerUserId = auth.userId;
+        if (!callerUserId) {
+          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
+          return;
+        }
+        const sessionKey = str(params["sessionKey"]);
+        const result = bridge.unarchiveSession({ sessionKey, callerUserId });
+        if (result.ok) {
+          respond(true, result, undefined);
+        } else {
+          respond(false, undefined, errorShape(result.code, result.message));
+        }
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
+
+    "session.summary.generate": async ({ params, client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        const callerUserId = auth.userId;
+        if (!callerUserId) {
+          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
+          return;
+        }
+        const sessionKey = str(params["sessionKey"]);
+        const fetchHistory = buildFetchHistory(plugin, sessionKey, client);
+        const result = await bridge.generateSummary({ sessionKey, callerUserId, fetchHistory });
+        if (result.ok) {
+          respond(true, result, undefined);
+        } else {
+          respond(false, undefined, errorShape(result.code, result.message));
+        }
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
+
+    "session.summary.get": async ({ params, client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        const callerUserId = auth.userId;
+        if (!callerUserId) {
+          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
+          return;
+        }
+        const sessionKey = str(params["sessionKey"]);
+        const result = bridge.getSummary({ sessionKey, callerUserId });
+        if (result.ok) {
+          respond(true, result, undefined);
+        } else {
+          respond(false, undefined, errorShape(result.code, result.message));
+        }
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
   };
 
-  return {
+  const plugin: Mas4sGatewayPlugin = {
     bridge,
     tenantService,
     extraHandlers,
     extractMasTokenFromUrl,
+    gatewayDispatch: null,
+  };
+
+  return plugin;
+}
+
+/**
+ * Build a fetchHistory callback that calls the gateway's chat.history method
+ * via the integration-layer dispatch function and extracts the messages array.
+ */
+function buildFetchHistory(
+  plugin: Mas4sGatewayPlugin,
+  sessionKey: string,
+  client: unknown,
+): () => Promise<ChatHistoryMessage[]> {
+  return async () => {
+    if (!plugin.gatewayDispatch) {
+      console.warn("[mas4s] gatewayDispatch not set, cannot fetch chat history");
+      return [];
+    }
+    const payload = (await plugin.gatewayDispatch(
+      "chat.history",
+      { sessionKey, limit: 1000 },
+      client,
+    )) as { messages?: unknown[] } | undefined;
+    return (payload?.messages ?? []) as ChatHistoryMessage[];
   };
 }

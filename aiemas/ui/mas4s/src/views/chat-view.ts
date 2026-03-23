@@ -1,9 +1,11 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state, query } from "lit/decorators.js";
+import { AppStoreController } from "../store/app-store.js";
 import type { ApprovalRequest } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
 import type { MasSession } from "../types/session-types.js";
 import "./message-list.js";
+import "../components/summary-panel.js";
 
 /**
  * 聊天视图：消息列表 + 输入区。
@@ -20,6 +22,8 @@ export class ChatView extends LitElement {
   @property({ type: Boolean }) isInitiator = false;
 
   @state() private _inputText = "";
+
+  private _ctrl = new AppStoreController(this);
 
   @query(".chat-container")
   private _container!: HTMLElement;
@@ -155,10 +159,14 @@ export class ChatView extends LitElement {
     }
   };
 
+  private get _isArchived(): boolean {
+    return this.session?.archivedAt != null;
+  }
+
   private _onSend = () => {
     const text = this._inputText.trim();
-    // 属性 5：空白消息被拒绝
-    if (!text || !this.session) {
+    // 属性 5：空白消息被拒绝；归档会话禁止发送
+    if (!text || !this.session || this._isArchived) {
       return;
     }
 
@@ -179,6 +187,10 @@ export class ChatView extends LitElement {
       `;
     }
 
+    const store = this._ctrl.store;
+    const summary = store.getSummary(this.session.key);
+    const isOwner = this.session.masType === "initiated";
+
     return html`
       <div class="chat-container">
         <div class="session-divider">—— 协作链路已加密连接 ——</div>
@@ -193,14 +205,21 @@ export class ChatView extends LitElement {
               .isInitiator=${this.isInitiator}
             ></message-list>`
         }
+        <!-- 需求4.10：会话摘要面板，所有成员可见 -->
+        <summary-panel
+          .session=${this.session}
+          .summary=${summary}
+          .isOwner=${isOwner}
+        ></summary-panel>
       </div>
 
       <div class="chat-input-wrapper">
         <div class="chat-input-area">
           <textarea
             rows="2"
-            placeholder="输入消息，Shift+Enter 换行，Enter 发送…"
+            placeholder=${this._isArchived ? "会话已归档，无法发送消息" : "输入消息，Shift+Enter 换行，Enter 发送…"}
             .value=${this._inputText}
+            ?disabled=${this._isArchived}
             @input=${(e: Event) => {
               this._inputText = (e.target as HTMLTextAreaElement).value;
             }}
@@ -210,7 +229,7 @@ export class ChatView extends LitElement {
             <span class="input-hint">Shift+Enter 换行</span>
             <button
               class="send-btn"
-              ?disabled=${!this._inputText.trim()}
+              ?disabled=${this._isArchived || !this._inputText.trim()}
               @click=${this._onSend}
             >
               发送

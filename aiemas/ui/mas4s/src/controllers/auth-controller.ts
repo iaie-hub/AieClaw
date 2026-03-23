@@ -1,6 +1,6 @@
 import { getClient, resetClient } from "../gateway/client.js";
 import { fetchSessions } from "../gateway/session-manager.js";
-import type { AppStore } from "../store/app-store.js";
+import type { AppStore, CurrentUser } from "../store/app-store.js";
 
 export type MasAuthState = "checking" | "init" | "login" | "authenticated";
 
@@ -42,19 +42,34 @@ export class AuthController {
         this.cb.setAuthState("init");
         resetClient();
       } else if (localStorage.getItem("mas4s_auth_token")) {
-        // HMR 或页面刷新后 store 单例可能被重建，currentUser 丢失。
-        // 没有 auth.me 接口恢复用户信息，清除 token 回到登录页。
-        if (!this.store.currentUser) {
-          console.warn(
-            "[mas4s:auth] checkSystemStatus → token present but currentUser lost (HMR?), redirecting to login",
+        const masToken = localStorage.getItem("mas4s_auth_token")!;
+        try {
+          // Attempt to verify and restore currentUser
+          const verifyRes = await client.request<{ ok: boolean; user?: CurrentUser }>(
+            "auth.verify",
+            {
+              token: masToken,
+            },
           );
+          if (verifyRes.ok && verifyRes.user) {
+            console.debug("[mas4s:auth] checkSystemStatus → restoring currentUser from token");
+            this.store.setCurrentUser(verifyRes.user);
+            this.cb.setAuthState("authenticated");
+            this.doConnect();
+            this.startRefreshTimer();
+          } else {
+            console.warn(
+              "[mas4s:auth] checkSystemStatus → token verification failed, redirecting to login",
+            );
+            localStorage.removeItem("mas4s_auth_token");
+            this.cb.setAuthState("login");
+            resetClient();
+          }
+        } catch (err) {
+          console.warn("[mas4s:auth] checkSystemStatus → auth.verify failed:", err);
           localStorage.removeItem("mas4s_auth_token");
           this.cb.setAuthState("login");
           resetClient();
-        } else {
-          this.cb.setAuthState("authenticated");
-          this.doConnect();
-          this.startRefreshTimer();
         }
       } else {
         this.cb.setAuthState("login");
