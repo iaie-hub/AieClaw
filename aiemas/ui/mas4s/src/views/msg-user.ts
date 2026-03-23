@@ -1,5 +1,6 @@
-import { LitElement, html, css } from "lit";
+import { LitElement, html, css, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
+import { markdownMath } from "../lib/markdown-directive.js";
 import type { ChatMessage } from "../types/chat-types.js";
 
 /**
@@ -63,6 +64,52 @@ export class MsgUser extends LitElement {
       box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
     }
 
+    /* Markdown resets for white-on-blue bubble */
+    .message-bubble p {
+      margin: 0 0 0.5em;
+    }
+    .message-bubble p:last-child {
+      margin-bottom: 0;
+    }
+    .message-bubble a {
+      color: #bfdbfe;
+    }
+    .message-bubble code {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 0.88em;
+      font-family: ui-monospace, monospace;
+    }
+    .message-bubble pre {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+      padding: 10px 14px;
+      overflow-x: auto;
+      margin: 0.5em 0;
+    }
+    .message-bubble pre code {
+      background: none;
+      padding: 0;
+    }
+    .message-bubble ul,
+    .message-bubble ol {
+      margin: 0.4em 0;
+      padding-left: 1.4em;
+    }
+    .message-bubble li {
+      margin: 0.2em 0;
+    }
+    .message-bubble strong {
+      font-weight: 600;
+    }
+    .message-bubble blockquote {
+      border-left: 3px solid rgba(255, 255, 255, 0.5);
+      margin: 0.5em 0;
+      padding: 2px 10px;
+      opacity: 0.85;
+    }
+
     .message-avatar {
       width: 40px;
       height: 40px;
@@ -92,7 +139,7 @@ export class MsgUser extends LitElement {
           <div class="message-name">
             ${name} <span class="check-icon">✓</span>
           </div>
-          <div class="message-bubble">${text}</div>
+          ${text.trim() ? html`<div class="message-bubble">${markdownMath(text)}</div>` : nothing}
         </div>
         <div class="message-avatar">👤</div>
       </div>

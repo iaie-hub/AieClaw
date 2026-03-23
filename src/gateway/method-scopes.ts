@@ -90,6 +90,11 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "talk.config",
     "agents.files.list",
     "agents.files.get",
+    "system.status",
+    "auth.login",
+    "auth.refresh",
+    "auth.verify",
+    "user.register",
   ],
   [WRITE_SCOPE]: [
     "send",
@@ -139,6 +144,10 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "set-heartbeats",
     "system-event",
     "agents.files.set",
+    "user.list",
+    "user.update",
+    "user.approve",
+    "user.reject",
   ],
 };
 

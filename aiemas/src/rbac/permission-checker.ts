@@ -92,6 +92,11 @@ const GATEWAY_READ_METHODS = new Set([
   "talk.config",
   "agents.files.list",
   "agents.files.get",
+  "system.status",
+  "auth.login",
+  "auth.refresh",
+  "auth.verify",
+  "user.register",
 ]);
 
 const GATEWAY_WRITE_METHODS = new Set([
@@ -142,6 +147,10 @@ const GATEWAY_ADMIN_METHODS = new Set([
   "set-heartbeats",
   "system-event",
   "agents.files.set",
+  "user.list",
+  "user.update",
+  "user.approve",
+  "user.reject",
 ]);
 
 const GATEWAY_ADMIN_PREFIXES = ["exec.approvals.", "config.", "wizard.", "update."] as const;

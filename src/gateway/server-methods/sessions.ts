@@ -706,6 +706,10 @@ export const sessionsHandlers: GatewayRequestHandlers = {
           key: target.canonicalKey,
           label: typeof p.label === "string" ? p.label.trim() : undefined,
           model: typeof p.model === "string" ? p.model.trim() : undefined,
+          reasoningLevel:
+            typeof p.reasoningLevel === "string"
+              ? p.reasoningLevel.trim()
+              : (p.reasoningLevel as string | null | undefined),
         },
         loadGatewayModelCatalog: context.loadGatewayModelCatalog,
       });

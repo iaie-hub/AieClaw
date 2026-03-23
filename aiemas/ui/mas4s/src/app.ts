@@ -1,3 +1,4 @@
+import "katex/dist/katex.min.css";
 import { LitElement, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { AuthController, type MasAuthState } from "./controllers/auth-controller.js";

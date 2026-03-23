@@ -53,9 +53,7 @@ describe("nextcloud talk setup core", () => {
       },
     });
 
-    expect(
-      clearNextcloudTalkAccountFields(cfg, DEFAULT_ACCOUNT_ID, ["botSecret"]),
-    ).toMatchObject({
+    expect(clearNextcloudTalkAccountFields(cfg, DEFAULT_ACCOUNT_ID, ["botSecret"])).toMatchObject({
       channels: {
         "nextcloud-talk": {
           baseUrl: "https://cloud.example.com",
@@ -72,18 +70,19 @@ describe("nextcloud talk setup core", () => {
       },
     });
 
-    expect(clearNextcloudTalkAccountFields(cfg, "work", ["botSecret", "botSecretFile"]))
-      .toMatchObject({
-        channels: {
-          "nextcloud-talk": {
-            accounts: {
-              work: {
-                apiPassword: "api-secret",
-              },
+    expect(
+      clearNextcloudTalkAccountFields(cfg, "work", ["botSecret", "botSecretFile"]),
+    ).toMatchObject({
+      channels: {
+        "nextcloud-talk": {
+          accounts: {
+            work: {
+              apiPassword: "api-secret",
             },
           },
         },
-      });
+      },
+    });
   });
 
   it("sets top-level DM policy state", async () => {
@@ -105,21 +104,21 @@ describe("nextcloud talk setup core", () => {
 
   it("validates env/default-account constraints and applies config patches", () => {
     expect(
-      nextcloudTalkSetupAdapter.validateInput({
+      nextcloudTalkSetupAdapter.validateInput?.({
         accountId: "work",
         input: { useEnv: true },
       } as never),
     ).toBe("NEXTCLOUD_TALK_BOT_SECRET can only be used for the default account.");
 
     expect(
-      nextcloudTalkSetupAdapter.validateInput({
+      nextcloudTalkSetupAdapter.validateInput?.({
         accountId: DEFAULT_ACCOUNT_ID,
         input: { useEnv: false, baseUrl: "", secret: "" },
       } as never),
     ).toBe("Nextcloud Talk requires bot secret or --secret-file (or --use-env).");
 
     expect(
-      nextcloudTalkSetupAdapter.validateInput({
+      nextcloudTalkSetupAdapter.validateInput?.({
         accountId: DEFAULT_ACCOUNT_ID,
         input: { useEnv: false, secret: "secret", baseUrl: "" },
       } as never),

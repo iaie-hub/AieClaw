@@ -234,10 +234,21 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
     return;
   }
 
-  if (stream === "thinking" && data?.delta && runId) {
-    // 累积 thinking delta，下次 assistant 流更新时一起带入 content
-    const prev = _thinkingByRun.get(runId) ?? "";
-    _thinkingByRun.set(runId, prev + data.delta);
+  if (stream === "thinking" && runId) {
+    // 使用 data.text (全量累计文本) 更新思考缓存，并立即触发界面更新
+    const thinkingText = data?.text ?? "";
+    _thinkingByRun.set(runId, thinkingText);
+
+    if (sessionKey) {
+      const streamMsg: ChatMessage = {
+        role: "assistant",
+        content: [{ type: "thinking", thinking: thinkingText }],
+        timestamp: Date.now(),
+        id: runId,
+        senderLabel: null,
+      };
+      updateChatStream(store, sessionKey, streamMsg, false);
+    }
     return;
   }
 }

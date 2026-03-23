@@ -40,7 +40,12 @@ function authorizeGatewayMethod(method: string, client: GatewayRequestOptions["c
   if (!client?.connect) {
     return null;
   }
-  if (method === "health") {
+  if (
+    method === "health" ||
+    method === "system.status" ||
+    method === "auth.login" ||
+    method === "auth.verify"
+  ) {
     return null;
   }
   const roleRaw = client.connect.role ?? "operator";

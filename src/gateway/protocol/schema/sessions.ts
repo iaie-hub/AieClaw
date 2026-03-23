@@ -53,6 +53,7 @@ export const SessionsCreateParamsSchema = Type.Object(
     agentId: Type.Optional(NonEmptyString),
     label: Type.Optional(SessionLabelString),
     model: Type.Optional(NonEmptyString),
+    reasoningLevel: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
     parentSessionKey: Type.Optional(NonEmptyString),
     task: Type.Optional(Type.String()),
     message: Type.Optional(Type.String()),

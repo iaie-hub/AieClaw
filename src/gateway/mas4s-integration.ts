@@ -8,6 +8,7 @@
  */
 
 import type { createSubsystemLogger } from "../logging/subsystem.js";
+import { ADMIN_SCOPE, READ_SCOPE, WRITE_SCOPE } from "./method-scopes.js";
 import { sessionsHandlers } from "./server-methods/sessions.js";
 import type { GatewayRequestHandler, GatewayRequestHandlers } from "./server-methods/types.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
@@ -137,6 +138,25 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
         // This mirrors how channel integrations (e.g. Feishu) pass sender identity via MsgContext.
         if (masAuth.displayName && client.connect?.client) {
           client.connect.client.displayName = masAuth.displayName;
+        }
+
+        // Grant gateway scopes to authenticated MAS users so they can pass core authorization.
+        // User-level filtering is still performed by mas4s interceptRequest (RBAC).
+        if (masAuth.userId && client.connect) {
+          const scopes = client.connect.scopes ?? [];
+          if (masAuth.masRole === "admin") {
+            if (!scopes.includes(ADMIN_SCOPE)) {
+              scopes.push(ADMIN_SCOPE);
+            }
+          } else {
+            if (!scopes.includes(READ_SCOPE)) {
+              scopes.push(READ_SCOPE);
+            }
+            if (!scopes.includes(WRITE_SCOPE)) {
+              scopes.push(WRITE_SCOPE);
+            }
+          }
+          client.connect.scopes = scopes;
         }
       } catch (err) {
         log.warn(`mas4s auth failed for conn=${client.connId}: ${String(err)}`);

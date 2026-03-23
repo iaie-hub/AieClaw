@@ -1,5 +1,6 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { markdownMath } from "../lib/markdown-directive.js";
 import type { ChatMessage, MessageContentItem } from "../types/chat-types.js";
 import "./msg-tool-card.js";
 
@@ -82,6 +83,100 @@ export class MsgAgent extends LitElement {
       border: 1px solid #e2e8f0;
       color: #1e293b;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+
+    /* Markdown content styles */
+    .message-bubble p {
+      margin: 0 0 0.6em;
+    }
+    .message-bubble p:last-child {
+      margin-bottom: 0;
+    }
+    .message-bubble h1,
+    .message-bubble h2,
+    .message-bubble h3,
+    .message-bubble h4 {
+      margin: 0.8em 0 0.4em;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+    .message-bubble h1 {
+      font-size: 1.2em;
+    }
+    .message-bubble h2 {
+      font-size: 1.1em;
+    }
+    .message-bubble h3 {
+      font-size: 1em;
+    }
+    .message-bubble ul,
+    .message-bubble ol {
+      margin: 0.4em 0;
+      padding-left: 1.4em;
+    }
+    .message-bubble li {
+      margin: 0.2em 0;
+    }
+    .message-bubble code {
+      background: #f0fdf4;
+      border: 1px solid #d1fae5;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 0.88em;
+      font-family: ui-monospace, monospace;
+    }
+    .message-bubble pre {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 10px 14px;
+      overflow-x: auto;
+      margin: 0.6em 0;
+    }
+    .message-bubble pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: 0.85em;
+    }
+    .message-bubble blockquote {
+      border-left: 3px solid #10b981;
+      margin: 0.6em 0;
+      padding: 4px 12px;
+      color: #475569;
+      background: #f0fdf4;
+      border-radius: 0 6px 6px 0;
+    }
+    .message-bubble a {
+      color: #059669;
+      text-decoration: underline;
+    }
+    .message-bubble strong {
+      font-weight: 600;
+    }
+    .message-bubble em {
+      font-style: italic;
+    }
+    .message-bubble hr {
+      border: none;
+      border-top: 1px solid #e2e8f0;
+      margin: 0.8em 0;
+    }
+    .message-bubble table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 0.6em 0;
+      font-size: 0.9em;
+    }
+    .message-bubble th,
+    .message-bubble td {
+      border: 1px solid #e2e8f0;
+      padding: 6px 10px;
+      text-align: left;
+    }
+    .message-bubble th {
+      background: #f0fdf4;
+      font-weight: 600;
     }
 
     .tool-cards {
@@ -167,7 +262,7 @@ export class MsgAgent extends LitElement {
           `
           : nothing
       }
-      ${text ? html`<div class="message-bubble">${text}</div>` : nothing}
+      ${text.trim() ? html`<div class="message-bubble">${markdownMath(text)}</div>` : nothing}
       ${
         toolItems.length > 0
           ? html`
