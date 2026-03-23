@@ -11,6 +11,7 @@ import type { MsgContext } from "../../auto-reply/templating.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../../auto-reply/tokens.js";
 import type { ReplyPayload } from "../../auto-reply/types.js";
 import { resolveSessionFilePath } from "../../config/sessions.js";
+import { emitAgentEvent } from "../../infra/agent-events.js";
 import { jsonUtf8Bytes } from "../../infra/json-utf8-bytes.js";
 import { type SavedMedia, saveMediaBuffer } from "../../media/store.js";
 import { createChannelReplyPipeline } from "../../plugin-sdk/channel-reply-pipeline.js";
@@ -1311,6 +1312,8 @@ export const chatHandlers: GatewayRequestHandlers = {
     });
     const now = Date.now();
     const clientRunId = p.idempotencyKey;
+    // Per-run reasoning text buffer for computing streaming deltas in onReasoningStream.
+    const _reasoningBufferByRun = new Map<string, string>();
 
     const sendPolicy = resolveSendPolicy({
       cfg,
@@ -1544,6 +1547,20 @@ export const chatHandlers: GatewayRequestHandlers = {
                   context.registerToolEventRecipient(activeRunId, connId);
                 }
               }
+            }
+          },
+          onReasoningStream: ({ text }) => {
+            // Emit thinking stream events so WebSocket clients (e.g. mas4s UI)
+            // can display reasoning in real-time alongside assistant text.
+            const prior = _reasoningBufferByRun.get(clientRunId) ?? "";
+            const delta = text && text.startsWith(prior) ? text.slice(prior.length) : (text ?? "");
+            if (delta) {
+              _reasoningBufferByRun.set(clientRunId, text ?? "");
+              emitAgentEvent({
+                runId: clientRunId,
+                stream: "thinking",
+                data: { text: text ?? "", delta },
+              });
             }
           },
           onModelSelected,

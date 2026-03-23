@@ -33,11 +33,14 @@ export async function createSession(
     label: string;
     agentId?: string;
     participants?: string[];
+    /** 是否启用思考流式输出，默认 "stream" */
+    reasoningLevel?: "stream" | "on" | "off";
   },
 ): Promise<MasSession> {
   const uuid = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
   const agentId = opts.agentId ?? "default";
   const key = `agent:${agentId}:group:mas-${uuid}`;
+  const reasoningLevel = opts.reasoningLevel ?? "stream";
 
   const result = await client.request<{
     ok?: boolean;
@@ -47,6 +50,7 @@ export async function createSession(
   }>("sessions.create", {
     key,
     label: opts.label,
+    reasoningLevel,
   });
 
   // gateway returns ok:false with an error shape on failure (e.g. label conflict)
@@ -103,8 +107,13 @@ export async function renameSession(
   client: GatewayBrowserClient,
   sessionKey: string,
   label: string,
+  reasoningLevel?: "stream" | "on" | "off",
 ): Promise<void> {
-  await client.request("sessions.patch", { key: sessionKey, label });
+  const patch: Record<string, unknown> = { key: sessionKey, label };
+  if (reasoningLevel !== undefined) {
+    patch["reasoningLevel"] = reasoningLevel;
+  }
+  await client.request("sessions.patch", patch);
 }
 
 /**

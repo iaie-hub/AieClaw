@@ -236,6 +236,8 @@ export class GatewayBrowserClient {
       return;
     }
 
+    console.debug(parsed);
+
     const frame = parsed as { type?: unknown };
 
     if (frame.type === "event") {

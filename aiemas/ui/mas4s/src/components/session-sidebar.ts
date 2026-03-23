@@ -15,6 +15,7 @@ export class SessionSidebar extends LitElement {
     mode: "create" | "rename";
     sessionKey?: string;
     value: string;
+    reasoningLevel: "stream" | "on" | "off";
   } | null = null;
 
   @state() private _deleteConfirm: { sessionKey: string; label: string } | null = null;
@@ -386,10 +387,72 @@ export class SessionSidebar extends LitElement {
     .name-dialog-actions button:hover {
       opacity: 0.85;
     }
+
+    .reasoning-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      color: #475569;
+    }
+
+    .reasoning-toggle span {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .reasoning-toggle small {
+      font-size: 11px;
+      color: #94a3b8;
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+      position: absolute;
+    }
+
+    .toggle-track {
+      position: absolute;
+      inset: 0;
+      background: #cbd5e1;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .toggle-track::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 14px;
+      height: 14px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+
+    .toggle-switch input:checked + .toggle-track {
+      background: #3b82f6;
+    }
+
+    .toggle-switch input:checked + .toggle-track::after {
+      transform: translateX(16px);
+    }
   `;
 
   private _onCreate() {
-    this._nameDialog = { mode: "create", value: "" };
+    this._nameDialog = { mode: "create", value: "", reasoningLevel: "stream" };
   }
 
   private _onRefresh() {
@@ -416,6 +479,7 @@ export class SessionSidebar extends LitElement {
       mode: "rename",
       sessionKey: session.key,
       value: session.label ?? session.displayName ?? "",
+      reasoningLevel: (session.reasoningLevel as "stream" | "on" | "off") ?? "stream",
     };
   }
 
@@ -451,17 +515,22 @@ export class SessionSidebar extends LitElement {
     if (!this._nameDialog) {
       return;
     }
-    const { mode, sessionKey, value } = this._nameDialog;
+    const { mode, sessionKey, value, reasoningLevel } = this._nameDialog;
     const label = value.trim();
     if (!label) {
       return;
     }
 
     if (mode === "create") {
-      this.dispatchEvent(new CustomEvent("session-create", { detail: { label }, bubbles: true }));
+      this.dispatchEvent(
+        new CustomEvent("session-create", { detail: { label, reasoningLevel }, bubbles: true }),
+      );
     } else if (mode === "rename" && sessionKey) {
       this.dispatchEvent(
-        new CustomEvent("session-rename", { detail: { sessionKey, label }, bubbles: true }),
+        new CustomEvent("session-rename", {
+          detail: { sessionKey, label, reasoningLevel },
+          bubbles: true,
+        }),
       );
     }
     this._nameDialog = null;
@@ -574,8 +643,9 @@ export class SessionSidebar extends LitElement {
     if (!this._nameDialog) {
       return nothing;
     }
-    const { mode, value } = this._nameDialog;
+    const { mode, value, reasoningLevel } = this._nameDialog;
     const title = mode === "create" ? "新建会话" : "重命名会话";
+    const streamEnabled = reasoningLevel === "stream";
     return html`
       <div class="name-overlay" @click=${() => (this._nameDialog = null)}>
         <div class="name-dialog" @click=${(e: Event) => e.stopPropagation()}>
@@ -588,6 +658,27 @@ export class SessionSidebar extends LitElement {
             @keydown=${(e: KeyboardEvent) => this._onNameKeydown(e)}
             autofocus
           />
+          <div class="reasoning-toggle">
+            <span>
+              启用思考过程
+              <small>开启后 AI 会实时输出推理内容</small>
+            </span>
+            <label class="toggle-switch">
+              <input
+                type="checkbox"
+                .checked=${streamEnabled}
+                @change=${(e: Event) => {
+                  if (this._nameDialog) {
+                    this._nameDialog = {
+                      ...this._nameDialog,
+                      reasoningLevel: (e.target as HTMLInputElement).checked ? "stream" : "off",
+                    };
+                  }
+                }}
+              />
+              <span class="toggle-track"></span>
+            </label>
+          </div>
           <div class="name-dialog-actions">
             <button @click=${() => (this._nameDialog = null)}>取消</button>
             <button class="primary" @click=${() => this._onNameConfirm()}>确认</button>

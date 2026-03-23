@@ -9,6 +9,9 @@ import { addEventHandler } from "./client.js";
 
 const TOOL_OUTPUT_CHAR_LIMIT = 120_000;
 
+/** 每个 runId 的 thinking 文本累积缓存（流式 delta 拼接） */
+const _thinkingByRun: Map<string, string> = new Map();
+
 function formatToolOutput(value: unknown): string | undefined {
   if (value === null || value === undefined) {
     return undefined;
@@ -157,6 +160,11 @@ function handleChatEvent(store: AppStore, payload: unknown): void {
     return;
   }
 
+  // run 结束，清理 thinking 缓存
+  if (state === "final" && runId) {
+    _thinkingByRun.delete(runId);
+  }
+
   updateChatStream(store, sessionKey, chatMsg, state === "final");
 }
 
@@ -183,9 +191,15 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
 
   if (stream === "assistant" && data?.text !== undefined && runId) {
     // 用 runId 作为稳定 id，流式更新 assistant 消息气泡
+    const thinkingText = _thinkingByRun.get(runId);
+    const content: ChatMessage["content"] = [];
+    if (thinkingText) {
+      content.push({ type: "thinking", thinking: thinkingText });
+    }
+    content.push({ type: "text", text: data.text });
     const streamMsg: ChatMessage = {
       role: "assistant",
-      content: [{ type: "text", text: data.text }],
+      content,
       timestamp: Date.now(),
       id: runId,
       senderLabel: null,
@@ -220,9 +234,11 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
     return;
   }
 
-  if (stream === "thinking" && data?.delta) {
-    // TODO: 第二期 — 追加到 AppStore 的推理缓存
-    void store;
+  if (stream === "thinking" && data?.delta && runId) {
+    // 累积 thinking delta，下次 assistant 流更新时一起带入 content
+    const prev = _thinkingByRun.get(runId) ?? "";
+    _thinkingByRun.set(runId, prev + data.delta);
+    return;
   }
 }
 

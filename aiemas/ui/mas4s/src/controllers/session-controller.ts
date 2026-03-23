@@ -16,11 +16,20 @@ import type { AppStore } from "../store/app-store.js";
 export class SessionController {
   constructor(private readonly store: AppStore) {}
 
-  onSessionCreate = async (e: CustomEvent<{ label: string }>) => {
-    console.debug("[mas4s:session] create → label=%s", e.detail.label);
+  onSessionCreate = async (
+    e: CustomEvent<{ label: string; reasoningLevel?: "stream" | "on" | "off" }>,
+  ) => {
+    console.debug(
+      "[mas4s:session] create → label=%s reasoningLevel=%s",
+      e.detail.label,
+      e.detail.reasoningLevel,
+    );
     const client = getClient();
     try {
-      const session = await createSession(client, { label: e.detail.label });
+      const session = await createSession(client, {
+        label: e.detail.label,
+        reasoningLevel: e.detail.reasoningLevel,
+      });
       // 创建成功后刷新完整会话列表，确保 label 等字段与 gateway 存储一致
       const sessions = await fetchSessions(client);
       this.store.setSessions(sessions);
@@ -49,12 +58,19 @@ export class SessionController {
     }
   };
 
-  onSessionRename = async (e: CustomEvent<{ sessionKey: string; label: string }>) => {
-    const { sessionKey, label } = e.detail;
-    console.debug("[mas4s:session] rename → sessionKey=%s label=%s", sessionKey, label);
+  onSessionRename = async (
+    e: CustomEvent<{ sessionKey: string; label: string; reasoningLevel?: "stream" | "on" | "off" }>,
+  ) => {
+    const { sessionKey, label, reasoningLevel } = e.detail;
+    console.debug(
+      "[mas4s:session] rename → sessionKey=%s label=%s reasoningLevel=%s",
+      sessionKey,
+      label,
+      reasoningLevel,
+    );
     const client = getClient();
     try {
-      await renameSession(client, sessionKey, label);
+      await renameSession(client, sessionKey, label, reasoningLevel);
       this.store.updateSessionLabel(sessionKey, label);
       console.debug("[mas4s:session] rename ← ok");
     } catch (err) {

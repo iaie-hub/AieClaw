@@ -4,8 +4,9 @@
 
 /** Content item types in a normalized message */
 export type MessageContentItem = {
-  type: "text" | "tool_call" | "tool_result";
+  type: "text" | "tool_call" | "tool_result" | "thinking";
   text?: string;
+  thinking?: string;
   name?: string;
   args?: unknown;
 };

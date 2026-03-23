@@ -123,6 +123,7 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
     content = m.content.map((item: Record<string, unknown>) => ({
       type: (item.type as MessageContentItem["type"]) || "text",
       text: item.text as string | undefined,
+      thinking: item.thinking as string | undefined,
       name: item.name as string | undefined,
       args: item.args ?? item.arguments,
     }));
@@ -132,8 +133,13 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
 
   const timestamp = typeof m.timestamp === "number" ? m.timestamp : Date.now();
   const id = typeof m.id === "string" ? m.id : undefined;
-  const senderLabel =
+  // gateway 存储时会在 senderLabel 末尾附加 " (channel-id)" 后缀（如 "管理员 (webchat-ui)"），
+  // 前端只展示用户名部分，剥离括号后缀。
+  const rawSenderLabel =
     typeof m.senderLabel === "string" && m.senderLabel.trim() ? m.senderLabel.trim() : null;
+  const senderLabel = rawSenderLabel
+    ? rawSenderLabel.replace(/\s*\([^)]*\)\s*$/, "").trim() || rawSenderLabel
+    : null;
 
   // 剥离 AI 注入的 inbound metadata 前缀（仅对 user 消息）
   if (role === "user" || role === "User") {

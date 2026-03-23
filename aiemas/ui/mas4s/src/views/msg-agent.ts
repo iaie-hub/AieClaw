@@ -1,5 +1,5 @@
 import { LitElement, html, css, nothing } from "lit";
-import { customElement, property } from "lit/decorators.js";
+import { customElement, property, state } from "lit/decorators.js";
 import type { ChatMessage, MessageContentItem } from "../types/chat-types.js";
 import "./msg-tool-card.js";
 
@@ -10,6 +10,7 @@ import "./msg-tool-card.js";
 @customElement("msg-agent")
 export class MsgAgent extends LitElement {
   @property({ attribute: false }) message!: ChatMessage;
+  @state() private _thinkingExpanded = false;
 
   static styles = css`
     :host {
@@ -89,15 +90,83 @@ export class MsgAgent extends LitElement {
       gap: 4px;
       margin-top: 8px;
     }
+
+    .thinking-block {
+      margin-bottom: 6px;
+      border: 1px solid #d1fae5;
+      border-radius: 10px;
+      overflow: hidden;
+      font-size: 13px;
+    }
+
+    .thinking-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 12px;
+      background: #f0fdf4;
+      color: #059669;
+      cursor: pointer;
+      user-select: none;
+      font-weight: 500;
+    }
+
+    .thinking-toggle:hover {
+      background: #dcfce7;
+    }
+
+    .thinking-arrow {
+      font-size: 10px;
+      transition: transform 0.2s;
+      display: inline-block;
+    }
+
+    .thinking-arrow.expanded {
+      transform: rotate(90deg);
+    }
+
+    .thinking-body {
+      padding: 10px 14px;
+      background: #fafffe;
+      color: #475569;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+      border-top: 1px solid #d1fae5;
+    }
   `;
 
   private _renderContent(items: MessageContentItem[]) {
+    const thinkingItems = items.filter((c) => c.type === "thinking");
     const textItems = items.filter((c) => c.type === "text");
     const toolItems = items.filter((c) => c.type === "tool_call" || c.type === "tool_result");
 
+    const thinkingText = thinkingItems.map((c) => c.thinking ?? c.text ?? "").join("\n\n");
     const text = textItems.map((c) => c.text ?? "").join("");
 
     return html`
+      ${
+        thinkingText
+          ? html`
+            <div class="thinking-block">
+              <div
+                class="thinking-toggle"
+                @click=${() => {
+                  this._thinkingExpanded = !this._thinkingExpanded;
+                }}
+              >
+                <span class="thinking-arrow ${this._thinkingExpanded ? "expanded" : ""}">▶</span>
+                <span>思考过程</span>
+              </div>
+              ${
+                this._thinkingExpanded
+                  ? html`<div class="thinking-body">${thinkingText}</div>`
+                  : nothing
+              }
+            </div>
+          `
+          : nothing
+      }
       ${text ? html`<div class="message-bubble">${text}</div>` : nothing}
       ${
         toolItems.length > 0
