@@ -1134,7 +1134,7 @@ export async function startGatewayServer(
   setFallbackGatewayContextResolver(() => gatewayRequestContext);
 
   // Initialize mas4s multi-tenant plugin (opt-in, noop if unavailable)
-  const mas4s = await initMas4sIntegration(log);
+  const mas4s = await initMas4sIntegration(log, cfgAtStart);
   if (mas4s.onSessionCreated) {
     const masOnSessionCreated = mas4s.onSessionCreated;
     gatewayRequestContext.onSessionCreated = (sessionKey, label, client) => {

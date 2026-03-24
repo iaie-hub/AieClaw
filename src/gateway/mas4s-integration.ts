@@ -7,8 +7,14 @@
  * the gateway continues without multi-tenant features.
  */
 
+import { resolveEnvApiKey } from "../agents/model-auth-env.js";
+import type { OpenClawConfig } from "../config/config.js";
+import { collectConfigRuntimeEnvVars } from "../config/env-vars.js";
+import { isValidEnvSecretRefId } from "../config/types.secrets.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
+import { resolveSecretInputString } from "../secrets/resolve-secret-input-string.js";
 import { ADMIN_SCOPE, READ_SCOPE, WRITE_SCOPE } from "./method-scopes.js";
+import { chatHandlers } from "./server-methods/chat.js";
 import { sessionsHandlers } from "./server-methods/sessions.js";
 import type { GatewayRequestHandler, GatewayRequestHandlers } from "./server-methods/types.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
@@ -58,18 +64,158 @@ const NOOP_INTEGRATION: Mas4sIntegration = {
   filterSessionsList: (sessions) => sessions,
 };
 
+async function resolveLlmKey(
+  config: OpenClawConfig,
+  value: unknown,
+  provider?: string,
+): Promise<string> {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  // 1. Try standard secret resolution (handles ${VLLM_API_KEY} etc)
+  const resolved = await resolveSecretInputString({
+    config,
+    value,
+    env: process.env,
+  });
+
+  if (resolved && resolved !== value) {
+    return resolved;
+  }
+
+  // 2. Prepare merged environment (process.env + config.env.vars)
+  const mergedEnv = { ...process.env, ...collectConfigRuntimeEnvVars(config) };
+
+  // 3. If a provider is known, try auth profile store first (written by `openclaw configure`)
+  //    This is the primary storage path: real keys live in auth-profiles.json, not openclaw.json.
+  if (provider) {
+    try {
+      const { ensureAuthProfileStore, resolveApiKeyForProfile, resolveAuthProfileOrder } =
+        await import("../agents/auth-profiles.js");
+      const store = ensureAuthProfileStore();
+      const order = resolveAuthProfileOrder({ cfg: config, store, provider });
+      for (const profileId of order) {
+        const profileResult = await resolveApiKeyForProfile({ cfg: config, store, profileId });
+        if (profileResult?.apiKey) {
+          console.log(
+            `[mas4s] Resolved LLM key via auth profile "${profileId}" for provider: ${provider}`,
+          );
+          return profileResult.apiKey;
+        }
+      }
+    } catch (err) {
+      console.warn(`[mas4s] Auth profile lookup failed for provider ${provider}: ${String(err)}`);
+    }
+  }
+
+  // 4. If a provider is known, use the provider-specific env resolver
+  if (provider) {
+    const envResolved = resolveEnvApiKey(provider, mergedEnv);
+    if (envResolved) {
+      return envResolved.apiKey;
+    }
+  }
+
+  // 5. Fallback for plain placeholders like "VLLM_API_KEY"
+  if (isValidEnvSecretRefId(value)) {
+    const envVal = mergedEnv[value];
+    if (envVal) {
+      console.log(`[mas4s] Resolved ${value} from merged env (length: ${envVal.length})`);
+      return envVal;
+    }
+
+    console.warn(`[mas4s] Failed to resolve plain placeholder: ${value}`);
+    // CRITICAL: If it looks like an env var but we couldn't find one,
+    // DO NOT return the placeholder name as a literal key.
+    // However, self-hosted providers (vllm, ollama, sglang, etc.) typically
+    // don't require a real API key. Return "none" so the LLM call can proceed.
+    if (
+      provider &&
+      ["vllm", "ollama", "sglang", "litellm", "lmstudio"].includes(provider.toLowerCase())
+    ) {
+      console.log(`[mas4s] Using placeholder key "none" for self-hosted provider: ${provider}`);
+      return "none";
+    }
+    return "";
+  }
+
+  return resolved ?? "";
+}
+
 /**
  * Attempt to initialize the mas4s plugin. Returns a noop integration
  * on failure so the gateway can start without it.
  */
-export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sIntegration> {
+export async function initMas4sIntegration(
+  log: SubsystemLogger,
+  config?: OpenClawConfig,
+): Promise<Mas4sIntegration> {
+  if (!config) {
+    return NOOP_INTEGRATION;
+  }
   try {
     const { createMas4sGatewayPlugin } =
       await import("../../aiemas/src/gateway-bridge/mas4s-gateway-plugin.js");
     const contextMod = await import("../../aiemas/src/gateway-bridge/context.js");
     const integrationMod = await import("../../aiemas/src/gateway-bridge/integration.js");
 
-    const plugin = await createMas4sGatewayPlugin();
+    const aiemasConfig = config?.plugins?.entries?.["aiemas"]?.config ?? {};
+    const mas4sConfig = config?.plugins?.entries?.["mas4s"]?.config ?? {};
+    let llm = (aiemasConfig["llm"] ?? mas4sConfig["llm"]) as
+      | { baseUrl: string; apiKey: string; model: string }
+      | undefined;
+
+    // Fallback: if no LLM configured for aiemas, try to reuse one from models.providers
+    if (!llm && config?.models?.providers) {
+      const providers = config.models.providers;
+      const bestKey =
+        Object.keys(providers).find((k) => k.toLowerCase() === "openai") ??
+        Object.keys(providers).find((k) => k.toLowerCase().includes("deepseek")) ??
+        Object.keys(providers).find(
+          (k) => k.toLowerCase().includes("vllm") || k.toLowerCase().includes("ollama"),
+        ) ??
+        Object.keys(providers).find((k) => providers[k].api?.startsWith("openai-"));
+
+      if (bestKey) {
+        const p = providers[bestKey];
+        const modelId = p.models?.[0]?.id;
+        if (p.baseUrl && modelId) {
+          // If the key is custom (e.g. "my-vllm"), try to map to a canonical ID for env resolution
+          let providerId = bestKey;
+          const kLower = bestKey.toLowerCase();
+          if (kLower.includes("deepseek")) {
+            providerId = "deepseek";
+          } else if (kLower.includes("vllm")) {
+            providerId = "vllm";
+          } else if (kLower.includes("openai")) {
+            providerId = "openai";
+          } else if (kLower.includes("ollama")) {
+            providerId = "ollama";
+          }
+
+          llm = {
+            baseUrl: p.baseUrl,
+            apiKey: await resolveLlmKey(config, p.apiKey, providerId),
+            model: modelId,
+          };
+          console.log(
+            `[mas4s] LLM fallback config created using provider key: ${bestKey}, hint: ${providerId}, model: ${modelId}, hasApiKey: ${Boolean(llm.apiKey)}`,
+          );
+        } else {
+          console.warn(
+            `[mas4s] Found potential fallback provider ${bestKey}, but it is missing baseUrl (${Boolean(p.baseUrl)}) or models array (${p.models?.length ?? 0})`,
+          );
+        }
+      }
+    }
+
+    // Also resolve apiKey if it was provided in plugin config (non-fallback)
+    if (llm?.apiKey && config) {
+      llm.apiKey = await resolveLlmKey(config, llm.apiKey);
+    }
+
+    const plugin = await createMas4sGatewayPlugin({ llm });
     log.info("mas4s multi-tenant plugin loaded");
 
     // Helper: send an event frame to a specific WS client by connId
@@ -558,6 +704,54 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
             plugin.bridge.onSessionDeleted(sessionKey);
           } catch (err) {
             log.warn(`mas4s onSessionDeleted failed for session=${sessionKey}: ${String(err)}`);
+          }
+        }
+      };
+    }
+
+    // Wrap chat.send to broadcast user input to other session members.
+    // The core handler does not broadcast 'user' messages via the 'chat' event,
+    // only via 'session.message' (transcript updates), which doesn't include
+    // sender display names. We add a custom broadcast here to sustain real-time
+    // collaboration for aiemas users.
+    const coreChatSend = chatHandlers["chat.send"];
+    if (coreChatSend) {
+      extraHandlers["chat.send"] = async (opts) => {
+        const masAuth = opts.client
+          ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
+          : contextMod.NULL_MAS_AUTH;
+        const sessionKey =
+          typeof opts.params["sessionKey"] === "string" ? opts.params["sessionKey"] : "";
+        const message = typeof opts.params["message"] === "string" ? opts.params["message"] : "";
+        const clientRunId =
+          typeof opts.params["clientRunId"] === "string" ? opts.params["clientRunId"] : undefined;
+
+        // Run core handler first (manages idempotency, persistence, agent run)
+        await coreChatSend(opts);
+
+        // Broadcast the user's message to other members in the session.
+        // We include runId and senderUserId so the receiving frontend can deduplicate
+        // and filterBroadcastTargets can exclude the sender.
+        if (masAuth.userId && sessionKey && message) {
+          try {
+            opts.context.broadcast(
+              "chat",
+              {
+                sessionKey,
+                runId: clientRunId,
+                state: "user",
+                senderUserId: masAuth.userId,
+                message: {
+                  role: "user",
+                  content: message,
+                  timestamp: Date.now(),
+                  senderLabel: masAuth.displayName || "User",
+                },
+              },
+              { dropIfSlow: true },
+            );
+          } catch (err) {
+            log.warn(`mas4s user message broadcast failed: ${String(err)}`);
           }
         }
       };

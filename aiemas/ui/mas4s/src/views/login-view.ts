@@ -710,7 +710,7 @@ export class LoginView extends LitElement {
           type="text"
           .value=${this._username}
           @input=${(e: Event) => (this._username = (e.target as HTMLInputElement).value)}
-          @keydown=${(e: KeyboardEvent) => e.key === "Enter" && this._onLogin()}
+          @keydown=${(e: KeyboardEvent) => e.key === "Enter" && !e.isComposing && this._onLogin()}
           placeholder="请输入用户名"
         />
       </div>
@@ -721,7 +721,7 @@ export class LoginView extends LitElement {
             type=${this._showPassword ? "text" : "password"}
             .value=${this._password}
             @input=${(e: Event) => (this._password = (e.target as HTMLInputElement).value)}
-            @keydown=${(e: KeyboardEvent) => e.key === "Enter" && this._onLogin()}
+            @keydown=${(e: KeyboardEvent) => e.key === "Enter" && !e.isComposing && this._onLogin()}
             placeholder="请输入密码"
           />
           <button

@@ -169,4 +169,18 @@ describe("generateSummaryWithLLM", () => {
       "No messages to summarize",
     );
   });
+
+  it("uses provided config instead of env vars", async () => {
+    // Env vars are cleared in beforeEach, so this would throw without config
+    const config = {
+      baseUrl: "https://api.custom.com/v1",
+      apiKey: "custom-key",
+      model: "custom-model",
+    };
+
+    // It should at least pass the LLM_NOT_CONFIGURED check
+    // (it will likely fail on the actual fetch call in this test environment)
+    const promise = generateSummaryWithLLM(["line"], [], "user1", config);
+    await expect(promise).rejects.not.toThrow("LLM environment variables are not configured");
+  });
 });

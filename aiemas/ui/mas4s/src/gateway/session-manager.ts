@@ -1,7 +1,7 @@
 import type { GatewayBrowserClient } from "../lib/gateway.js";
 import { normalizeMessage } from "../lib/message-normalizer.js";
 import type { GatewaySessionRow } from "../lib/types.js";
-import { AppStore } from "../store/app-store.js";
+import { SummaryStore } from "../store/summary-store.js";
 import type { ChatMessage } from "../types/chat-types.js";
 import type { MasSession } from "../types/session-types.js";
 import { getSummary } from "./session-archive.js";
@@ -110,13 +110,13 @@ export async function fetchSessions(client: GatewayBrowserClient): Promise<MasSe
   // Batch-load persisted summaries for sessions that have one (requirement 4.10)
   const withSummary = sessions.filter((s) => s.hasSummary === true);
   if (withSummary.length > 0) {
-    const store = AppStore.instance;
+    const summaryStore = SummaryStore.instance;
     await Promise.all(
       withSummary.map(async (session) => {
         try {
           const summary = await getSummary(client, session.key);
           if (summary) {
-            store.setSummary(session.key, summary);
+            summaryStore.set(session.key, summary);
           }
         } catch {
           // Single failure must not block other sessions

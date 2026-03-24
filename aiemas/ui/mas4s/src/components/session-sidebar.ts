@@ -585,7 +585,7 @@ export class SessionSidebar extends LitElement {
   }
 
   private _onNameKeydown(e: KeyboardEvent) {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && !e.isComposing) {
       this._onNameConfirm();
     }
     if (e.key === "Escape") {

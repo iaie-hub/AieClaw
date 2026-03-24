@@ -39,11 +39,14 @@ export function buildGroupMessage(name: string, text: string): string {
 export function buildChatSendParams(opts: {
   sessionKey: string;
   message: string;
+  clientRunId?: string;
   idempotencyKey?: string;
 }): Record<string, unknown> {
+  const finalId = opts.clientRunId ?? crypto.randomUUID();
   return {
     sessionKey: opts.sessionKey,
     message: opts.message,
-    idempotencyKey: opts.idempotencyKey ?? crypto.randomUUID(),
+    clientRunId: finalId,
+    idempotencyKey: opts.idempotencyKey ?? finalId,
   };
 }

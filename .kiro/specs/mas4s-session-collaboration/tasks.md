@@ -85,17 +85,19 @@
 
 - [x] 8. 扩展前端类型与 AppStore
   - 在 `aiemas/ui/mas4s/src/types/session-types.ts` 的 `MasSession` 接口中新增 `archivedAt?: number | null` 和 `hasSummary?: boolean` 字段
-  - 在 `aiemas/ui/mas4s/src/store/app-store.ts` 中新增：
-    - 字段 `summaryBySession: Map<string, SessionSummary> = new Map()`（需从 `models.ts` 导入 `SessionSummary` 类型，或在前端定义等价类型）
-    - 方法 `updateSessionArchived(sessionKey: string, archivedAt: number): void`：更新 `sessions` 中对应会话的 `archivedAt` 字段并调用 `notify()`
-    - 方法 `setSummary(sessionKey: string, summary: SessionSummary): void`：写入 `summaryBySession` 并调用 `notify()`
-    - 方法 `getSummary(sessionKey: string): SessionSummary | undefined`：从 `summaryBySession` 读取
-  - _需求：3.7、3.8、4.10_
+  - 在 `aiemas/ui/mas4s/src/store/app-store.ts` 中：
+    - 移除 `summaryBySession: Map<string, SessionSummary>` 字段及 `setSummary`/`getSummary` 方法（改由 SummaryStore 管理）
+    - 保留 `updateSessionArchived(sessionKey: string, archivedAt: number | null): void`
+  - 新增 `aiemas/ui/mas4s/src/store/summary-store.ts`，实现 `SummaryStore` 单例：
+    - `get(sessionKey): SessionSummary | null`：从 `sessionStorage.getItem("summary:{sessionKey}")` 读取并 JSON 反序列化，不存在返回 `null`
+    - `set(sessionKey, summary): void`：将 `SessionSummary` JSON 序列化后写入 `sessionStorage.setItem("summary:{sessionKey}", ...)`
+    - `remove(sessionKey): void`：调用 `sessionStorage.removeItem("summary:{sessionKey}")`
+  - _需求：3.7、3.8、4.10、4.11_
 
 - [x] 9. 扩展前端事件处理（`aiemas/ui/mas4s/src/gateway/event-handler.ts`）
   - 在 `registerEventHandlers` 的 switch 中新增 `session.archived` 分支：解构 `{ sessionKey, archivedAt }`，调用 `store.updateSessionArchived(sessionKey, archivedAt)`，打印 `console.info("会话已归档，无法继续发送消息")`
   - 新增 `session.unarchived` 分支：解构 `{ sessionKey }`，调用 `store.updateSessionArchived(sessionKey, null)`，使输入框立即恢复可用
-  - 新增 `session.summary.updated` 分支：解构 `{ sessionKey }`，调用 `store.notify()`（由组件监听后主动拉取摘要）
+  - 新增 `session.summary.updated` 分支：解构 `{ sessionKey }`，调用 `getSummary(client, sessionKey)` 获取最新持久化摘要，写入 `SummaryStore.set(sessionKey, summary)`，然后调用 `store.notify()` 触发 SummaryDialog 刷新
   - _需求：3.7、3.14、4.10_
 
 - [x] 10. 新增前端归档接口（新文件 `aiemas/ui/mas4s/src/gateway/session-archive.ts`）
@@ -106,7 +108,7 @@
   - _需求：3.1、3.10、4.1、4.5_
 
 - [x] 10.1 前端会话列表摘要初始化
-  - 在 `aiemas/ui/mas4s/src/gateway/session-manager.ts` 的 `fetchSessions`（或 session-controller 加载会话列表的入口）中，加载会话列表后遍历结果：对 `hasSummary=true` 的会话批量调用 `getSummary(client, session.key)`，将返回的摘要写入 `AppStore.summaryBySession`（调用 `store.setSummary`）
+  - 在 `aiemas/ui/mas4s/src/gateway/session-manager.ts` 的 `fetchSessions`（或 session-controller 加载会话列表的入口）中，加载会话列表后遍历结果：对 `hasSummary=true` 的会话批量调用 `getSummary(client, session.key)`，将返回的摘要写入 `SummaryStore`（调用 `SummaryStore.set`）
   - 批量调用可并发执行（`Promise.all`），单条失败不影响其他会话
   - _需求：4.10_
 
@@ -122,14 +124,25 @@
   - 输入框禁用/启用状态响应 `store` 变化（`archivedAt` 变为 null 时立即恢复可用）
   - _需求：3.7、3.14_
 
-- [x] 13. 新增 SummaryPanel 组件（新文件 `aiemas/ui/mas4s/src/components/summary-panel.ts`）
-  - 创建 `<summary-panel>` LitElement 组件，接受 `session: MasSession`、`summary: SessionSummary | undefined`、`isOwner: boolean` 属性
-  - 渲染"生成摘要"按钮（未归档会话所有 Session_Member 均可见；已归档会话仅 Session_Owner 可见，点击调用 `generateSummary` 接口）
-  - 摘要内容区域分两个子区域：**对话摘要**（`textSummary`，为 null 时显示"暂无对话内容"）和**工具调用摘要**（`toolSummary`，为 null 时显示"暂无工具调用"）
-  - 显示 `generatedAt` 时间戳（格式化为本地时间字符串）
-  - 未归档会话：摘要结果仅在当前客户端展示（写入 `store.setSummary`），不持久化
-  - 已归档会话：收到 `session.summary.updated` 事件后自动调用 `getSummary` 刷新
-  - _需求：4.9、4.10_
+- [x] 13. 重构摘要 UI：SummaryDialog + header 摘要按钮
+  - **删除** `aiemas/ui/mas4s/src/components/summary-panel.ts` 中嵌入对话流底部的 `<summary-panel>` 组件（或将其改造为 SummaryDialog）
+  - 新增 `aiemas/ui/mas4s/src/components/summary-dialog.ts`，实现 `<summary-dialog>` LitElement modal 组件：
+    - 接受 `session: MasSession`、`isOwner: boolean` 属性
+    - 内部通过 `SummaryStore.get(session.key)` 读取缓存摘要
+    - 渲染两个子区域：**对话摘要**（`textSummary`）和**工具调用摘要**（`toolSummary`）
+    - 显示 `generatedAt` 时间戳（格式化为本地时间字符串）
+    - 当 SummaryStore 中存在缓存且会话未归档时，显示"当前已存在摘要，生成时间：{generatedAt}"提示，并提供"重新生成"和"查看摘要"两个按钮
+    - 点击"重新生成"：调用 `generateSummary`，覆盖 SummaryStore 缓存，刷新展示内容
+    - 点击"查看摘要"：直接展示缓存内容
+    - 已归档会话：直接调用 `getSummary` 获取持久化摘要展示，不显示缓存提示
+    - 提供关闭按钮，点击后隐藏 modal
+  - 在 `aiemas/ui/mas4s/src/components/main-header.ts` 的归档按钮旁边新增"摘要"按钮：
+    - 按钮对所有 Session_Member 可见（已归档会话仅 Session_Owner 可见，与原"生成摘要"按钮逻辑一致）
+    - 点击后触发 `summary-click` 自定义事件，由父组件打开 `<summary-dialog>`
+  - 在 `aiemas/ui/mas4s/src/views/chat-view.ts` 中：
+    - 移除 `<summary-panel>` 的引用和渲染
+    - 引入 `<summary-dialog>`，监听 `summary-click` 事件后将 dialog 设为可见
+  - _需求：4.10、4.11、4.12_
 
 - [x] 14. 检查点 — 前端集成
   - 确保所有前端类型检查通过，向用户确认是否有疑问后继续。

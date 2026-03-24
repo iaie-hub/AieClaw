@@ -4,6 +4,7 @@ import { getClient } from "../gateway/client.js";
 import { AppStore } from "../store/app-store.js";
 import type { MasSession, MasParticipant } from "../types/session-types.js";
 import type { UserRecord } from "../views/user-list-view.js";
+import "./confirm-dialog.js";
 
 /**
  * 邀请与成员管理弹窗。
@@ -15,6 +16,7 @@ export class InviteDialog extends LitElement {
 
   @state() private _allUsers: UserRecord[] = [];
   @state() private _searchQuery = "";
+  @state() private _removeConfirmUser: { id: string; name: string } | null = null;
 
   static styles = css`
     :host {
@@ -263,17 +265,26 @@ export class InviteDialog extends LitElement {
     );
   };
 
-  private _onRemove = (userId: string) => {
-    if (!confirm("确定要移除该成员吗？")) {
+  private _onRemove = (id: string, name: string) => {
+    this._removeConfirmUser = { id, name };
+  };
+
+  private _onRemoveConfirm = () => {
+    if (!this._removeConfirmUser) {
       return;
     }
     this.dispatchEvent(
       new CustomEvent("member-remove", {
-        detail: { sessionKey: this.session.key, userId },
+        detail: { sessionKey: this.session.key, userId: this._removeConfirmUser.id },
         bubbles: true,
         composed: true,
       }),
     );
+    this._removeConfirmUser = null;
+  };
+
+  private _onRemoveCancel = () => {
+    this._removeConfirmUser = null;
   };
 
   private _onClose = () => {
@@ -323,7 +334,7 @@ export class InviteDialog extends LitElement {
         ${
           isInitiator && !p.isInitiator
             ? html`
-              <button class="action-btn remove" @click=${() => this._onRemove(p.id)}>
+              <button class="action-btn remove" @click=${() => this._onRemove(p.id, p.name)}>
                 ${iconRemove} 移除
               </button>
             `
@@ -455,6 +466,21 @@ export class InviteDialog extends LitElement {
           </div>
         </div>
       </div>
+
+      ${
+        this._removeConfirmUser
+          ? html`
+            <confirm-dialog
+              title="解除协作"
+              message="确定要移除成员「${this._removeConfirmUser.name}」吗？移除后该用户将不再能访问此会话的消息与进度。"
+              confirmText="确定移除"
+              confirmVariant="danger"
+              @confirm=${this._onRemoveConfirm}
+              @cancel=${this._onRemoveCancel}
+            ></confirm-dialog>
+          `
+          : nothing
+      }
     `;
   }
 }

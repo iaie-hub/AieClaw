@@ -69,8 +69,12 @@ export function extractContentForSummary(messages: ChatHistoryMessage[]): Extrac
         textLines.push(`${m.senderLabel ?? "用户"}: ${text}`);
       }
     } else if (m.role === "assistant") {
+      // Exclude thinking blocks — only extract visible text
       const text = m.content
-        .filter((c): c is ContentBlock & { type: "text"; text: string } => c.type === "text")
+        .filter(
+          (c): c is ContentBlock & { type: "text"; text: string } =>
+            c.type === "text" && c.thinking == null,
+        )
         .map((c) => c.text)
         .join("")
         .trim();
@@ -94,7 +98,7 @@ export function extractContentForSummary(messages: ChatHistoryMessage[]): Extrac
       toolPairs.push({
         name: call?.name ?? m.toolName ?? "unknown",
         arguments: call?.arguments ?? {},
-        result: resultText,
+        result: resultText || (m.isError ? "failure" : "success"),
         isError: m.isError ?? false,
       });
     }
@@ -127,18 +131,26 @@ export async function generateSummaryWithLLM(
   textLines: string[],
   toolPairs: ToolPair[],
   _generatedBy: string,
+  config?: { baseUrl: string; apiKey: string; model: string },
 ): Promise<LLMSummaryResult> {
   // Validate env
-  const baseUrl = process.env.MAS4S_LLM_BASE_URL;
-  const apiKey = process.env.MAS4S_LLM_API_KEY;
-  const model = process.env.MAS4S_LLM_MODEL;
+  const baseUrl = config?.baseUrl ?? process.env.MAS4S_LLM_BASE_URL;
+  const apiKey = config?.apiKey ?? process.env.MAS4S_LLM_API_KEY;
+  const model = config?.model ?? process.env.MAS4S_LLM_MODEL;
 
   if (!baseUrl || !apiKey || !model) {
+    console.error(
+      `[mas4s] LLM not configured: baseUrl=${baseUrl}, hasApiKey=${Boolean(apiKey)}, model=${model}`,
+    );
     throw new TenantServiceError(
       LLM_NOT_CONFIGURED,
       "LLM environment variables are not configured",
     );
   }
+
+  console.log(
+    `[mas4s] Calling LLM: model=${model}, baseUrl=${baseUrl}, apiKeyLength=${apiKey?.length ?? 0}`,
+  );
 
   // Nothing to summarize
   if (textLines.length === 0 && toolPairs.length === 0) {
@@ -151,7 +163,7 @@ export async function generateSummaryWithLLM(
   let textSummary: string | null = null;
   if (textLines.length > 0) {
     const textPrompt = [
-      "你是一个会话摘要助手。请对以下多智能体协作会话的对话内容生成简洁摘要（不超过 300 字），涵盖主要讨论话题和关键决策。",
+      "你是一个会话摘要助手。请对以下多智能体协作会话的对话内容生成简洁摘要（严格不超过 300 字），涵盖主要讨论话题和关键决策。只输出摘要正文，不要输出思考过程、分析步骤或任何前言。",
       "",
       "对话内容：",
       textLines.join("\n"),
@@ -164,14 +176,14 @@ export async function generateSummaryWithLLM(
   if (toolPairs.length > 0) {
     const toolRecords = toolPairs
       .map((tp) => {
-        const status = tp.isError ? "[失败]" : "[成功]";
+        const status = tp.isError ? "[failure]" : "[success]";
         const args = typeof tp.arguments === "string" ? tp.arguments : JSON.stringify(tp.arguments);
-        return `${status} ${tp.name}(${args}) → ${tp.result}`;
+        return `${status} ${tp.name}(${args})`;
       })
       .join("\n");
 
     const toolPrompt = [
-      "你是一个会话摘要助手。请对以下工具调用记录生成简洁摘要（不超过 300 字），列出执行了哪些工具、主要参数和结果，标注失败的调用。",
+      "你是一个会话摘要助手。请对以下工具调用记录生成简洁摘要（严格不超过 300 字），列出执行了哪些工具、主要参数和结果，标注失败的调用。只输出摘要正文，不要输出思考过程或任何前言。",
       "",
       "工具调用记录：",
       toolRecords,
@@ -183,6 +195,38 @@ export async function generateSummaryWithLLM(
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Strip thinking/reasoning preamble from LLM output.
+ *
+ * Some models (e.g. Claude with extended thinking, DeepSeek-R1) emit a
+ * reasoning block before the final answer. We only want the final answer.
+ *
+ * Patterns handled:
+ * - "Thinking Process:\n...\n\nFinal answer" → keep only the part after the last blank line
+ * - "<think>...</think>" XML-style tags → strip the tag and its content
+ * - Numbered reasoning steps followed by a blank line + prose → keep prose only
+ */
+function stripThinkingPreamble(text: string): string {
+  // Strip <think>...</think> blocks (DeepSeek-R1 style)
+  let result = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+
+  // Strip "Thinking Process:" headed sections: everything up to the last blank-line boundary
+  // before a non-indented paragraph that looks like the actual answer.
+  const thinkingHeaderRe = /^(?:thinking process|reasoning|chain[- ]of[- ]thought)\s*:/im;
+  if (thinkingHeaderRe.test(result)) {
+    // Split on double newlines; the last non-empty paragraph is the answer.
+    const paragraphs = result
+      .split(/\n{2,}/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (paragraphs.length > 1) {
+      result = paragraphs[paragraphs.length - 1]!;
+    }
+  }
+
+  return result.trim();
+}
 
 /**
  * Send a single chat-completion request to an OpenAI-compatible endpoint.
@@ -203,7 +247,14 @@ async function callLLM(
     },
     body: JSON.stringify({
       model,
-      messages: [{ role: "user", content: userMessage }],
+      messages: [
+        {
+          role: "system",
+          content:
+            "你只输出最终摘要文本，不要输出思考过程、推理步骤或任何前言。直接给出简洁的摘要内容。",
+        },
+        { role: "user", content: userMessage },
+      ],
       temperature: 0.3,
       max_tokens: 1024,
     }),
@@ -218,5 +269,6 @@ async function callLLM(
     choices?: Array<{ message?: { content?: string } }>;
   };
 
-  return json.choices?.[0]?.message?.content?.trim() ?? "";
+  const raw = json.choices?.[0]?.message?.content?.trim() ?? "";
+  return stripThinkingPreamble(raw);
 }

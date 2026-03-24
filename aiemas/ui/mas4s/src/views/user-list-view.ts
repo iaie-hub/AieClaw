@@ -484,7 +484,7 @@ export class UserListView extends LitElement {
         @click=${() => this._selectUser(user)}
         role="button"
         tabindex="0"
-        @keydown=${(e: KeyboardEvent) => e.key === "Enter" && this._selectUser(user)}
+        @keydown=${(e: KeyboardEvent) => e.key === "Enter" && !e.isComposing && this._selectUser(user)}
         aria-label="查看用户 ${user.displayName}"
       >
         <div class="avatar ${user.role}">${this._avatarLetter(user)}</div>

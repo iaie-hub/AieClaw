@@ -1,11 +1,10 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state, query } from "lit/decorators.js";
-import { AppStoreController } from "../store/app-store.js";
 import type { ApprovalRequest } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
 import type { MasSession } from "../types/session-types.js";
 import "./message-list.js";
-import "../components/summary-panel.js";
+import "../components/summary-dialog.js";
 
 /**
  * 聊天视图：消息列表 + 输入区。
@@ -22,8 +21,7 @@ export class ChatView extends LitElement {
   @property({ type: Boolean }) isInitiator = false;
 
   @state() private _inputText = "";
-
-  private _ctrl = new AppStoreController(this);
+  @state() private _summaryOpen = false;
 
   @query(".chat-container")
   private _container!: HTMLElement;
@@ -34,6 +32,7 @@ export class ChatView extends LitElement {
       flex-direction: column;
       flex: 1;
       overflow: hidden;
+      position: relative;
     }
 
     .chat-container {
@@ -153,7 +152,7 @@ export class ChatView extends LitElement {
   }
 
   private _onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       this._onSend();
     }
@@ -180,6 +179,33 @@ export class ChatView extends LitElement {
     this._inputText = "";
   };
 
+  private _onSummaryClick = (e: CustomEvent) => {
+    // 接收从 main-workspace 转发来的 summary-click 事件，打开 dialog
+    e.stopPropagation();
+    this._summaryOpen = true;
+    // 等 dialog 渲染后触发 openDialog 逻辑
+    void this.updateComplete.then(() => {
+      const dialog = this.shadowRoot?.querySelector("summary-dialog") as
+        | import("../components/summary-dialog.js").SummaryDialog
+        | null;
+      void dialog?.openDialog();
+    });
+  };
+
+  override connectedCallback(): void {
+    super.connectedCallback();
+    this.addEventListener("summary-click", this._onSummaryClick as EventListener);
+  }
+
+  override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.removeEventListener("summary-click", this._onSummaryClick as EventListener);
+  }
+
+  private _onSummaryClose = () => {
+    this._summaryOpen = false;
+  };
+
   render() {
     if (!this.session) {
       return html`
@@ -187,8 +213,6 @@ export class ChatView extends LitElement {
       `;
     }
 
-    const store = this._ctrl.store;
-    const summary = store.getSummary(this.session.key);
     const isOwner = this.session.masType === "initiated";
 
     return html`
@@ -205,13 +229,15 @@ export class ChatView extends LitElement {
               .isInitiator=${this.isInitiator}
             ></message-list>`
         }
-        <!-- 需求4.10：会话摘要面板，所有成员可见 -->
-        <summary-panel
-          .session=${this.session}
-          .summary=${summary}
-          .isOwner=${isOwner}
-        ></summary-panel>
       </div>
+
+      <!-- 摘要弹出面板（需求 4.10）：监听从 header 冒泡的 summary-click -->
+      <summary-dialog
+        .session=${this.session}
+        .isOwner=${isOwner}
+        .open=${this._summaryOpen}
+        @summary-close=${this._onSummaryClose}
+      ></summary-dialog>
 
       <div class="chat-input-wrapper">
         <div class="chat-input-area">

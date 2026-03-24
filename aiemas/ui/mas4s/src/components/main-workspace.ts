@@ -50,6 +50,18 @@ export class MainWorkspace extends LitElement {
     );
   };
 
+  private _onSummaryClick = (e: CustomEvent) => {
+    // 将 header 的 summary-click 转发给 chat-view（让其打开 summary-dialog）
+    const chatView = this.shadowRoot?.querySelector("chat-view") as
+      | (HTMLElement & { _onSummaryClick?: (e: CustomEvent) => void })
+      | null;
+    if (chatView) {
+      chatView.dispatchEvent(
+        new CustomEvent("summary-click", { detail: e.detail, bubbles: true, composed: false }),
+      );
+    }
+  };
+
   render() {
     const hasSession = !!this.session;
     const isInitiator = this.session?.masType === "initiated";
@@ -63,6 +75,7 @@ export class MainWorkspace extends LitElement {
         .showInvite=${hasSession}
         .session=${this.session}
         @invite-click=${this._onInviteClick}
+        @summary-click=${this._onSummaryClick}
         @resolve-approval=${this._onResolve}
         @session-archive=${this._onSessionArchive}
         @session-unarchive=${this._onSessionUnarchive}
@@ -95,10 +108,12 @@ export class MainWorkspace extends LitElement {
   };
 
   private _onSessionArchive = (e: CustomEvent) => {
+    e.stopPropagation();
     this.dispatchEvent(new CustomEvent("session-archive", { detail: e.detail, bubbles: true }));
   };
 
   private _onSessionUnarchive = (e: CustomEvent) => {
+    e.stopPropagation();
     this.dispatchEvent(new CustomEvent("session-unarchive", { detail: e.detail, bubbles: true }));
   };
 }

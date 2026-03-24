@@ -31,6 +31,11 @@ export interface TenantServiceConfig {
   dbPath?: string;
   bcryptRounds?: number;
   tokenExpirySeconds?: number;
+  llm?: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+  };
 }
 
 export interface TenantService {

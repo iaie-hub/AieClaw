@@ -17,6 +17,7 @@ export class GatewayAuthBridge {
   constructor(
     private readonly tenantService: TenantService,
     private readonly db: DatabaseSync,
+    public llmConfig?: { baseUrl: string; apiKey: string; model: string },
   ) {}
 
   /**
@@ -272,23 +273,25 @@ export class GatewayAuthBridge {
   filterBroadcastTargets(
     event: string,
     payload: unknown,
-    connectedUsers: Map<string, MasAuthContext>,
+    _connectedUsers: Map<string, MasAuthContext>,
   ): Set<string> | null {
-    // Compat mode: any connected user with null userId means no filtering
-    for (const auth of connectedUsers.values()) {
-      if (auth.userId === null) {
-        return null;
-      }
-    }
-
     // Extract sessionKey from payload
-    const sessionKey =
+    const payloadObj =
       typeof payload === "object" && payload !== null
-        ? ((payload as Record<string, unknown>)["sessionKey"] as string | undefined)
+        ? (payload as Record<string, unknown>)
         : undefined;
+    const sessionKey = payloadObj?.["sessionKey"] as string | undefined;
 
     if (!sessionKey) {
       return null;
+    }
+
+    // Compat mode: if any connected client has no userId (e.g. legacy or unauthenticated system client),
+    // skip filtering to ensure they receive essential system events.
+    for (const context of _connectedUsers.values()) {
+      if (context.userId === null) {
+        return null;
+      }
     }
 
     // Determine target user set based on event type
@@ -298,6 +301,15 @@ export class GatewayAuthBridge {
     } else {
       // chat, agent, and other session events: all members
       targetUserIds = sessionManager.getSessionMemberUserIds(this.db, sessionKey);
+
+      // For chat:user events, exclude the sender to avoid double-rendering in the sender's UI
+      if (event === "chat" && payloadObj?.["state"] === "user") {
+        const senderUserId = payloadObj["senderUserId"];
+        if (typeof senderUserId === "string") {
+          const lowerSenderId = senderUserId.trim().toLowerCase();
+          targetUserIds = targetUserIds.filter((id) => id.trim().toLowerCase() !== lowerSenderId);
+        }
+      }
     }
 
     return new Set(targetUserIds);
@@ -441,8 +453,25 @@ export class GatewayAuthBridge {
 
     try {
       const messages = await fetchHistory();
+      // console.log(
+      //   `[mas4s:summary] raw messages (${messages.length}):\n` +
+      //     JSON.stringify(messages, null, 2),
+      // );
       const { textLines, toolPairs } = extractContentForSummary(messages);
-      const llmResult = await generateSummaryWithLLM(textLines, toolPairs, callerUserId);
+      // console.log(
+      //   `[mas4s:summary] filtered textLines (${textLines.length}):\n` +
+      //     textLines.map((l, i) => `  [${i}] ${l}`).join("\n"),
+      // );
+      // console.log(
+      //   `[mas4s:summary] filtered toolPairs (${toolPairs.length}):\n` +
+      //     JSON.stringify(toolPairs, null, 2),
+      // );
+      const llmResult = await generateSummaryWithLLM(
+        textLines,
+        toolPairs,
+        callerUserId,
+        this.llmConfig,
+      );
 
       if (isArchived) {
         // Persist and push event

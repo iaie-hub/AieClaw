@@ -99,11 +99,15 @@ export class Mas4sApp extends LitElement {
       });
     }
 
-    // Authenticated but temporarily disconnected — show reconnecting overlay
-    // instead of the login page so the auto-reconnect in GatewayBrowserClient
-    // can restore the session without user interaction.
-    if (!this._connected) {
-      return renderChecking();
+    // When disconnected, show login view so user can re-authenticate or check gateway status
+    if (!this._connected && this._masAuthState === "authenticated") {
+      return renderLogin("login", this._connectError, {
+        onLoginSuccess: () => this._auth.onLoginSuccess(),
+        onGatewayConnect: (e: Event) => {
+          const { initialized } = (e as CustomEvent<{ initialized: boolean }>).detail;
+          this._auth.onGatewayConnect(initialized);
+        },
+      });
     }
 
     return renderMain(this._ctrl.store, this._activeNav, this._dialog, {

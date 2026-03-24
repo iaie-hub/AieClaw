@@ -42,6 +42,7 @@ export const ChatSendParamsSchema = Type.Object(
     systemInputProvenance: Type.Optional(InputProvenanceSchema),
     systemProvenanceReceipt: Type.Optional(Type.String()),
     idempotencyKey: NonEmptyString,
+    clientRunId: Type.Optional(NonEmptyString),
   },
   { additionalProperties: false },
 );
@@ -71,6 +72,7 @@ export const ChatEventSchema = Type.Object(
     state: Type.Union([
       Type.Literal("delta"),
       Type.Literal("final"),
+      Type.Literal("user"),
       Type.Literal("aborted"),
       Type.Literal("error"),
     ]),

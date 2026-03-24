@@ -66,6 +66,11 @@ export function registerEventHandlers(): void {
       case "agent":
         handleAgentEvent(store, evt.payload);
         break;
+      case "session.tool":
+        // 协作者通过 session.tool 接收工具调用事件（run 发起者通过 agent 事件接收）
+        // 复用 handleAgentEvent 的工具流处理逻辑
+        handleAgentEvent(store, evt.payload);
+        break;
       case "exec.approval.requested":
         store.addApproval(evt.payload as ApprovalRequest);
         break;
@@ -138,18 +143,19 @@ export function registerEventHandlers(): void {
           sessionKey: string;
           generatedAt: number;
         };
-        // 需求4.11：自动拉取最新持久化摘要并写入 store
+        // 需求4.12：拉取最新持久化摘要写入 SummaryStore，触发 SummaryDialog 刷新
         void (async () => {
           try {
             const { getClient } = await import("./client.js");
             const { getSummary } = await import("./session-archive.js");
+            const { SummaryStore } = await import("../store/summary-store.js");
             const result = await getSummary(getClient(), summarySessionKey);
             if (result) {
-              store.setSummary(summarySessionKey, result);
-            } else {
-              store.notify();
+              SummaryStore.instance.set(summarySessionKey, result);
             }
           } catch {
+            // 拉取失败时静默忽略，不影响其他功能
+          } finally {
             store.notify();
           }
         })();
@@ -295,8 +301,11 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
 
 /**
  * 流式消息更新策略：
- * - 若最后一条 assistant 消息 id 相同则更新内容（无论 delta 还是 final）
+ * - 若最后一条消息 id 相同且 role 相同则更新内容（无论 delta 还是 final）
  * - 否则追加新消息
+ *
+ * 注意：必须同时校验 role，避免用户消息与 agent 消息共用同一 runId 时
+ * 发生 role 错误（content 被替换但 role 保留为 "user"）。
  */
 export function updateChatStream(
   store: AppStore,
@@ -307,7 +316,7 @@ export function updateChatStream(
   const msgs = store.messagesBySession.get(sessionKey) ?? [];
   const last = msgs[msgs.length - 1];
 
-  if (last?.role === "assistant" && last.id && last.id === msg.id) {
+  if (last?.id && last.id === msg.id && last.role === msg.role) {
     store.updateLastMessage(sessionKey, { ...last, content: msg.content });
   } else {
     store.appendMessage(sessionKey, msg);

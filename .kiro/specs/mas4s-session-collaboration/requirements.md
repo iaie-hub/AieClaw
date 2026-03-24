@@ -23,6 +23,8 @@
 - **AppStore**：前端全局响应式状态单例（`aiemas/ui/mas4s/src/store/app-store.ts`）
 - **MasSession**：前端会话类型（`aiemas/ui/mas4s/src/types/session-types.ts`），含 `masType`（`"initiated"` | `"participated"`）字段
 - **InviteDialog**：前端邀请对话框组件（`aiemas/ui/mas4s/src/components/invite-dialog.ts`）
+- **SummaryStore**：前端临时摘要存储层（`aiemas/ui/mas4s/src/store/summary-store.ts`），以 `sessionStorage` 为后端，key 格式为 `summary:{sessionKey}`，替代 AppStore 内存 Map；标签页关闭后自动清除，页面刷新后仍可恢复
+- **SummaryDialog**：前端摘要弹出面板组件（`aiemas/ui/mas4s/src/components/summary-dialog.ts`），以 modal 形式展示摘要内容，避免遮挡对话区域
 
 ---
 
@@ -74,8 +76,8 @@
 5. WHEN 会话已归档，THE Session_Collaboration_Service SHALL 仍允许 Session_Member 调用 `chat.history`、`session.members`、`session.summary.get` 等只读接口
 6. WHEN `session.archive` 成功，THE GatewayAuthBridge SHALL 向该会话所有已连接的 Session_Member 推送 `event:session.archived` 事件，payload 包含 `{ sessionKey, archivedAt, archivedBy }`
 7. WHEN 前端收到 `event:session.archived` 事件，THE AppStore SHALL 更新本地会话的归档状态，前端消息输入框应立即变为禁用状态，placeholder 显示"会话已归档，无法发送消息"，发送按钮同步禁用
-8. WHEN `sessions.list` 返回会话列表，THE Session_Collaboration_Service SHALL 在每条会话记录中附加 `archivedAt` 字段（NULL 或时间戳）和 `hasSummary` 字段（boolean，表示是否已有持久化摘要），前端据此渲染归档标识并初始化摘要显示状态
-9. WHEN 前端加载会话列表且某会话的 `hasSummary` 为 `true`，THE Frontend SHALL 自动调用 `session.summary.get` 获取摘要内容，并在会话底部显示摘要区域
+8. WHEN `sessions.list` 返回会话列表，THE Session_Collaboration_Service SHALL 在每条会话记录中附加 `archivedAt` 字段（NULL 或时间戳）和 `hasSummary` 字段（boolean，表示是否已有持久化摘要），前端据此渲染归档标识并初始化摘要按钮状态
+9. WHEN 前端加载会话列表且某会话的 `hasSummary` 为 `true`，THE Frontend SHALL 在 header 摘要按钮上显示已有摘要的视觉标识（如角标或不同颜色），不自动弹出摘要面板
 10. THE Session_Collaboration_Service SHALL 提供 `session.unarchive` 接口，接受 `sessionKey` 参数，仅 Session_Owner 可调用
 11. WHEN `session.unarchive` 被调用且调用者是 Session_Owner，THE Session_Collaboration_Service SHALL 将 `session_ownership` 表中该会话的 `archivedAt` 字段重置为 NULL，会话恢复为活跃状态
 12. WHEN 非 Session_Owner 调用 `session.unarchive`，THE Session_Collaboration_Service SHALL 返回错误码 `SESSION_ACCESS_DENIED`
@@ -99,8 +101,12 @@
 7. WHEN 非 Session_Member 调用 `session.summary.get` 或 `session.summary.generate`，THE Session_Collaboration_Service SHALL 返回错误码 `SESSION_ACCESS_DENIED`
 8. WHEN 已归档会话的非 Session_Owner 调用 `session.summary.generate`，THE Session_Collaboration_Service SHALL 返回错误码 `SESSION_ACCESS_DENIED`
 9. WHEN 消息历史为空（会话无任何有效消息），THE Session_Collaboration_Service SHALL 在 `session.summary.generate` 时返回错误码 `NO_MESSAGES_TO_SUMMARIZE`
-10. THE Frontend SHALL 在会话详情区域为所有 Session_Member 提供"生成摘要"按钮（已归档会话仅 Session_Owner 可见），点击后展示摘要内容（不持久化时仅在当前客户端展示，不推送给其他成员）
-11. WHEN 前端收到 `event:session.summary.updated` 事件（归档触发的持久化摘要），THE AppStore SHALL 自动刷新当前会话的摘要内容，所有在线成员均可看到
+10. THE Frontend SHALL 在 header 归档按钮旁边为所有 Session_Member 提供"摘要"按钮（已归档会话仅 Session_Owner 可见），点击行为如下：
+    - WHEN 会话**已归档**：直接调用 `session.summary.get` 获取持久化摘要，以 SummaryDialog 弹出面板展示
+    - WHEN 会话**未归档**且 SummaryStore 中**不存在**该会话的缓存摘要：调用 `session.summary.generate` 生成摘要，将结果写入 SummaryStore（`sessionStorage` key: `summary:{sessionKey}`），然后以 SummaryDialog 弹出面板展示
+    - WHEN 会话**未归档**且 SummaryStore 中**已存在**该会话的缓存摘要：在 SummaryDialog 中显示提示"当前已存在摘要，生成时间：{generatedAt}"，并提供"重新生成"和"查看摘要"两个操作按钮；点击"重新生成"则重新调用 `session.summary.generate` 并覆盖 SummaryStore 中的缓存；点击"查看摘要"则直接展示缓存的摘要内容
+11. THE SummaryStore SHALL 以 `sessionStorage` 为后端存储，key 格式为 `summary:{sessionKey}`，value 为 JSON 序列化的 `SessionSummary` 对象；页面刷新后缓存仍可恢复，标签页关闭后自动清除
+12. WHEN 前端收到 `event:session.summary.updated` 事件（归档触发的持久化摘要），THE AppStore SHALL 自动刷新当前会话的摘要内容，若 SummaryDialog 当前处于打开状态则同步更新展示内容，所有在线成员均可看到
 
 ---
 
@@ -172,25 +178,25 @@ _对于任意_ 已归档会话 S，再次调用 `session.archive` 应成功（�
 
 ### 属性 7：摘要持久化条件
 
-_对于任意_ 会话 S，当 S **未归档**时调用 `session.summary.generate`，摘要内容应直接返回给调用方，`session_summaries` 表中不应存在 S 的记录；当 S **已归档**时调用 `session.summary.generate`，摘要内容应同时持久化到 `session_summaries` 表，`session.summary.get` 应返回等价内容。
+_对于任意_ 会话 S，当 S **未归档**时调用 `session.summary.generate`，摘要内容应直接返回给调用方，`session_summaries` 表中不应存在 S 的记录，摘要仅写入 SummaryStore（`sessionStorage`）；当 S **已归档**时调用 `session.summary.generate`，摘要内容应同时持久化到 `session_summaries` 表，`session.summary.get` 应返回等价内容。
 
-**验证：需求 4.3、4.4、4.6**
+**验证：需求 4.3、4.4、4.6、4.11**
 
 ---
 
 ### 属性 8：摘要权限隔离
 
-_对于任意_ 非 Session_Member 用户 U，U 调用 `session.summary.get` 或 `session.summary.generate` 均应返回 `SESSION_ACCESS_DENIED`；未归档会话的 Session_Participant 调用 `session.summary.generate` 应成功（返回摘要但不持久化）；已归档会话的 Session_Participant 调用 `session.summary.generate` 应返回 `SESSION_ACCESS_DENIED`。
+_对于任意_ 非 Session_Member 用户 U，U 调用 `session.summary.get` 或 `session.summary.generate` 均应返回 `SESSION_ACCESS_DENIED`；未归档会话的 Session_Participant 调用 `session.summary.generate` 应成功（返回摘要但不持久化）；已归档会话的 Session_Participant 调用 `session.summary.generate` 应返回 `SESSION_ACCESS_DENIED`，但调用 `session.summary.get` 应成功。
 
 **验证：需求 4.1、4.7、4.8**
 
 ---
 
-### 属性 8：摘要权限隔离
+### 属性 11：SummaryStore 缓存一致性
 
-_对于任意_ 非 Session_Member 用户 U，U 调用 `session.summary.get` 或 `session.summary.generate` 均应返回 `SESSION_ACCESS_DENIED`；非 Session_Owner 的 Session_Participant 调用 `session.summary.generate` 应返回 `SESSION_ACCESS_DENIED`，但调用 `session.summary.get` 应成功。
+_对于任意_ 未归档会话 S，成功调用 `session.summary.generate` 后，SummaryStore 中 key `summary:{S.key}` 对应的值应与返回的摘要内容等价；重新生成后旧缓存应被覆盖；标签页关闭后 `sessionStorage` 自动清除，新标签页中 SummaryStore 应返回 `null`。
 
-**验证：需求 4.6、4.7**
+**验证：需求 4.10、4.11**
 
 ---
 
@@ -207,3 +213,11 @@ _对于任意_ 已包含 `archivedAt` 字段的 `session_ownership` 表或已存
 _对于任意_ 会话 S，调用 `session.archive` 后 `archivedAt` 不为 NULL；随后调用 `session.unarchive` 后 `archivedAt` 应重置为 NULL，`chat.send` 应恢复正常（不再返回 `SESSION_ARCHIVED`）。
 
 **验证：需求 3.11、3.14**
+
+---
+
+### 属性 11：SummaryStore 缓存一致性
+
+_对于任意_ 未归档会话 S，成功调用 `session.summary.generate` 后，SummaryStore 中 key `summary:{S.key}` 对应的值应与返回的摘要内容等价；重新生成后旧缓存应被覆盖；标签页关闭后 `sessionStorage` 自动清除，新标签页中 SummaryStore 应返回 `null`。
+
+**验证：需求 4.10、4.11**

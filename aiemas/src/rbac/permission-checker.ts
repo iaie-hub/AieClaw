@@ -41,6 +41,10 @@ export const GLOBAL_ROLE_PERMISSIONS: Record<string, Set<GlobalRole>> = {
   "auth.refresh": new Set(["admin", "member", "viewer"]),
   "auth.verify": new Set([]), // no auth required
   "user.logout": new Set(["admin", "member", "viewer"]),
+  "session.archive": new Set(["admin", "member"]),
+  "session.unarchive": new Set(["admin", "member"]),
+  "session.summary.generate": new Set(["admin", "member"]),
+  "session.summary.get": new Set(["admin", "member", "viewer"]),
 };
 
 /**
@@ -97,6 +101,8 @@ const GATEWAY_READ_METHODS = new Set([
   "auth.refresh",
   "auth.verify",
   "user.register",
+  "session.members",
+  "session.summary.get",
 ]);
 
 const GATEWAY_WRITE_METHODS = new Set([
@@ -121,6 +127,12 @@ const GATEWAY_WRITE_METHODS = new Set([
   "browser.request",
   "push.test",
   "node.pending.enqueue",
+  "session.invite",
+  "session.removeMember",
+  "session.leave",
+  "session.archive",
+  "session.unarchive",
+  "session.summary.generate",
 ]);
 
 const GATEWAY_ADMIN_METHODS = new Set([
@@ -183,6 +195,10 @@ export const SESSION_ROLE_PERMISSIONS: Record<string, Set<SessionRole>> = {
   "session.invite": new Set(["owner", "participant"]),
   "session.removeMember": new Set(["owner"]),
   "exec.approval.resolve": new Set(["owner"]),
+  "session.archive": new Set(["owner"]),
+  "session.unarchive": new Set(["owner"]),
+  "session.summary.generate": new Set(["owner", "participant"]),
+  "session.summary.get": new Set(["owner", "participant"]),
 };
 
 /**

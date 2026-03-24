@@ -1,7 +1,7 @@
 import type { ReactiveController, ReactiveControllerHost } from "lit";
 import type { ApprovalRequest } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
-import type { MasSession, SessionSummary, MasParticipant } from "../types/session-types.js";
+import type { MasSession, MasParticipant } from "../types/session-types.js";
 
 export type GlobalRole = "admin" | "member" | "viewer";
 
@@ -85,9 +85,6 @@ export class AppStore {
   // key: userId, value: isOnline
   userPresenceOverrides: Map<string, boolean> = new Map();
 
-  // ── 会话摘要缓存（sessionKey → 摘要） ────────────
-  summaryBySession: Map<string, SessionSummary> = new Map();
-
   updateUserPresence(userId: string, isOnline: boolean): void {
     this.userPresenceOverrides.set(userId, isOnline);
     this.notify();
@@ -151,15 +148,11 @@ export class AppStore {
     this.notify();
   }
 
-  // ── 摘要操作 ──────────────────────────────────────
+  // ── 摘要操作（已迁移至 SummaryStore，此处仅保留 notify 触发响应式更新） ──
 
-  setSummary(sessionKey: string, summary: SessionSummary): void {
-    this.summaryBySession.set(sessionKey, summary);
+  /** 通知所有组件重新读取 SummaryStore 缓存 */
+  notifySummaryUpdated(): void {
     this.notify();
-  }
-
-  getSummary(sessionKey: string): SessionSummary | undefined {
-    return this.summaryBySession.get(sessionKey);
   }
 
   // ── 消息操作 ──────────────────────────────────────

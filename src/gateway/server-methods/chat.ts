@@ -1250,6 +1250,7 @@ export const chatHandlers: GatewayRequestHandlers = {
       systemInputProvenance?: InputProvenance;
       systemProvenanceReceipt?: string;
       idempotencyKey: string;
+      clientRunId?: string;
     };
     if ((p.systemInputProvenance || p.systemProvenanceReceipt) && !isAcpBridgeClient(client)) {
       respond(

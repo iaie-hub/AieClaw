@@ -95,6 +95,8 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "auth.refresh",
     "auth.verify",
     "user.register",
+    "session.members",
+    "session.summary.get",
   ],
   [WRITE_SCOPE]: [
     "send",
@@ -119,6 +121,12 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "browser.request",
     "push.test",
     "node.pending.enqueue",
+    "session.invite",
+    "session.removeMember",
+    "session.leave",
+    "session.archive",
+    "session.unarchive",
+    "session.summary.generate",
   ],
   [ADMIN_SCOPE]: [
     "channels.logout",

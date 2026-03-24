@@ -81,7 +81,7 @@ export async function createMas4sGatewayPlugin(
   };
   console.log(`[mas4s] Gateway started: ${userCountRow.count} user(s) in database`);
 
-  const bridge = new GatewayAuthBridge(tenantService, db);
+  const bridge = new GatewayAuthBridge(tenantService, db, config?.llm);
 
   const extraHandlers: SimpleHandlers = {
     "system.status": async ({ respond }) => {
