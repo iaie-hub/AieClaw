@@ -28,6 +28,8 @@ export class ChatView extends LitElement {
   @state() private _inputText = "";
   @state() private _summaryOpen = false;
   @state() private _loadingMore = false;
+  private _eventsBound = false;
+  private _wheelAccumulator = 0;
 
   @query(".chat-container")
   private _container!: HTMLElement;
@@ -46,6 +48,7 @@ export class ChatView extends LitElement {
       overflow-y: auto;
       padding: 30px;
       scroll-behavior: smooth;
+      overscroll-behavior-y: contain;
     }
 
     .session-divider {
@@ -161,7 +164,10 @@ export class ChatView extends LitElement {
     }
 
     .load-more-btn {
-      display: block;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
       width: 100%;
       padding: 8px;
       background: none;
@@ -172,12 +178,13 @@ export class ChatView extends LitElement {
       cursor: pointer;
       transition: background 0.15s;
       margin-bottom: 8px;
+      box-sizing: border-box;
     }
     .load-more-btn:hover:not(:disabled) {
       background: #f1f5f9;
     }
     .load-more-btn:disabled {
-      opacity: 0.5;
+      opacity: 0.6;
       cursor: default;
     }
     .load-more-spinner {
@@ -188,8 +195,7 @@ export class ChatView extends LitElement {
       border-top-color: #64748b;
       border-radius: 50%;
       animation: spin 0.6s linear infinite;
-      margin-right: 6px;
-      vertical-align: middle;
+      flex-shrink: 0;
     }
     @keyframes spin {
       to {
@@ -204,11 +210,16 @@ export class ChatView extends LitElement {
   private _anchorRestore = false;
 
   override willUpdate(changed: Map<string, unknown>) {
-    // 在 DOM 更新前采样滚动高度，用于前插消息后恢复位置
     if (changed.has("messages") && this._container) {
       const prev = changed.get("messages") as ChatMessage[] | undefined;
-      if ((prev?.length ?? 0) < this.messages.length && this._container.scrollTop < 200) {
-        // 仅在靠近顶部时才需要锚点恢复（前插场景）
+      // Only lock anchor for history prepend (non-empty prev list), not initial load.
+      // Prevents first-load from being misidentified as a history page load.
+      if (
+        prev &&
+        prev.length > 0 &&
+        prev.length < this.messages.length &&
+        this._container.scrollTop < 200
+      ) {
         this._prevScrollHeight = this._container.scrollHeight;
         this._prevScrollTop = this._container.scrollTop;
         this._anchorRestore = true;
@@ -217,14 +228,30 @@ export class ChatView extends LitElement {
   }
 
   updated(changed: Map<string, unknown>) {
+    // Re-bind events if container was destroyed and recreated (e.g. session switch).
+    if (!this._container) {
+      this._eventsBound = false;
+    } else if (!this._eventsBound) {
+      this._container.addEventListener("scroll", this._onScroll, { passive: true });
+      // passive: false required so we can call preventDefault() to stop scroll chaining
+      this._container.addEventListener("wheel", this._onWheel, { passive: false });
+      this._eventsBound = true;
+    }
+
     if (changed.has("messages")) {
       if (this._anchorRestore && this._container) {
         // 前插消息后：补偿新增高度，使用户视口保持不动
         const delta = this._container.scrollHeight - this._prevScrollHeight;
         this._container.scrollTop = this._prevScrollTop + delta;
-        this._anchorRestore = false;
-        // 前插完成后重置加载状态
-        this._loadingMore = false;
+        // 延迟 1000ms 释放锁，彻底吸收触控板/滚轮物理惯性，防止连发请求
+        setTimeout(() => {
+          this._loadingMore = false;
+        }, 1200);
+      } else if (this._loadingMore) {
+        // 消息更新但未触发锚点恢复（用户已滚离顶部），同样延迟释放
+        setTimeout(() => {
+          this._loadingMore = false;
+        }, 1200);
       } else {
         // 实时新消息追加到末尾：滚动到底部
         requestAnimationFrame(() => {
@@ -244,27 +271,59 @@ export class ChatView extends LitElement {
   override disconnectedCallback(): void {
     super.disconnectedCallback();
     this.removeEventListener("summary-click", this._onSummaryClick as EventListener);
-    this._container?.removeEventListener("scroll", this._onScroll);
+    if (this._container) {
+      this._container.removeEventListener("scroll", this._onScroll);
+      this._container.removeEventListener("wheel", this._onWheel);
+    }
+    this._eventsBound = false;
   }
 
   override firstUpdated() {
-    if (this._container) {
-      this._container.addEventListener("scroll", this._onScroll, { passive: true });
-    }
+    // Event binding is handled in updated() to handle the case where _container
+    // is null on first render (session undefined → .no-session placeholder shown).
   }
 
   // ── 滚动到顶部触发向上翻页 ────────────────────────────────────────────────
 
   /**
-   * 当容器滚动到距顶部 40px 以内时触发向上翻页。
-   * _loadingMore 防止重复触发。
+   * scroll 事件：同步 _lastScrollTop，并在离开顶部时重置累加器。
+   * 加载判断完全交由 _onWheel 的累加器接管，避免瞬间触发。
    */
   private _onScroll = () => {
+    // Reset accumulator once user scrolls away from top
+    if (this._container.scrollTop > 10) {
+      this._wheelAccumulator = 0;
+    }
+  };
+
+  /**
+   * wheel 事件：累加器蓄力机制。
+   * 只有在顶部持续向上滚动、累计力度超过阈值后才触发翻页，
+   * 避免轻微触碰或惯性残余误触。
+   */
+  private _onWheel = (e: WheelEvent) => {
+    // Always prevent scroll chaining when at top and scrolling up
+    if (this._container.scrollTop <= 0 && e.deltaY < 0 && e.cancelable) {
+      e.preventDefault();
+    }
+
     if (!this.hasMoreHistory || this._loadingMore) {
       return;
     }
-    if (this._container.scrollTop <= 40) {
-      this._triggerLoadMore();
+
+    if (this._container.scrollTop <= 0) {
+      if (e.deltaY < 0) {
+        // Accumulate upward scroll force
+        this._wheelAccumulator += Math.abs(e.deltaY);
+        // Threshold: user must scroll with enough intent before triggering page load
+        if (this._wheelAccumulator > 1200) {
+          this._triggerLoadMore();
+          this._wheelAccumulator = 0;
+        }
+      } else {
+        // Scrolling down — discard accumulated force
+        this._wheelAccumulator = 0;
+      }
     }
   };
 
@@ -357,7 +416,9 @@ export class ChatView extends LitElement {
                     ? html`
                         <span class="load-more-spinner"></span>加载中…
                       `
-                    : "↑ 加载更早的消息"
+                    : html`
+                        ↑ 加载更多消息
+                      `
                 }
               </button>
             `

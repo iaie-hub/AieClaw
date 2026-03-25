@@ -18,13 +18,13 @@ import {
   type SessionEntry,
   updateSessionStore,
 } from "../../config/sessions.js";
-import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
   hasInternalHookListeners,
   triggerInternalHook,
   type SessionPatchHookContext,
   type SessionPatchHookEvent,
 } from "../../hooks/internal-hooks.js";
+import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
   normalizeAgentId,
   parseAgentSessionKey,

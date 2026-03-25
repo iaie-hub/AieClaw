@@ -123,12 +123,11 @@ export function renderMain(
                   return false;
                 }
                 const meta = store.getHistoryMeta(store.activeSessionId);
-                const loaded = store.messagesBySession.get(store.activeSessionId)?.length ?? 0;
-                // Use sessionStats.totalMsgCount (full session count) when available;
-                // fall back to page < totalPages for backward compatibility.
-                return meta.sessionStats.totalMsgCount > 0
-                  ? loaded < meta.sessionStats.totalMsgCount
-                  : meta.page < meta.totalPages;
+                // Use page < totalPages as the authoritative signal.
+                // totalMsgCount cannot be compared against loaded message count because
+                // splitHistoryMessage expands one raw message into multiple render bubbles,
+                // causing loaded > totalMsgCount even when earlier pages still exist.
+                return meta.page < meta.totalPages;
               })()}
               @send-message=${h.onSendMessage}
               @resolve-approval=${h.onResolveApproval}

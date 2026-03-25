@@ -48,16 +48,14 @@ queryHistoryRange(db, params)
       ├── 合并内存 buffer（未落盘消息，同样应用可选时间过滤）
       ├── 去重（同 id 以 buffer 版本优先）
       ├── 全量排序（timestamp DESC）
-      └── 分页切片（page/pageSize）→ 返回当页消息 + 分页元数据
+      ├── 分页切片（page/pageSize）
+      └── 返回前按 timestamp ASC 重新排序 → 返回当页消息 + 分页元数据
 ```
 
 前端还原路径（v2 新增）：
 
 ```
-session.history.range 返回 StoredMessage[]（DESC 顺序）
-      │
-      ▼
-.toReversed()  ← 先整体反转为 ASC，保证后续拆分子消息顺序正确
+session.history.range 返回 StoredMessage[]（ASC 顺序，后端已在返回前重新排序）
       │
       ▼
 .flatMap(normalizeMessage → splitHistoryMessage)
@@ -414,7 +412,7 @@ v2 完全向后兼容 v1：
 | `aiemas/src/session-history/session-history-query.ts`    | 修改     | `resolveDisplayName` 仅对 `role=user` 调用                                                                                                                                   |
 | `aiemas/ui/mas4s/src/lib/message-normalizer.ts`          | 修改     | 新增 `[thinking]`/`[tool_use:]`/`[tool_result]` 行解析                                                                                                                       |
 | `aiemas/ui/mas4s/src/views/message-list.ts`              | 修改     | `role=tool` 走 `msg-agent` 渲染路径                                                                                                                                          |
-| `aiemas/ui/mas4s/src/gateway/session-manager.ts`         | 修改     | `fetchSessionHistoryRange` 先 `toReversed()` 再 `flatMap(splitHistoryMessage)`，修复拆分后子消息顺序错乱问题                                                                 |
+| `aiemas/ui/mas4s/src/gateway/session-manager.ts`         | 修改     | `fetchSessionHistoryRange` 直接 `flatMap(splitHistoryMessage)`，后端已返回 ASC 顺序，无需前端反转                                                                            |
 
 ---
 
@@ -435,7 +433,7 @@ v2 完全向后兼容 v1：
 
 ```typescript
 interface HistoryRangeResult {
-  messages: StoredMessageWithSender[]; // 当页消息，timestamp DESC（最新在前）
+  messages: StoredMessageWithSender[]; // 当页消息，timestamp ASC（后端 DESC 分页后重新排序为 ASC 返回）
   total: number; // 满足过滤条件的消息总数（分页前）
   page: number; // 当前页码（1-based）
   pageSize: number; // 本次生效的每页条数
@@ -445,7 +443,7 @@ interface HistoryRangeResult {
 }
 ```
 
-消息按 `timestamp DESC` 返回（最新消息在数组最前）。前端 `fetchSessionHistoryRange` 在渲染前调用 `.reverse()` 转为 ASC，再 `flatMap(splitHistoryMessage)` 拆分子消息。
+消息按 `timestamp ASC` 返回（最旧消息在数组最前）。后端内部以 `timestamp DESC` 分页切片，切片后重新排序为 ASC 再返回，前端无需再做反转，直接 `flatMap(splitHistoryMessage)` 拆分子消息即可。
 
 ### 12.3 SQL 构造逻辑
 
@@ -468,7 +466,7 @@ SELECT * FROM session_messages WHERE sessionKey = ? AND timestamp >= ? AND times
   ORDER BY timestamp DESC
 ```
 
-DB 结果与内存 buffer 合并后，在内存中完成去重、全量排序（DESC），再按 `page`/`pageSize` 切片。
+DB 结果与内存 buffer 合并后，在内存中完成去重、全量排序（DESC），再按 `page`/`pageSize` 切片，最后将切片结果重新排序为 ASC 返回。
 
 ### 12.4 分页设计说明
 

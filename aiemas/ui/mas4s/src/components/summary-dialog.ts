@@ -90,6 +90,7 @@ export class SummaryDialog extends LitElement {
       border-bottom: 1px solid #f1f5f9;
       flex-shrink: 0;
       background: rgba(250, 251, 252, 0.5);
+      gap: 12px;
     }
 
     .panel-title {
@@ -99,6 +100,7 @@ export class SummaryDialog extends LitElement {
       display: flex;
       align-items: center;
       gap: 8px;
+      flex: 1;
     }
 
     .panel-title-icon {
@@ -110,6 +112,47 @@ export class SummaryDialog extends LitElement {
       align-items: center;
       justify-content: center;
       font-size: 14px;
+    }
+
+    .panel-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .regen-btn {
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid #e2e8f0;
+      background: white;
+      color: #475569;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+
+    .regen-btn:hover:not(:disabled) {
+      background: #f8fafc;
+      border-color: #94a3b8;
+    }
+
+    .regen-btn.primary {
+      background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+      color: white;
+      border-color: transparent;
+      box-shadow: 0 2px 6px rgba(124, 58, 237, 0.25);
+    }
+
+    .regen-btn.primary:hover:not(:disabled) {
+      box-shadow: 0 4px 10px rgba(124, 58, 237, 0.35);
+    }
+
+    .regen-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
 
     .close-btn {
@@ -304,13 +347,6 @@ export class SummaryDialog extends LitElement {
       text-align: right;
     }
 
-    /* 重新生成按钮（摘要底部） */
-    .regen-row {
-      display: flex;
-      justify-content: flex-end;
-      margin-top: 16px;
-    }
-
     /* 加载 / 错误 */
     .loading-wrap {
       display: flex;
@@ -422,9 +458,20 @@ export class SummaryDialog extends LitElement {
             <div class="panel-title-icon">📋</div>
             会话摘要
           </div>
-          <button class="close-btn" @click=${this._onClose} aria-label="关闭摘要面板">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
+          <div class="panel-header-actions">
+            ${
+              !this._isArchived && this._summary
+                ? html`
+                    <button class="regen-btn primary" @click=${this._onRegenerate} ?disabled=${this._loading} aria-label="重新生成摘要">
+                      重新生成
+                    </button>
+                  `
+                : nothing
+            }
+            <button class="close-btn" @click=${this._onClose} aria-label="关闭摘要面板">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
         </div>
         <div class="panel-body">
           ${this._renderBody()}
@@ -486,18 +533,6 @@ export class SummaryDialog extends LitElement {
           }
         </div>
       </div>
-      
-      ${
-        !this._isArchived
-          ? html`
-            <div class="regen-row">
-              <button class="btn" @click=${this._onRegenerate} ?disabled=${this._loading}>
-                重新生成
-              </button>
-            </div>
-          `
-          : nothing
-      }
     `;
   }
 }

@@ -102,7 +102,7 @@ export class SessionController {
     // Always re-fetch history on selection (clear previous cache first)
     this.store.clearMessages(sessionKey);
     const client = getClient();
-    void fetchSessionHistoryRange(client, sessionKey, { page: 1, pageSize: 100 })
+    void fetchSessionHistoryRange(client, sessionKey, { page: 1, pageSize: 200 })
       .then((result) => {
         this.store.messagesBySession.set(sessionKey, result.messages);
         this.store.setHistoryMeta(sessionKey, {
@@ -168,7 +168,7 @@ export class SessionController {
 
     const nextPage = meta.page + 1;
     const client = getClient();
-    void fetchSessionHistoryRange(client, sessionKey, { page: nextPage, pageSize: 100 })
+    void fetchSessionHistoryRange(client, sessionKey, { page: nextPage, pageSize: 200 })
       .then((result) => {
         // prependMessages 不触发 notify，由下面统一触发
         this.store.prependMessages(sessionKey, result.messages);

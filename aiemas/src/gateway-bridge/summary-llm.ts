@@ -359,12 +359,19 @@ ${toolRecords}
 
 /**
  * Strip thinking/reasoning preamble from LLM output.
- * Handles <think>...</think> tags (DeepSeek-R1 style) and
- * "Thinking Process:" headed sections.
+ * Handles multiple thinking tag styles and header-based sections:
+ *   - <think>...</think>       (DeepSeek-R1)
+ *   - <thinking>...</thinking> (Claude extended thinking / some open models)
+ *   - <reasoning>...</reasoning>
+ *   - "Thinking Process:" / "Reasoning:" / "Chain-of-Thought:" headed sections
  */
 function stripThinkingPreamble(text: string): string {
-  // Strip <think>...</think> blocks
-  let result = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  // Strip all known thinking/reasoning block tags
+  let result = text
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, "")
+    .trim();
 
   const thinkingHeaderRe = /^(?:thinking process|reasoning|chain[- ]of[- ]thought)\s*:/im;
   if (thinkingHeaderRe.test(result)) {
@@ -381,7 +388,9 @@ function stripThinkingPreamble(text: string): string {
 }
 
 /**
- * Send a single chat-completion request to an OpenAI-compatible endpoint.
+ * Send a streaming chat-completion request to an OpenAI-compatible endpoint.
+ * Using streaming avoids gateway timeouts on long conversations — the connection
+ * stays alive while tokens arrive, and we reassemble the full text before returning.
  */
 async function callLLM(
   baseUrl: string,
@@ -414,6 +423,7 @@ async function callLLM(
       // Disable thinking mode for Qwen3-series models — thinking content leaks
       // into the output when the server does not separate reasoning_content.
       enable_thinking: false,
+      stream: true,
     }),
   });
 
@@ -422,16 +432,66 @@ async function callLLM(
     throw new Error(`LLM request failed (${res.status}): ${body}`);
   }
 
-  const json = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
-  };
+  if (!res.body) {
+    throw new Error("LLM response has no body");
+  }
 
-  const message = json.choices?.[0]?.message;
+  // Accumulate streamed SSE chunks into full content and reasoning_content strings.
+  let content = "";
+  let reasoningContent = "";
+  const decoder = new TextDecoder();
+  const reader = res.body.getReader();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      // Keep the last (potentially incomplete) line in the buffer
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) {
+          continue;
+        }
+        const data = trimmed.slice(5).trim();
+        if (data === "[DONE]") {
+          break;
+        }
+
+        let chunk: {
+          choices?: Array<{
+            delta?: { content?: string | null; reasoning_content?: string | null };
+          }>;
+        };
+        try {
+          chunk = JSON.parse(data) as typeof chunk;
+        } catch {
+          // Malformed chunk — skip
+          continue;
+        }
+
+        const delta = chunk.choices?.[0]?.delta;
+        if (delta?.content) {
+          content += delta.content;
+        }
+        if (delta?.reasoning_content) {
+          reasoningContent += delta.reasoning_content;
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
   // When reasoning_content is present (Qwen3 thinking mode with server-side separation),
-  // use only content. Otherwise strip any inline thinking tags.
-  const raw =
-    message?.reasoning_content != null
-      ? (message.content?.trim() ?? "")
-      : stripThinkingPreamble(message?.content?.trim() ?? "");
+  // use only content. Otherwise strip any inline thinking tags from the assembled text.
+  const raw = reasoningContent.length > 0 ? content.trim() : stripThinkingPreamble(content.trim());
   return raw;
 }

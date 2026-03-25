@@ -38,7 +38,7 @@ export function markOffline(db: DatabaseSync, userId: string): void {
      VALUES (?, ?, 0, ?)
      ON CONFLICT(userId) DO UPDATE SET lastSeenAt = excluded.lastSeenAt, isOnline = 0, lastOfflineAt = excluded.lastOfflineAt`,
   ).run(userId, now, now);
-  console.log(`[mas4s:presence] markOffline userId=${userId} lastSeenAt=${now}`);
+  // console.log(`[mas4s:presence] markOffline userId=${userId} lastSeenAt=${now}`);
 }
 
 /**
