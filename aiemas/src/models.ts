@@ -47,11 +47,3 @@ export interface SessionMember {
   role: SessionRole;
   joinedAt: number;
 }
-
-export interface SessionSummary {
-  sessionKey: string;
-  textSummary: string | null;
-  toolSummary: string | null;
-  generatedAt: number;
-  generatedBy: string;
-}

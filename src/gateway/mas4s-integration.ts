@@ -16,7 +16,11 @@ import { resolveSecretInputString } from "../secrets/resolve-secret-input-string
 import { ADMIN_SCOPE, READ_SCOPE, WRITE_SCOPE } from "./method-scopes.js";
 import { chatHandlers } from "./server-methods/chat.js";
 import { sessionsHandlers } from "./server-methods/sessions.js";
-import type { GatewayRequestHandler, GatewayRequestHandlers } from "./server-methods/types.js";
+import type {
+  GatewayRequestHandler,
+  GatewayRequestHandlers,
+  GatewayClient,
+} from "./server-methods/types.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
 import { loadGatewaySessionRow } from "./session-utils.js";
 
@@ -25,7 +29,7 @@ type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
 export interface Mas4sIntegration {
   extraHandlers: GatewayRequestHandlers;
   onClientConnected: (client: GatewayWsClient, upgradeReq: { url?: string }) => void;
-  onSessionCreated: (sessionKey: string, label: string, client: GatewayWsClient) => void;
+  onSessionCreated: (sessionKey: string, label: string, client: GatewayClient) => void;
   /**
    * Pre-request interceptor: check RBAC + session access before dispatching.
    * Returns null to allow, or an error shape to reject.
@@ -33,7 +37,7 @@ export interface Mas4sIntegration {
   interceptRequest: (
     method: string,
     params: Record<string, unknown>,
-    client: GatewayWsClient | null,
+    client: GatewayClient | null,
   ) => { allowed: true } | { allowed: false; code: string; message: string };
   /**
    * Broadcast filter: returns a Set of connIds that should receive the event,
@@ -47,11 +51,16 @@ export interface Mas4sIntegration {
   /**
    * Filter sessions.list results to only include sessions the user has membership for.
    */
-  filterSessionsList: (sessions: unknown[], client: GatewayWsClient | null) => unknown[];
+  filterSessionsList: (sessions: unknown[], client: GatewayClient | null) => unknown[];
   /**
    * Called when a WS client disconnects. Marks the user offline if authenticated.
    */
   onClientDisconnected: (client: GatewayWsClient) => void;
+  /**
+   * Internal: allows server.impl.ts to keep the clients reference up to date.
+   * This is used by the MAS4S bridge to track user presence across all connections.
+   */
+  _setActiveClients?: (clients: Set<GatewayWsClient>) => void;
 }
 
 const NOOP_INTEGRATION: Mas4sIntegration = {
@@ -62,6 +71,7 @@ const NOOP_INTEGRATION: Mas4sIntegration = {
   interceptRequest: () => ({ allowed: true }),
   filterBroadcast: () => null,
   filterSessionsList: (sessions) => sessions,
+  _setActiveClients: () => {},
 };
 
 async function resolveLlmKey(
@@ -714,7 +724,8 @@ export async function initMas4sIntegration(
                 generatedAt: Number(generatePayload["generatedAt"] ?? Date.now()),
               },
               connectedUsers,
-              (connId, event, data) => sendToConnId(connId, activeClients, event, data),
+              (connId: string, event: string, data: unknown) =>
+                sendToConnId(connId, activeClients, event, data),
             );
           } catch (err) {
             log.warn(`mas4s pushSummaryUpdated failed: ${String(err)}`);
@@ -942,7 +953,7 @@ export async function initMas4sIntegration(
       filterSessionsList,
       /** Internal: allows server.impl.ts to keep the clients reference up to date */
       _setActiveClients: setActiveClients,
-    } as Mas4sIntegration & { _setActiveClients: (c: Set<GatewayWsClient>) => void };
+    };
   } catch (err) {
     log.info(`mas4s plugin not available, skipping: ${String(err)}`);
     return NOOP_INTEGRATION;

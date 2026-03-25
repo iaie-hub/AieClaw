@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { onSessionTranscriptUpdate } from "../../../src/sessions/transcript-events.js";
 import type { SessionTranscriptUpdate } from "../../../src/sessions/transcript-events.js";
+import { upsertSummary } from "./session-summary-store.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -16,7 +17,7 @@ export interface StoredMessage {
   sessionId: string;
   userId: string | null;
   tenantId: string | null;
-  role: "user" | "assistant" | "tool" | "summary";
+  role: "user" | "assistant" | "tool";
   content: string;
   timestamp: number;
   seq: number;
@@ -129,7 +130,7 @@ function extractContent(raw: unknown): string {
 }
 
 /** Normalise raw role strings to the allowed set. */
-function normaliseRole(raw: unknown): "user" | "assistant" | "tool" | "summary" {
+function normaliseRole(raw: unknown): "user" | "assistant" | "tool" {
   if (raw === "human" || raw === "user") {
     return "user";
   }
@@ -138,9 +139,6 @@ function normaliseRole(raw: unknown): "user" | "assistant" | "tool" | "summary" 
   }
   if (raw === "tool" || raw === "toolResult" || raw === "tool_result") {
     return "tool";
-  }
-  if (raw === "summary") {
-    return "summary";
   }
   // Unknown roles fall back to "user" to satisfy the DB CHECK constraint.
   return "user";
@@ -396,7 +394,23 @@ export class SessionTranscriptStore {
     }
   }
 
-  // ── recordAssistantFinal ───────────────────────────────────────────────────
+  // ── persistSummary ────────────────────────────────────────────────────────
+
+  /**
+   * Persist a generated summary into the dedicated session_summaries table
+   * in mas4s.message.db. Uses upsert semantics — one row per sessionKey.
+   * Written immediately (not buffered) so it is available for query right away.
+   */
+  persistSummary(params: {
+    sessionKey: string;
+    textSummary: string | null;
+    toolSummary: string | null;
+    generatedAt: number;
+    generatedBy: string;
+  }): void {
+    upsertSummary(this.db, params);
+    console.log(`[mas4s:transcript-store] persisted summary for sessionKey=${params.sessionKey}`);
+  }
 
   /**
    * Called from filterBroadcast when a chat state:final event with an assistant

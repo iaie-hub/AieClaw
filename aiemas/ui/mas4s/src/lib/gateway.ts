@@ -102,6 +102,9 @@ const CONNECT_FAILED_CLOSE_CODE = 4008;
 
 // ── GatewayBrowserClient ──────────────────────────────────────────────────────
 
+/** gateway 停止后最多重试次数（超过后停止重连，通过 onClose 通知上层） */
+const MAX_RECONNECT_ATTEMPTS = 5;
+
 export class GatewayBrowserClient {
   private ws: WebSocket | null = null;
   private pending = new Map<string, Pending>();
@@ -110,6 +113,7 @@ export class GatewayBrowserClient {
   private connectSent = false;
   private connectTimer: number | null = null;
   private backoffMs = 800;
+  private reconnectAttempts = 0;
   private pendingConnectError: GatewayErrorInfo | undefined;
   private _readyResolvers: Array<() => void> = [];
   private _helloReceived = false;
@@ -118,6 +122,7 @@ export class GatewayBrowserClient {
 
   start() {
     this.closed = false;
+    this.reconnectAttempts = 0;
     this.connect();
   }
 
@@ -160,6 +165,16 @@ export class GatewayBrowserClient {
     if (this.closed) {
       return;
     }
+    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      // 超过最大重试次数，通知上层停止重连
+      this.opts.onClose?.({
+        code: 0,
+        reason: "max reconnect attempts reached",
+        error: { code: "UNAVAILABLE", message: "gateway unreachable after max retries" },
+      });
+      return;
+    }
+    this.reconnectAttempts += 1;
     const delay = this.backoffMs;
     this.backoffMs = Math.min(this.backoffMs * 1.7, 15_000);
     window.setTimeout(() => this.connect(), delay);
@@ -206,6 +221,7 @@ export class GatewayBrowserClient {
     void this.request<GatewayHelloOk>("connect", params)
       .then((hello) => {
         this.backoffMs = 800;
+        this.reconnectAttempts = 0;
         this._helloReceived = true;
         // 通知所有 waitReady() 的等待者
         const resolvers = this._readyResolvers.splice(0);

@@ -162,13 +162,60 @@ export async function generateSummaryWithLLM(
   // Generate text summary (skip if no text lines)
   let textSummary: string | null = null;
   if (textLines.length > 0) {
-    const textPrompt = [
-      "你是一个会话摘要助手。请对以下多智能体协作会话的对话内容生成简洁摘要（严格不超过 300 字），涵盖主要讨论话题和关键决策。只输出摘要正文，不要输出思考过程、分析步骤或任何前言。",
-      "",
-      "对话内容：",
-      textLines.join("\n"),
-    ].join("\n");
-    textSummary = await callLLM(baseUrl, apiKey, model, textPrompt);
+    console.log(
+      `[mas4s:summary] Text lines to summarize (${textLines.length}):\n${textLines.join("\n")}`,
+    );
+    const conversationLog = textLines.join("\n");
+    const textPrompt = `# Input Context
+以下是需要分析的多人多 Agent 协作对话记录：
+
+<conversation_log>
+${conversationLog}
+</conversation_log>
+
+请根据上述要求，严谨追踪身份，提取核心信息并生成协作摘要：`;
+    const textSystemPrompt = `# Role
+你是一个专业的 **多用户多 Agent 协作网络** 的对话记录分析与摘要专家。你的任务是从包含多名人类用户、多个 AI Agent 以及系统异步反馈的复杂对话记录中，提取核心脉络并生成结构化摘要。
+
+# Guidelines
+1. **精准的身份识别（Multi-Role Tracking）**：在整个摘要过程中，必须明确标记每一个想法、动作和结论的**具体归属**。绝不能混淆不同用户（如：管理员、USER1、普通访客等）的发言，也不能混淆不同 Agent（如：Age、其他专业 Agent）的输出。
+2. **🎯 绝不遗漏任何用户的想法（最高优先级）**：必须精准捕捉并完整保留**所有参与用户**在对话中表达的想法、计划、期望或潜在目标。即使是随口一提、尚未成型的构思，也必须与具体的提出者绑定并记录，绝不允许为了精简而删减用户的意图。
+3. **🚫 严格过滤所有 Agent 的思考过程**：绝对不要将任何 Agent 的内部思考过程、推理轨迹（如被 \`<think>\`、\`<thought>\` 等标签包裹的内容，或是自我纠错的中间步骤）纳入摘要。仅基于 Agent **最终输出的可见回复**和**实际触发的系统动作**进行总结。
+4. **梳理协作链路**：关注交互的流转过程，例如：“[用户A] 提出需求 -> [Agent X] 给出方案 -> [用户B] 补充意见 -> [Agent Y] 执行动作 -> 系统反馈结果”。
+5. **客观简明沉淀**：使用精炼、客观的语言，提取对话中暴露的关键上下文（设定、文件、环境状态等）作为整个系统的长期记忆素材。
+
+# Output Format
+请严格按照以下 Markdown 结构输出你的摘要：
+
+**📅 协作概览**
+- **核心主题**：[一句话概括本次多方协作的主要内容与进度]
+- **👥 活跃参与者**：
+  - **人类用户**：[列出参与对话的所有用户，如：管理员、USER1 等]
+  - **AI Agents**：[列出参与响应的所有 Agent，如：Age 等]
+- **关键时间/状态**：[提取对话中明确提到的关键时间节点或系统环境初始状态]
+
+**💡 各参与者的核心想法/意图 (绝不遗漏)**
+- **[[用户/Agent 名称]]**：[详细列出该角色在此次对话中表达的全部想法、计划、期望或核心提议。有几个人表达了想法，就列出几项]
+- **[[用户/Agent 名称]]**：[...]
+
+**🎯 关键协作链路与执行动作**
+- **[协作节点1]**：**[[发起用户]]** 提出需求/想法 -> **[[响应 Agent]]** 最终给出的方案或执行的动作 -> 系统结果如何
+- **[协作节点2]**：...
+*(注：需清晰体现出多人、多 Agent 之间的交互接力)*
+
+**🧠 知识沉淀与全局备忘 (长期记忆)**
+- **角色/设定记录**：[需记住的 Agent 设定、各个用户的特定偏好等]
+- **系统/文件状态**：[已创建的文件路径、系统环境变化、未完成的待办事项等]
+
+# Input Context
+以下是需要分析的多人多 Agent 协作对话记录：
+<conversation_log>
+{{在此处插入对话记录}}
+</conversation_log>
+
+请根据上述要求，严谨追踪身份，提取核心信息并生成协作摘要：`;
+    textSummary = await callLLM(baseUrl, apiKey, model, textPrompt, textSystemPrompt);
+    console.log(`[mas4s:summary] Generated text summary:\n${textSummary}`);
   }
 
   // Generate tool summary (skip if no tool pairs)
@@ -182,13 +229,52 @@ export async function generateSummaryWithLLM(
       })
       .join("\n");
 
-    const toolPrompt = [
-      "你是一个会话摘要助手。请对以下工具调用记录生成简洁摘要（严格不超过 300 字），列出执行了哪些工具、主要参数和结果，标注失败的调用。只输出摘要正文，不要输出思考过程或任何前言。",
-      "",
-      "工具调用记录：",
-      toolRecords,
-    ].join("\n");
-    toolSummary = await callLLM(baseUrl, apiKey, model, toolPrompt);
+    console.log(`[mas4s:summary] Tool pairs to summarize (${toolPairs.length}):\n${toolRecords}`);
+    const toolPrompt = `# Input Context
+以下是需要分析的工具调用日志：
+
+<tool_logs>
+${toolRecords}
+</tool_logs>
+
+请根据上述要求，聚合逻辑动作并生成语义化摘要：`;
+    const toolSystemPrompt = `# Role
+你是一个专业的 Agent 工具调用与执行日志分析专家。你的任务是将底层、琐碎的 API/命令调用记录，转化为人类和其他 Agent 易于理解的**高层语义动作摘要**。
+
+# Guidelines
+1. **语义聚合（核心要求）**：绝不要像流水账一样逐条翻译日志！必须将目标相近的连续调用合并为一个“逻辑动作”。（例如：连续 \`read\` 多个历史对话文件，应总结为“检索/加载历史记忆记录”）。
+2. **意图推断**：透过工具调用的表面现象，推断 Agent 尝试完成的真实意图（例如：查探目录、修改配置、验证身份等）。
+3. **状态关注**：敏锐捕捉执行结果（\`[success]\` 或 \`[error]/[fail]\`）。对于失败的调用，需简要指明尝试了什么但失败了；如果全部成功，则一笔带过。
+4. **资产提取**：提取操作中涉及的核心文件路径、数据库表、关键命令或 URL，作为“执行指纹”保留，过滤掉无关紧要的临时变量。
+5. **极简客观**：只陈述“执行了什么动作”和“结果如何”，不要去猜测 Agent 的内心活动。
+
+# Output Format
+请严格按照以下 Markdown 结构输出你的摘要：
+
+**⚙️ 核心执行意图**
+- [一句话概括这批工具调用主要是为了完成什么高层任务]
+
+**🛠️ 动作轨迹 (按逻辑聚合)**
+- **[动作模块1]**：[描述聚合后的语义动作，如“环境探测”或“记忆检索”] -> (执行状态: 成功/包含失败)
+  - 细节：[简述具体干了什么，如“列出了 /tmp 目录列表”或“读取了某某文件”]
+- **[动作模块2]**：...
+
+**📁 涉及的核心资产 (指纹)**
+- **读取/查询**：[列出关键的文件名或查询目标，不写绝对长路径，写相对路径或文件名即可]
+- **修改/执行**：[列出发生变更的资产或执行的关键高危命令]
+
+**⚠️ 异常与报错提示**
+- [如果全部成功，请填写“无异常，全部调用成功”。如果有失败，列出失败的具体动作及报错原因]
+
+# Input Context
+以下是需要分析的工具调用日志：
+<tool_logs>
+{{在此处插入工具调用日志}}
+</tool_logs>
+
+请根据上述要求，聚合逻辑动作并生成语义化摘要：`;
+    toolSummary = await callLLM(baseUrl, apiKey, model, toolPrompt, toolSystemPrompt);
+    console.log(`[mas4s:summary] Generated tool summary:\n${toolSummary}`);
   }
 
   return { textSummary, toolSummary, generatedAt };
@@ -230,14 +316,23 @@ function stripThinkingPreamble(text: string): string {
 
 /**
  * Send a single chat-completion request to an OpenAI-compatible endpoint.
+ * @param baseUrl - Base URL of the LLM API
+ * @param apiKey - Bearer token
+ * @param model - Model identifier
+ * @param userMessage - User prompt (caller-specified)
+ * @param systemPrompt - Optional system prompt (defaults to generic summary instruction)
  */
 async function callLLM(
   baseUrl: string,
   apiKey: string,
   model: string,
   userMessage: string,
+  systemPrompt?: string,
 ): Promise<string> {
   const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
+
+  const defaultSystemPrompt =
+    "你是一个会话摘要助手。你只输出最终摘要文本，不要输出思考过程、推理步骤或任何前言。直接给出简洁的摘要内容。";
 
   const res = await fetch(url, {
     method: "POST",
@@ -250,8 +345,7 @@ async function callLLM(
       messages: [
         {
           role: "system",
-          content:
-            "你只输出最终摘要文本，不要输出思考过程、推理步骤或任何前言。直接给出简洁的摘要内容。",
+          content: systemPrompt ?? defaultSystemPrompt,
         },
         { role: "user", content: userMessage },
       ],

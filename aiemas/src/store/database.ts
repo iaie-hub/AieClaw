@@ -120,18 +120,6 @@ export function ensureMas4sSchema(db: DatabaseSync): void {
   }
 
   db.exec(`
-    CREATE TABLE IF NOT EXISTS session_summaries (
-      sessionKey TEXT PRIMARY KEY,
-      textSummary TEXT,
-      toolSummary TEXT,
-      generatedAt INTEGER NOT NULL,
-      generatedBy TEXT NOT NULL
-    );
-  `);
-
-  // session_labels: persistent label/displayName store, survives session resets.
-  // Acts as the authoritative source for session naming, independent of sessions.json.
-  db.exec(`
     CREATE TABLE IF NOT EXISTS session_labels (
       sessionKey   TEXT    PRIMARY KEY,
       label        TEXT    NULL,
@@ -173,7 +161,7 @@ export function ensureMessageSchema(db: DatabaseSync): void {
       userId      TEXT    NULL,
       tenantId    TEXT    NULL,
       role        TEXT    NOT NULL
-                  CHECK(role IN ('user','assistant','tool','summary')),
+                  CHECK(role IN ('user','assistant','tool')),
       content     TEXT    NOT NULL,
       timestamp   INTEGER NOT NULL,
       seq         INTEGER NOT NULL DEFAULT 0,
@@ -205,6 +193,18 @@ export function ensureMessageSchema(db: DatabaseSync): void {
       lastMsgAt     INTEGER NOT NULL,
       msgCount      INTEGER NOT NULL DEFAULT 0,
       lastSeq       INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+
+  // session_summaries: one row per sessionKey, upserted on each summary generation.
+  // Stored in mas4s.message.db (alongside messages) for performance isolation from mas4s.db.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS session_summaries (
+      sessionKey   TEXT    PRIMARY KEY,
+      textSummary  TEXT    NULL,
+      toolSummary  TEXT    NULL,
+      generatedAt  INTEGER NOT NULL,
+      generatedBy  TEXT    NOT NULL
     );
   `);
 }

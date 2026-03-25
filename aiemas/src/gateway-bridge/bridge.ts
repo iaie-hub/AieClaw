@@ -6,7 +6,8 @@ import {
   MAS_AUTH_FAILED,
 } from "../errors.js";
 import type { TenantService } from "../index.js";
-import type { SessionMember, SessionSummary } from "../models.js";
+import type { SessionMember } from "../models.js";
+import type { SessionTranscriptStore } from "../session-history/session-transcript-store.js";
 import type { MasAuthContext } from "./context.js";
 import { NULL_MAS_AUTH } from "./context.js";
 import * as sessionManager from "./session-manager.js";
@@ -18,6 +19,7 @@ export class GatewayAuthBridge {
     private readonly tenantService: TenantService,
     private readonly db: DatabaseSync,
     public llmConfig?: { baseUrl: string; apiKey: string; model: string },
+    private readonly transcriptStore?: SessionTranscriptStore,
   ) {}
 
   /**
@@ -474,14 +476,13 @@ export class GatewayAuthBridge {
       );
 
       if (isArchived) {
-        // Persist and push event
-        sessionManager.upsertSummary(
-          this.db,
+        this.transcriptStore?.persistSummary({
           sessionKey,
-          llmResult.textSummary,
-          llmResult.toolSummary,
-          callerUserId,
-        );
+          textSummary: llmResult.textSummary,
+          toolSummary: llmResult.toolSummary,
+          generatedAt: llmResult.generatedAt,
+          generatedBy: callerUserId,
+        });
         return {
           ok: true,
           textSummary: llmResult.textSummary,
@@ -492,6 +493,13 @@ export class GatewayAuthBridge {
       }
 
       // Not archived: return without persisting
+      this.transcriptStore?.persistSummary({
+        sessionKey,
+        textSummary: llmResult.textSummary,
+        toolSummary: llmResult.toolSummary,
+        generatedAt: llmResult.generatedAt,
+        generatedBy: callerUserId,
+      });
       return {
         ok: true,
         textSummary: llmResult.textSummary,
@@ -508,28 +516,6 @@ export class GatewayAuthBridge {
   }
 
   /**
-   * Get persisted session summary.
-   * Any Session_Member can read.
-   */
-  getSummary(params: {
-    sessionKey: string;
-    callerUserId: string;
-  }): { ok: true; summary: SessionSummary | null } | { ok: false; code: string; message: string } {
-    const { sessionKey, callerUserId } = params;
-
-    if (!sessionManager.checkSessionAccess(this.db, sessionKey, callerUserId)) {
-      return {
-        ok: false,
-        code: SESSION_ACCESS_DENIED,
-        message: "You are not a member of this session",
-      };
-    }
-
-    const summary = sessionManager.getSummary(this.db, sessionKey);
-    return { ok: true, summary };
-  }
-
-  /**
    * Push event:session.archived to all online session members.
    */
   pushSessionArchived(
@@ -542,23 +528,6 @@ export class GatewayAuthBridge {
     for (const [connId, auth] of connectedUsers.entries()) {
       if (auth.userId && memberUserIds.has(auth.userId)) {
         sendToClient(connId, "session.archived", payload);
-      }
-    }
-  }
-
-  /**
-   * Push event:session.summary.updated to all online session members.
-   */
-  pushSummaryUpdated(
-    sessionKey: string,
-    payload: { sessionKey: string; generatedAt: number },
-    connectedUsers: Map<string, MasAuthContext>,
-    sendToClient: (connId: string, event: string, data: unknown) => void,
-  ): void {
-    const memberUserIds = new Set(sessionManager.getSessionMemberUserIds(this.db, sessionKey));
-    for (const [connId, auth] of connectedUsers.entries()) {
-      if (auth.userId && memberUserIds.has(auth.userId)) {
-        sendToClient(connId, "session.summary.updated", payload);
       }
     }
   }
@@ -582,6 +551,31 @@ export class GatewayAuthBridge {
   }
 
   /**
+   * Push event:session.summary.updated to all online session members.
+   */
+  pushSummaryUpdated(
+    sessionKey: string,
+    payload: { sessionKey: string; generatedAt: number },
+    connectedUsers: Map<string, MasAuthContext>,
+    sendToClient: (connId: string, event: string, data: unknown) => void,
+  ): void {
+    const memberUserIds = new Set(sessionManager.getSessionMemberUserIds(this.db, sessionKey));
+    for (const [connId, auth] of connectedUsers.entries()) {
+      if (auth.userId && memberUserIds.has(auth.userId)) {
+        sendToClient(connId, "session.summary.updated", payload);
+      }
+    }
+  }
+
+  /**
+   * Called when a session is deleted: clean up membership/ownership records.
+   */
+  onSessionDeleted(sessionKey: string): void {
+    sessionManager.deleteSessionRecords(this.db, sessionKey);
+    console.log(`[mas4s] Session deleted: ${sessionKey}`);
+  }
+
+  /**
    * Push event:session.unarchived to all online session members.
    */
   pushSessionUnarchived(
@@ -596,13 +590,6 @@ export class GatewayAuthBridge {
         sendToClient(connId, "session.unarchived", payload);
       }
     }
-  }
-
-  /**
-   * Clean up summary records when a session is deleted.
-   */
-  onSessionDeleted(sessionKey: string): void {
-    sessionManager.deleteSummary(this.db, sessionKey);
   }
 
   // ── Private helpers ──
@@ -657,15 +644,12 @@ function enrichSessionRow(
   const ownership = db
     .prepare("SELECT archivedAt FROM session_ownership WHERE sessionKey = ?")
     .get(sessionKey) as { archivedAt: number | null } | undefined;
-  const hasSummary =
-    db.prepare("SELECT 1 FROM session_summaries WHERE sessionKey = ?").get(sessionKey) != null;
   const membership = db
     .prepare("SELECT role FROM session_memberships WHERE sessionKey = ? AND userId = ?")
     .get(sessionKey, userId) as { role: string } | undefined;
   return {
     ...session,
     archivedAt: ownership?.archivedAt ?? null,
-    hasSummary,
     masRole: membership?.role ?? null,
   };
 }

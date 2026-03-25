@@ -435,6 +435,13 @@ export class LoginView extends LitElement {
       this._error = "已被拒绝，请联系管理员";
     } else if (code === "AUTH_FAILED") {
       this._error = "用户名或密码错误";
+    } else if (
+      code.includes("timeout") ||
+      code.includes("connect") ||
+      code.includes("unreachable") ||
+      code.includes("UNAVAILABLE")
+    ) {
+      this._error = "无法连接到 Gateway，请确认服务已启动后重试";
     } else {
       this._error = code || "操作失败，请重试";
     }
@@ -454,8 +461,15 @@ export class LoginView extends LitElement {
       localStorage.setItem("mas4s_ws_token", this._wsToken);
       resetClient();
     }
+    // 每次登录前重置，确保拿到一个干净的连接（避免复用已耗尽重试的旧 client）
+    resetClient();
     const client = getClient({ url: this._wsUrl, token: this._wsToken || undefined });
-    await client.waitConnected();
+    try {
+      await client.waitConnected();
+    } catch (err) {
+      resetClient();
+      throw err;
+    }
     return client;
   }
 

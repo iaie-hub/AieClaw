@@ -7,6 +7,7 @@ import {
   listSessionLabels,
   deleteSessionLabel,
 } from "../session-history/session-label-store.js";
+import { deleteSummary, deleteSessionMessages } from "../session-history/session-summary-store.js";
 import { GatewayAuthBridge } from "./bridge.js";
 import { getMasAuth, NULL_MAS_AUTH } from "./context.js";
 import { extractMasTokenFromUrl } from "./integration.js";
@@ -91,8 +92,6 @@ export async function createMas4sGatewayPlugin(
   };
   console.log(`[mas4s] Gateway started: ${userCountRow.count} user(s) in database`);
 
-  const bridge = new GatewayAuthBridge(tenantService, db, config?.llm);
-
   // Initialize message capture store in a separate DB for performance isolation
   const { initMessageDatabase } = await import("../store/database.js");
   const messageDbPath = config?.dbPath ? config.dbPath.replace(/\.db$/, ".message.db") : undefined;
@@ -102,15 +101,18 @@ export async function createMas4sGatewayPlugin(
   const transcriptStore = new SessionTranscriptStore(messageDb);
   transcriptStore.start();
 
+  const bridge = new GatewayAuthBridge(tenantService, db, config?.llm, transcriptStore);
   // Subscribe to session lifecycle events to persist label/displayName into mas4s.db.
   // This survives session resets because sessionKey is stable across resets.
   const { onSessionLifecycleEvent } =
     await import("../../../src/sessions/session-lifecycle-events.js");
   const stopLabelSync = onSessionLifecycleEvent((event) => {
     try {
-      // On session delete, remove the persisted label entry.
+      // On session delete, remove the label, all messages, and summary from message DB.
       if (event.reason === "session-delete") {
         deleteSessionLabel(db, event.sessionKey);
+        deleteSummary(messageDb, event.sessionKey);
+        deleteSessionMessages(messageDb, event.sessionKey);
         return;
       }
       const hasLabel = event.label !== undefined;
@@ -523,12 +525,17 @@ export async function createMas4sGatewayPlugin(
           return;
         }
         const sessionKey = str(params["sessionKey"]);
-        const result = bridge.getSummary({ sessionKey, callerUserId });
-        if (result.ok) {
-          respond(true, result, undefined);
-        } else {
-          respond(false, undefined, errorShape(result.code, result.message));
+
+        // Access check
+        const access = bridge.checkSessionAccess(sessionKey, { ...auth, userId: callerUserId });
+        if (!access.allowed) {
+          respond(false, undefined, errorShape(access.code, access.message));
+          return;
         }
+
+        const { getSummary } = await import("../session-history/session-summary-store.js");
+        const summary = getSummary(messageDb, sessionKey);
+        respond(true, { summary }, undefined);
       } catch (err) {
         const e =
           err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
@@ -600,8 +607,9 @@ export async function createMas4sGatewayPlugin(
 }
 
 /**
- * Build a fetchHistory callback that calls the gateway's chat.history method
+ * Build a fetchHistory callback that calls the gateway's session.history.range method
  * via the integration-layer dispatch function and extracts the messages array.
+ * Fetches the latest 1000 messages for summary generation.
  */
 function buildFetchHistory(
   plugin: Mas4sGatewayPlugin,
@@ -614,8 +622,8 @@ function buildFetchHistory(
       return [];
     }
     const payload = (await plugin.gatewayDispatch(
-      "chat.history",
-      { sessionKey, limit: 1000 },
+      "session.history.range",
+      { sessionKey, pageSize: 1000, page: 1 },
       client,
     )) as { messages?: unknown[] } | undefined;
     return (payload?.messages ?? []) as ChatHistoryMessage[];

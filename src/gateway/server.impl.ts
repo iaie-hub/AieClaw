@@ -82,6 +82,7 @@ import {
   type GatewayUpdateAvailableEventPayload,
 } from "./events.js";
 import { ExecApprovalManager } from "./exec-approval-manager.js";
+import { initMas4sIntegration } from "./mas4s-integration.js";
 import { startGatewayModelPricingRefresh } from "./model-pricing-cache.js";
 import { NodeRegistry } from "./node-registry.js";
 import type { startBrowserControlServerIfEnabled } from "./server-browser.js";
@@ -1127,7 +1128,22 @@ export async function startGatewayServer(
       },
     });
 
+    const mas4sIntegration = await initMas4sIntegration(log, cfgAtStart);
     const canvasHostServerPort = (canvasHostServer as CanvasHostServer | null)?.port;
+
+    // Wrap broadcast to apply mas4s filterBroadcast if available
+    const originalBroadcast = broadcast;
+    const wrappedBroadcast: typeof broadcast = (event, payload, opts) => {
+      const filtered = mas4sIntegration.filterBroadcast(event, payload, clients);
+      if (filtered === null) {
+        // null means broadcast to all (compat mode)
+        originalBroadcast(event, payload, opts);
+      } else if (filtered.size > 0) {
+        // Broadcast only to filtered connIds
+        broadcastToConnIds(event, payload, filtered, opts);
+      }
+      // If filtered.size === 0, don't broadcast to anyone
+    };
 
     const gatewayRequestContext: import("./server-methods/types.js").GatewayRequestContext = {
       deps,
@@ -1141,7 +1157,7 @@ export async function startGatewayServer(
       logGateway: log,
       incrementPresenceVersion,
       getHealthVersion,
-      broadcast,
+      broadcast: wrappedBroadcast,
       broadcastToConnIds,
       nodeSendToSession,
       nodeSendToAllSubscribed,
@@ -1189,6 +1205,9 @@ export async function startGatewayServer(
       markChannelLoggedOut,
       wizardRunner,
       broadcastVoiceWakeChanged,
+      onSessionCreated: mas4sIntegration.onSessionCreated,
+      onBeforeRequest: mas4sIntegration.interceptRequest,
+      filterSessionsList: mas4sIntegration.filterSessionsList,
     };
 
     // Register a lazy fallback for plugin subagent dispatch in non-WS paths
@@ -1215,10 +1234,20 @@ export async function startGatewayServer(
         ...pluginRegistry.gatewayHandlers,
         ...execApprovalHandlers,
         ...secretsHandlers,
+        ...mas4sIntegration.extraHandlers,
       },
-      broadcast,
+      broadcast: wrappedBroadcast,
       context: gatewayRequestContext,
+      onClientConnected: mas4sIntegration.onClientConnected,
+      onSessionCreated: mas4sIntegration.onSessionCreated,
+      onClientDisconnected: mas4sIntegration.onClientDisconnected,
     });
+
+    // Pass the live clients set to mas4s integration so it can track connected users
+    if ("_setActiveClients" in mas4sIntegration && mas4sIntegration._setActiveClients) {
+      mas4sIntegration._setActiveClients(clients);
+    }
+
     logGatewayStartup({
       cfg: cfgAtStart,
       bindHost,
