@@ -41,6 +41,13 @@ export const GLOBAL_ROLE_PERMISSIONS: Record<string, Set<GlobalRole>> = {
   "auth.refresh": new Set(["admin", "member", "viewer"]),
   "auth.verify": new Set([]), // no auth required
   "user.logout": new Set(["admin", "member", "viewer"]),
+  "session.archive": new Set(["admin", "member"]),
+  "session.unarchive": new Set(["admin", "member"]),
+  "session.summary.generate": new Set(["admin", "member"]),
+  "session.summary.get": new Set(["admin", "member", "viewer"]),
+  "session.history.range": new Set(["admin", "member", "viewer"]),
+  "session.label.get": new Set(["admin", "member", "viewer"]),
+  "session.label.list": new Set(["admin", "member", "viewer"]),
 };
 
 /**
@@ -92,6 +99,16 @@ const GATEWAY_READ_METHODS = new Set([
   "talk.config",
   "agents.files.list",
   "agents.files.get",
+  "system.status",
+  "auth.login",
+  "auth.refresh",
+  "auth.verify",
+  "user.register",
+  "session.members",
+  "session.summary.get",
+  "session.history.range",
+  "session.label.get",
+  "session.label.list",
 ]);
 
 const GATEWAY_WRITE_METHODS = new Set([
@@ -116,6 +133,12 @@ const GATEWAY_WRITE_METHODS = new Set([
   "browser.request",
   "push.test",
   "node.pending.enqueue",
+  "session.invite",
+  "session.removeMember",
+  "session.leave",
+  "session.archive",
+  "session.unarchive",
+  "session.summary.generate",
 ]);
 
 const GATEWAY_ADMIN_METHODS = new Set([
@@ -142,6 +165,10 @@ const GATEWAY_ADMIN_METHODS = new Set([
   "set-heartbeats",
   "system-event",
   "agents.files.set",
+  "user.list",
+  "user.update",
+  "user.approve",
+  "user.reject",
 ]);
 
 const GATEWAY_ADMIN_PREFIXES = ["exec.approvals.", "config.", "wizard.", "update."] as const;
@@ -174,6 +201,11 @@ export const SESSION_ROLE_PERMISSIONS: Record<string, Set<SessionRole>> = {
   "session.invite": new Set(["owner", "participant"]),
   "session.removeMember": new Set(["owner"]),
   "exec.approval.resolve": new Set(["owner"]),
+  "session.archive": new Set(["owner"]),
+  "session.unarchive": new Set(["owner"]),
+  "session.summary.generate": new Set(["owner", "participant"]),
+  "session.summary.get": new Set(["owner", "participant"]),
+  "session.history.range": new Set(["owner", "participant"]),
 };
 
 /**

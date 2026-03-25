@@ -1,15 +1,25 @@
 import type { DatabaseSync } from "node:sqlite";
-import { TenantServiceError, SESSION_ACCESS_DENIED, MAS_AUTH_FAILED } from "../errors.js";
+import {
+  TenantServiceError,
+  SESSION_ACCESS_DENIED,
+  SESSION_ARCHIVED,
+  MAS_AUTH_FAILED,
+} from "../errors.js";
 import type { TenantService } from "../index.js";
 import type { SessionMember } from "../models.js";
+import type { SessionTranscriptStore } from "../session-history/session-transcript-store.js";
 import type { MasAuthContext } from "./context.js";
 import { NULL_MAS_AUTH } from "./context.js";
 import * as sessionManager from "./session-manager.js";
+import { extractContentFromStoredMessages, generateSummaryWithLLM } from "./summary-llm.js";
+import type { StoredMessageForSummary } from "./summary-llm.js";
 
 export class GatewayAuthBridge {
   constructor(
     private readonly tenantService: TenantService,
     private readonly db: DatabaseSync,
+    public llmConfig?: { baseUrl: string; apiKey: string; model: string },
+    private readonly transcriptStore?: SessionTranscriptStore,
   ) {}
 
   /**
@@ -32,22 +42,13 @@ export class GatewayAuthBridge {
       throw new TenantServiceError(MAS_AUTH_FAILED, `MAS authentication failed: ${result.error}`);
     }
 
-    // Resolve displayName from DB so gateway can populate SenderName in chat.send
-    let displayName: string | undefined;
-    try {
-      const row = this.db
-        .prepare("SELECT displayName FROM users WHERE userId = ?")
-        .get(result.userId) as { displayName?: string } | undefined;
-      displayName = row?.displayName ?? undefined;
-    } catch {
-      // Non-fatal: displayName stays undefined, SenderName will fall back to userId
-    }
+    const { user } = result;
 
     return {
-      userId: result.userId,
-      tenantId: result.tenantId,
-      masRole: result.role,
-      displayName,
+      userId: user.userId,
+      tenantId: user.tenantId,
+      masRole: user.role,
+      displayName: user.displayName,
     };
   }
 
@@ -94,6 +95,14 @@ export class GatewayAuthBridge {
       }
     }
 
+    // Archive check: block chat.send on archived sessions
+    if (method === "chat.send" && sessionKey) {
+      const archived = sessionManager.isSessionArchived(this.db, sessionKey);
+      if (archived) {
+        return { allowed: false, code: SESSION_ARCHIVED, message: "Session is archived" };
+      }
+    }
+
     return { allowed: true };
   }
 
@@ -108,16 +117,20 @@ export class GatewayAuthBridge {
 
     const memberSessionKeys = new Set(sessionManager.listSessionsForUser(this.db, masAuth.userId));
 
-    return sessions.filter((session) => {
-      if (typeof session === "object" && session !== null) {
-        const s = session as Record<string, unknown>;
-        const key = s["key"] ?? s["sessionKey"];
-        if (typeof key === "string") {
-          return memberSessionKeys.has(key);
+    return sessions
+      .filter((session) => {
+        if (typeof session === "object" && session !== null) {
+          const s = session as Record<string, unknown>;
+          const key = s["key"] ?? s["sessionKey"];
+          if (typeof key === "string") {
+            return memberSessionKeys.has(key);
+          }
         }
-      }
-      return false;
-    });
+        return false;
+      })
+      .map((session) =>
+        enrichSessionRow(this.db, session as Record<string, unknown>, masAuth.userId!),
+      );
   }
 
   /**
@@ -262,23 +275,25 @@ export class GatewayAuthBridge {
   filterBroadcastTargets(
     event: string,
     payload: unknown,
-    connectedUsers: Map<string, MasAuthContext>,
+    _connectedUsers: Map<string, MasAuthContext>,
   ): Set<string> | null {
-    // Compat mode: any connected user with null userId means no filtering
-    for (const auth of connectedUsers.values()) {
-      if (auth.userId === null) {
-        return null;
-      }
-    }
-
     // Extract sessionKey from payload
-    const sessionKey =
+    const payloadObj =
       typeof payload === "object" && payload !== null
-        ? ((payload as Record<string, unknown>)["sessionKey"] as string | undefined)
+        ? (payload as Record<string, unknown>)
         : undefined;
+    const sessionKey = payloadObj?.["sessionKey"] as string | undefined;
 
     if (!sessionKey) {
       return null;
+    }
+
+    // Compat mode: if any connected client has no userId (e.g. legacy or unauthenticated system client),
+    // skip filtering to ensure they receive essential system events.
+    for (const context of _connectedUsers.values()) {
+      if (context.userId === null) {
+        return null;
+      }
     }
 
     // Determine target user set based on event type
@@ -288,6 +303,15 @@ export class GatewayAuthBridge {
     } else {
       // chat, agent, and other session events: all members
       targetUserIds = sessionManager.getSessionMemberUserIds(this.db, sessionKey);
+
+      // For chat:user events, exclude the sender to avoid double-rendering in the sender's UI
+      if (event === "chat" && payloadObj?.["state"] === "user") {
+        const senderUserId = payloadObj["senderUserId"];
+        if (typeof senderUserId === "string") {
+          const lowerSenderId = senderUserId.trim().toLowerCase();
+          targetUserIds = targetUserIds.filter((id) => id.trim().toLowerCase() !== lowerSenderId);
+        }
+      }
     }
 
     return new Set(targetUserIds);
@@ -345,6 +369,217 @@ export class GatewayAuthBridge {
     }
   }
 
+  /**
+   * Archive a session. Only owner can archive.
+   * Auto-triggers summary generation; if messages are empty, summaryGenerated=false but archive still succeeds.
+   */
+  async archiveSession(params: {
+    sessionKey: string;
+    callerUserId: string;
+    fetchHistory: () => Promise<StoredMessageForSummary[]>;
+  }): Promise<
+    | { ok: true; archivedAt: number; summaryGenerated: boolean }
+    | { ok: false; code: string; message: string }
+  > {
+    try {
+      const archivedAt = sessionManager.archiveSession(
+        this.db,
+        params.sessionKey,
+        params.callerUserId,
+      );
+
+      // Auto-trigger summary generation (best-effort)
+      let summaryGenerated = false;
+      try {
+        const result = await this.generateSummary({
+          sessionKey: params.sessionKey,
+          callerUserId: params.callerUserId,
+          fetchHistory: params.fetchHistory,
+        });
+        summaryGenerated = result.ok && result.persisted;
+      } catch {
+        // Summary generation failure should not fail the archive
+      }
+
+      return { ok: true, archivedAt, summaryGenerated };
+    } catch (err) {
+      if (err instanceof TenantServiceError) {
+        return { ok: false, code: err.code, message: err.message };
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Generate session summary.
+   * - Not archived: verify caller is Session_Member (owner or participant), generate and return without persisting.
+   * - Archived: verify caller is Session_Owner, generate, persist, and push event.
+   */
+  async generateSummary(params: {
+    sessionKey: string;
+    callerUserId: string;
+    fetchHistory: () => Promise<StoredMessageForSummary[]>;
+  }): Promise<
+    | {
+        ok: true;
+        textSummary: string | null;
+        toolSummary: string | null;
+        generatedAt: number;
+        persisted: boolean;
+      }
+    | { ok: false; code: string; message: string }
+  > {
+    const { sessionKey, callerUserId, fetchHistory } = params;
+    const isArchived = sessionManager.isSessionArchived(this.db, sessionKey);
+
+    if (!isArchived) {
+      // Not archived: any Session_Member can generate (no persist)
+      if (!sessionManager.checkSessionAccess(this.db, sessionKey, callerUserId)) {
+        return {
+          ok: false,
+          code: SESSION_ACCESS_DENIED,
+          message: "You are not a member of this session",
+        };
+      }
+    } else {
+      // Archived: only Session_Owner can generate (persist)
+      const role = this._getSessionRole(sessionKey, callerUserId);
+      if (role !== "owner") {
+        return {
+          ok: false,
+          code: SESSION_ACCESS_DENIED,
+          message: "Only the session owner can regenerate summary for archived sessions",
+        };
+      }
+    }
+
+    try {
+      const messages = await fetchHistory();
+      const { textLines, toolPairs } = extractContentFromStoredMessages(messages);
+      const llmResult = await generateSummaryWithLLM(
+        textLines,
+        toolPairs,
+        callerUserId,
+        this.llmConfig,
+      );
+
+      if (isArchived) {
+        this.transcriptStore?.persistSummary({
+          sessionKey,
+          textSummary: llmResult.textSummary,
+          toolSummary: llmResult.toolSummary,
+          generatedAt: llmResult.generatedAt,
+          generatedBy: callerUserId,
+        });
+        return {
+          ok: true,
+          textSummary: llmResult.textSummary,
+          toolSummary: llmResult.toolSummary,
+          generatedAt: llmResult.generatedAt,
+          persisted: true,
+        };
+      }
+
+      // Not archived: return without persisting
+      this.transcriptStore?.persistSummary({
+        sessionKey,
+        textSummary: llmResult.textSummary,
+        toolSummary: llmResult.toolSummary,
+        generatedAt: llmResult.generatedAt,
+        generatedBy: callerUserId,
+      });
+      return {
+        ok: true,
+        textSummary: llmResult.textSummary,
+        toolSummary: llmResult.toolSummary,
+        generatedAt: llmResult.generatedAt,
+        persisted: false,
+      };
+    } catch (err) {
+      if (err instanceof TenantServiceError) {
+        return { ok: false, code: err.code, message: err.message };
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Push event:session.archived to all online session members.
+   */
+  pushSessionArchived(
+    sessionKey: string,
+    payload: { sessionKey: string; archivedAt: number; archivedBy: string },
+    connectedUsers: Map<string, MasAuthContext>,
+    sendToClient: (connId: string, event: string, data: unknown) => void,
+  ): void {
+    const memberUserIds = new Set(sessionManager.getSessionMemberUserIds(this.db, sessionKey));
+    for (const [connId, auth] of connectedUsers.entries()) {
+      if (auth.userId && memberUserIds.has(auth.userId)) {
+        sendToClient(connId, "session.archived", payload);
+      }
+    }
+  }
+
+  /**
+   * Unarchive a session. Only owner can unarchive.
+   */
+  unarchiveSession(params: {
+    sessionKey: string;
+    callerUserId: string;
+  }): { ok: true } | { ok: false; code: string; message: string } {
+    try {
+      sessionManager.unarchiveSession(this.db, params.sessionKey, params.callerUserId);
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof TenantServiceError) {
+        return { ok: false, code: err.code, message: err.message };
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Push event:session.summary.updated to all online session members.
+   */
+  pushSummaryUpdated(
+    sessionKey: string,
+    payload: { sessionKey: string; generatedAt: number },
+    connectedUsers: Map<string, MasAuthContext>,
+    sendToClient: (connId: string, event: string, data: unknown) => void,
+  ): void {
+    const memberUserIds = new Set(sessionManager.getSessionMemberUserIds(this.db, sessionKey));
+    for (const [connId, auth] of connectedUsers.entries()) {
+      if (auth.userId && memberUserIds.has(auth.userId)) {
+        sendToClient(connId, "session.summary.updated", payload);
+      }
+    }
+  }
+
+  /**
+   * Called when a session is deleted: clean up membership/ownership records.
+   */
+  onSessionDeleted(sessionKey: string): void {
+    sessionManager.deleteSessionRecords(this.db, sessionKey);
+    console.log(`[mas4s] Session deleted: ${sessionKey}`);
+  }
+
+  /**
+   * Push event:session.unarchived to all online session members.
+   */
+  pushSessionUnarchived(
+    sessionKey: string,
+    payload: { sessionKey: string; unarchivedBy: string },
+    connectedUsers: Map<string, MasAuthContext>,
+    sendToClient: (connId: string, event: string, data: unknown) => void,
+  ): void {
+    const memberUserIds = new Set(sessionManager.getSessionMemberUserIds(this.db, sessionKey));
+    for (const [connId, auth] of connectedUsers.entries()) {
+      if (auth.userId && memberUserIds.has(auth.userId)) {
+        sendToClient(connId, "session.unarchived", payload);
+      }
+    }
+  }
+
   // ── Private helpers ──
 
   /** Extract sessionKey from method params (various field names used across methods) */
@@ -362,7 +597,11 @@ export class GatewayAuthBridge {
       method === "session.removeMember" ||
       method === "session.members" ||
       method === "session.leave" ||
-      method === "exec.approval.resolve"
+      method === "exec.approval.resolve" ||
+      method === "session.archive" ||
+      method === "session.summary.generate" ||
+      method === "session.summary.get" ||
+      method === "session.unarchive"
     );
   }
 
@@ -376,4 +615,29 @@ export class GatewayAuthBridge {
     }
     return row.role as "owner" | "participant";
   }
+}
+
+// ── Module-level helpers ─────────────────────────────────────────────────────
+
+/**
+ * Enrich a session row with archivedAt, hasSummary and masRole fields.
+ * Used by filterSessionsForUser to attach archive/summary/role metadata.
+ */
+function enrichSessionRow(
+  db: DatabaseSync,
+  session: Record<string, unknown>,
+  userId: string,
+): Record<string, unknown> {
+  const sessionKey = (session["key"] ?? session["sessionKey"]) as string;
+  const ownership = db
+    .prepare("SELECT archivedAt FROM session_ownership WHERE sessionKey = ?")
+    .get(sessionKey) as { archivedAt: number | null } | undefined;
+  const membership = db
+    .prepare("SELECT role FROM session_memberships WHERE sessionKey = ? AND userId = ?")
+    .get(sessionKey, userId) as { role: string } | undefined;
+  return {
+    ...session,
+    archivedAt: ownership?.archivedAt ?? null,
+    masRole: membership?.role ?? null,
+  };
 }

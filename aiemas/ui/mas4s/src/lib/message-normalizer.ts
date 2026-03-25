@@ -118,7 +118,68 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
 
   let content: MessageContentItem[] = [];
   if (typeof m.content === "string") {
-    content = [{ type: "text", text: m.content }];
+    // Restore structured content items serialized by SessionTranscriptStore.extractContent():
+    //   "[thinking] ..."      → { type: "thinking", thinking: "..." }
+    //   "[tool_use:name] {}"  → { type: "tool_call", name, args }
+    // Plain text lines are collected into text items.
+    const lines = m.content.split("\n");
+    const items: MessageContentItem[] = [];
+    let textLines: string[] = [];
+
+    const flushText = () => {
+      const text = textLines.join("\n").trim();
+      if (text) {
+        items.push({ type: "text", text });
+      }
+      textLines = [];
+    };
+
+    for (const line of lines) {
+      // [thinking] prefix — may span multiple lines; collect until next marker
+      const thinkingMatch = /^\[thinking\] (.*)$/.exec(line);
+      if (thinkingMatch) {
+        flushText();
+        // Unescape \n literals back to real newlines
+        items.push({ type: "thinking", thinking: (thinkingMatch[1] ?? "").replace(/\\n/g, "\n") });
+        continue;
+      }
+      // [tool_use:name] {...} prefix
+      const toolMatch = /^\[tool_use:([^\]]+)\]\s*(.*)$/.exec(line);
+      if (toolMatch) {
+        flushText();
+        const name = toolMatch[1] ?? "tool";
+        const argsRaw = toolMatch[2]?.trim() ?? "";
+        let args: unknown;
+        try {
+          args = argsRaw ? JSON.parse(argsRaw) : undefined;
+        } catch {
+          args = argsRaw || undefined;
+        }
+        items.push({ type: "tool_call", name, args });
+        continue;
+      }
+      // [tool_result] ... prefix — tool execution output stored alongside the call
+      // Newlines within the result were escaped to \n literals during storage.
+      const resultMatch = /^\[tool_result\]\s*(.*)$/.exec(line);
+      if (resultMatch) {
+        flushText();
+        items.push({ type: "tool_result", text: (resultMatch[1] ?? "").replace(/\\n/g, "\n") });
+        continue;
+      }
+      textLines.push(line);
+    }
+    flushText();
+
+    // For role=tool messages (tool_result rows), wrap plain text as tool_result item
+    if (
+      (role === "tool" || role === "toolResult") &&
+      items.length === 1 &&
+      items[0]?.type === "text"
+    ) {
+      content = [{ type: "tool_result", text: items[0].text }];
+    } else {
+      content = items.length > 0 ? items : [{ type: "text", text: m.content }];
+    }
   } else if (Array.isArray(m.content)) {
     content = m.content.map((item: Record<string, unknown>) => ({
       type: (item.type as MessageContentItem["type"]) || "text",

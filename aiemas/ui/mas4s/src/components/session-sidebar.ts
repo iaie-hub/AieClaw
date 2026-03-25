@@ -21,6 +21,9 @@ export class SessionSidebar extends LitElement {
   @state() private _deleteConfirm: { sessionKey: string; label: string } | null = null;
 
   @state() private _refreshing = false;
+  @state() private _initiatedExpanded = true;
+  @state() private _participatedExpanded = true;
+  @state() private _sidebarCollapsed = false;
 
   static styles = css`
     :host {
@@ -33,6 +36,16 @@ export class SessionSidebar extends LitElement {
       border-right: 1px solid #e2e8f0;
       flex-shrink: 0;
       box-sizing: border-box;
+      transition:
+        width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        min-width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      overflow: hidden;
+      position: relative;
+    }
+
+    :host([collapsed]) {
+      width: 48px;
+      min-width: 48px;
     }
 
     .sidebar-header {
@@ -40,18 +53,49 @@ export class SessionSidebar extends LitElement {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 20px;
+      padding: 0 16px;
       font-weight: 600;
       font-size: 16px;
       border-bottom: 1px solid #e2e8f0;
       color: #1e293b;
       flex-shrink: 0;
+      transition: padding 0.3s;
+      overflow: hidden;
+    }
+
+    :host([collapsed]) .sidebar-header {
+      padding: 0;
+      justify-content: center;
+    }
+
+    .sidebar-header span {
+      white-space: nowrap;
+      transition:
+        opacity 0.2s,
+        width 0.2s;
+    }
+
+    :host([collapsed]) .sidebar-header span {
+      opacity: 0;
+      width: 0;
+      pointer-events: none;
     }
 
     .header-actions {
       display: flex;
       align-items: center;
       gap: 6px;
+      transition: opacity 0.2s;
+    }
+
+    :host([collapsed]) .header-actions {
+      /* 仅保留折叠按钮并在容器中居中 */
+      gap: 0;
+    }
+
+    :host([collapsed]) .refresh-btn,
+    :host([collapsed]) .add-btn {
+      display: none;
     }
 
     .refresh-btn {
@@ -113,45 +157,98 @@ export class SessionSidebar extends LitElement {
       box-shadow: 0 4px 10px rgba(59, 130, 246, 0.4);
     }
 
+    .toggle-sidebar-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      background: transparent;
+      border: none;
+      color: #64748b;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .toggle-sidebar-btn:hover {
+      background: #f1f5f9;
+      color: #1e293b;
+    }
+
+    :host([collapsed]) .toggle-sidebar-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+    }
+
     .session-list {
       flex: 1;
       overflow-y: auto;
       padding: 8px 0;
+      transition: opacity 0.2s;
+    }
+
+    :host([collapsed]) .session-list {
+      opacity: 0;
+      pointer-events: none;
     }
 
     .group-header {
       padding: 8px 16px 4px;
-      font-size: 12px;
-      font-weight: 600;
+      font-size: 11px;
+      font-weight: 700;
       color: #94a3b8;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.8px;
       display: flex;
       align-items: center;
       gap: 6px;
+      cursor: pointer;
+      user-select: none;
+      transition: color 0.15s;
+    }
+
+    .group-header:hover {
+      color: #64748b;
+    }
+
+    .group-header-arrow {
+      width: 12px;
+      height: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.2s;
+    }
+
+    .group-header-arrow.collapsed {
+      transform: rotate(-90deg);
     }
 
     .session-item {
-      height: 44px;
+      /* 增加左缩进，与 group-header 形成层次 */
+      height: 36px;
       display: flex;
       align-items: center;
-      padding: 0 8px 0 16px;
+      padding: 0 8px 0 28px;
       cursor: pointer;
       border-radius: 8px;
-      margin: 2px 10px;
+      margin: 1px 10px;
       transition: all 0.2s;
-      font-size: 14px;
+      font-size: 13px;
       color: #64748b;
       border: none;
       background: none;
       width: calc(100% - 20px);
       text-align: left;
+      box-sizing: border-box;
     }
 
     .session-item:hover {
       background: white;
       color: #1e293b;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
     }
 
     .session-item.active {
@@ -160,6 +257,24 @@ export class SessionSidebar extends LitElement {
       font-weight: 600;
       box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
       border-left: 3px solid #3b82f6;
+      /* 激活时左缩进补偿 border-left 占用的 3px */
+      padding-left: 25px;
+    }
+
+    .session-item.archived {
+      color: #94a3b8;
+      font-style: italic;
+    }
+
+    .session-item-body {
+      flex: 1;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      overflow: hidden;
+      gap: 6px;
+      /* 作为 actions 的定位容器 */
+      position: relative;
     }
 
     .session-label {
@@ -167,6 +282,23 @@ export class SessionSidebar extends LitElement {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      font-size: 13px;
+      line-height: 1.3;
+    }
+
+    .session-time {
+      font-size: 11px;
+      color: #94a3b8;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.1px;
+      white-space: nowrap;
+      flex-shrink: 0;
+      /* 为 actions 悬浮留出空间 */
+      margin-right: 2px;
+    }
+
+    .session-item.active .session-time {
+      color: #93c5fd;
     }
 
     .badge-dot {
@@ -190,43 +322,54 @@ export class SessionSidebar extends LitElement {
     }
 
     .item-actions {
+      /* 绝对定位，悬浮在日期位置上 */
+      position: absolute;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
       display: flex;
       align-items: center;
-      gap: 4px;
-      flex-shrink: 0;
-      margin-left: 4px;
-      margin-right: 12px;
+      gap: 2px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s;
+      background: white;
+      border-radius: 6px;
+      padding: 2px 2px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    }
+
+    .session-item:hover .item-actions {
+      opacity: 1;
+      pointer-events: auto;
     }
 
     .rename-btn,
     .delete-btn {
-      opacity: 0;
       background: none;
       border: none;
       cursor: pointer;
       color: #94a3b8;
-      font-size: 13px;
-      padding: 2px 4px;
+      padding: 3px 4px;
       border-radius: 4px;
       flex-shrink: 0;
       transition:
-        opacity 0.15s,
-        color 0.15s;
+        color 0.15s,
+        background 0.15s;
       line-height: 1;
       position: relative;
-    }
-
-    .session-item:hover .rename-btn,
-    .session-item:hover .delete-btn {
-      opacity: 1;
+      display: flex;
+      align-items: center;
     }
 
     .rename-btn:hover {
       color: #3b82f6;
+      background: #eff6ff;
     }
 
     .delete-btn:hover {
       color: #ef4444;
+      background: #fef2f2;
     }
 
     /* CSS tooltip */
@@ -537,7 +680,7 @@ export class SessionSidebar extends LitElement {
   }
 
   private _onNameKeydown(e: KeyboardEvent) {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && !e.isComposing) {
       this._onNameConfirm();
     }
     if (e.key === "Escape") {
@@ -559,12 +702,23 @@ export class SessionSidebar extends LitElement {
     return this.sessions.filter((s) => s.masType === "participated");
   }
 
+  private _formatTime(ts: number | null | undefined): string {
+    if (!ts) {
+      return "";
+    }
+    const d = new Date(ts);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
   private _renderSession(session: MasSession) {
     const isActive = session.key === this.activeSessionKey;
+    const isArchived = session.archivedAt != null;
     const label = session.label ?? session.displayName ?? session.key;
+    const timeStr = this._formatTime(session.updatedAt);
     return html`
       <div
-        class="session-item ${isActive ? "active" : ""}"
+        class="session-item ${isActive ? "active" : ""} ${isArchived ? "archived" : ""}"
         role="button"
         tabindex="0"
         @click=${() => this._onSessionClick(session.key)}
@@ -576,7 +730,42 @@ export class SessionSidebar extends LitElement {
         }}
         title=${label}
       >
-        <span class="session-label">${label}</span>
+        <div class="session-item-body">
+          <span class="session-label">${isArchived ? html`📦 ${label}` : label}</span>
+          ${timeStr ? html`<span class="session-time">${timeStr}</span>` : nothing}
+          ${
+            session.masType === "initiated"
+              ? html`
+          <div class="item-actions">
+            <button
+              class="rename-btn"
+              data-tip="重命名"
+              @click=${(e: Event) => this._onRename(e, session)}
+              aria-label="重命名会话"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+            </button>
+            <button
+              class="delete-btn"
+              data-tip="删除会话"
+              @click=${(e: Event) => this._onDelete(e, session)}
+              aria-label="删除会话"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                <path d="M10 11v6"/>
+                <path d="M14 11v6"/>
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+              </svg>
+            </button>
+          </div>`
+              : nothing
+          }
+        </div>
         ${
           session.hasNotification
             ? html`
@@ -589,33 +778,6 @@ export class SessionSidebar extends LitElement {
             ? html`<span class="badge-count">${session.notificationCount}</span>`
             : nothing
         }
-        <div class="item-actions">
-          <button
-            class="rename-btn"
-            data-tip="重命名"
-            @click=${(e: Event) => this._onRename(e, session)}
-            aria-label="重命名会话"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-            </svg>
-          </button>
-          <button
-            class="delete-btn"
-            data-tip="删除会话"
-            @click=${(e: Event) => this._onDelete(e, session)}
-            aria-label="删除会话"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="3 6 5 6 21 6"/>
-              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-              <path d="M10 11v6"/>
-              <path d="M14 11v6"/>
-              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-            </svg>
-          </button>
-        </div>
       </div>
     `;
   }
@@ -688,6 +850,23 @@ export class SessionSidebar extends LitElement {
     `;
   }
 
+  private _toggleSidebar() {
+    this._sidebarCollapsed = !this._sidebarCollapsed;
+    if (this._sidebarCollapsed) {
+      this.setAttribute("collapsed", "");
+    } else {
+      this.removeAttribute("collapsed");
+    }
+  }
+
+  private _toggleInitiated() {
+    this._initiatedExpanded = !this._initiatedExpanded;
+  }
+
+  private _toggleParticipated() {
+    this._participatedExpanded = !this._participatedExpanded;
+  }
+
   render() {
     return html`
       <div class="sidebar-header">
@@ -703,15 +882,77 @@ export class SessionSidebar extends LitElement {
           <button class="add-btn" @click=${() => this._onCreate()} aria-label="发起新会话" title="发起新会话">
             +
           </button>
+          <button
+            class="toggle-sidebar-btn"
+            @click=${() => this._toggleSidebar()}
+            aria-label=${this._sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"}
+            title=${this._sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"}
+          >
+            ${
+              this._sidebarCollapsed
+                ? html`
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <polyline points="13 17 18 12 13 7" />
+                      <polyline points="6 17 11 12 6 7" />
+                    </svg>
+                  `
+                : html`
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <polyline points="11 17 6 12 11 7" />
+                      <polyline points="18 17 13 12 18 7" />
+                    </svg>
+                  `
+            }
+          </button>
         </div>
       </div>
 
       <div class="session-list">
-        <div class="group-header">📁 发起的会话</div>
-        ${this._initiatedSessions.map((s) => this._renderSession(s))}
+        <div class="group-header" @click=${() => this._toggleInitiated()}>
+          <span class="group-header-arrow ${this._initiatedExpanded ? "" : "collapsed"}">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </span>
+          📁 发起的会话
+        </div>
+        ${
+          this._initiatedExpanded
+            ? this._initiatedSessions.map((s) => this._renderSession(s))
+            : nothing
+        }
 
-        <div class="group-header" style="margin-top:8px">🔗 参与的会话</div>
-        ${this._participatedSessions.map((s) => this._renderSession(s))}
+        <div class="group-header" style="margin-top:8px" @click=${() => this._toggleParticipated()}>
+          <span class="group-header-arrow ${this._participatedExpanded ? "" : "collapsed"}">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </span>
+          🔗 参与的会话
+        </div>
+        ${
+          this._participatedExpanded
+            ? this._participatedSessions.map((s) => this._renderSession(s))
+            : nothing
+        }
       </div>
 
       ${this._renderNameDialog()}

@@ -18,12 +18,19 @@ import {
   type SessionEntry,
   updateSessionStore,
 } from "../../config/sessions.js";
+import {
+  hasInternalHookListeners,
+  triggerInternalHook,
+  type SessionPatchHookContext,
+  type SessionPatchHookEvent,
+} from "../../hooks/internal-hooks.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
   normalizeAgentId,
   parseAgentSessionKey,
   resolveAgentIdFromSessionKey,
 } from "../../routing/session-key.js";
+import { emitSessionLifecycleEvent } from "../../sessions/session-lifecycle-events.js";
 import { GATEWAY_CLIENT_IDS } from "../protocol/client-info.js";
 import {
   ErrorCodes,
@@ -56,6 +63,7 @@ import {
   loadSessionEntry,
   migrateAndPruneGatewaySessionStoreKey,
   readSessionPreviewItemsFromTranscript,
+  resolveFreshestSessionEntryFromStoreKeys,
   resolveGatewaySessionStoreTarget,
   resolveSessionModelRef,
   resolveSessionTranscriptCandidates,
@@ -603,7 +611,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
           key,
           store,
         });
-        const entry = target.storeKeys.map((candidate) => store[candidate]).find(Boolean);
+        const entry = resolveFreshestSessionEntryFromStoreKeys(store, target.storeKeys);
         if (!entry?.sessionId) {
           previews.push({ key, status: "missing", items: [] });
           continue;
@@ -706,6 +714,10 @@ export const sessionsHandlers: GatewayRequestHandlers = {
           key: target.canonicalKey,
           label: typeof p.label === "string" ? p.label.trim() : undefined,
           model: typeof p.model === "string" ? p.model.trim() : undefined,
+          reasoningLevel:
+            typeof p.reasoningLevel === "string"
+              ? p.reasoningLevel.trim()
+              : (p.reasoningLevel as string | null | undefined),
         },
         loadGatewayModelCatalog: context.loadGatewayModelCatalog,
       });
@@ -816,6 +828,15 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       sessionKey: target.canonicalKey,
       reason: "create",
     });
+    // Emit lifecycle event so aiemas label store can persist the initial label.
+    if (created.entry.label !== undefined || created.entry.displayName !== undefined) {
+      emitSessionLifecycleEvent({
+        sessionKey: target.canonicalKey,
+        reason: "create",
+        label: created.entry.label,
+        displayName: created.entry.displayName,
+      });
+    }
     // mas4s hook: record session ownership and membership
     if (context.onSessionCreated && client) {
       const label = typeof p.label === "string" ? p.label.trim() : "";
@@ -945,6 +966,24 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       respond(false, undefined, applied.error);
       return;
     }
+
+    if (hasInternalHookListeners("session", "patch")) {
+      const hookContext: SessionPatchHookContext = structuredClone({
+        sessionEntry: applied.entry,
+        patch: p,
+        cfg,
+      });
+      const hookEvent: SessionPatchHookEvent = {
+        type: "session",
+        action: "patch",
+        sessionKey: target.canonicalKey ?? key,
+        context: hookContext,
+        timestamp: new Date(),
+        messages: [],
+      };
+      void triggerInternalHook(hookEvent);
+    }
+
     const parsed = parseAgentSessionKey(target.canonicalKey ?? key);
     const agentId = normalizeAgentId(parsed?.agentId ?? resolveDefaultAgentId(cfg));
     const resolved = resolveSessionModelRef(cfg, applied.entry, agentId);
@@ -963,6 +1002,16 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       sessionKey: target.canonicalKey,
       reason: "patch",
     });
+    // Emit lifecycle event so subscribers (e.g. aiemas label store) can persist
+    // label/displayName changes that survive session resets.
+    if (applied.entry.label !== undefined || applied.entry.displayName !== undefined) {
+      emitSessionLifecycleEvent({
+        sessionKey: target.canonicalKey,
+        reason: "patch",
+        label: applied.entry.label,
+        displayName: applied.entry.displayName,
+      });
+    }
   },
   "sessions.reset": async ({ params, respond, context }) => {
     if (!assertValidParams(params, validateSessionsResetParams, "sessions.reset", respond)) {
@@ -989,6 +1038,16 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       sessionKey: result.key,
       reason,
     });
+    // Emit lifecycle event so aiemas label store can persist the label that
+    // survived the reset (label/displayName are carried over in performGatewaySessionReset).
+    if (result.entry.label !== undefined || result.entry.displayName !== undefined) {
+      emitSessionLifecycleEvent({
+        sessionKey: result.key,
+        reason,
+        label: result.entry.label,
+        displayName: result.entry.displayName,
+      });
+    }
   },
   "sessions.delete": async ({ params, respond, client, isWebchatConnect, context }) => {
     if (!assertValidParams(params, validateSessionsDeleteParams, "sessions.delete", respond)) {
@@ -1065,6 +1124,11 @@ export const sessionsHandlers: GatewayRequestHandlers = {
         sessionKey: target.canonicalKey,
         reason: "delete",
       });
+      // Notify aiemas label store to clean up the persisted label entry.
+      emitSessionLifecycleEvent({
+        sessionKey: target.canonicalKey,
+        reason: "session-delete",
+      });
     }
   },
   "sessions.get": ({ params, respond }) => {
@@ -1080,7 +1144,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
 
     const { target, storePath } = resolveGatewaySessionTargetFromKey(key);
     const store = loadSessionStore(storePath);
-    const entry = target.storeKeys.map((k) => store[k]).find(Boolean);
+    const entry = resolveFreshestSessionEntryFromStoreKeys(store, target.storeKeys);
     if (!entry?.sessionId) {
       respond(true, { messages: [] }, undefined);
       return;

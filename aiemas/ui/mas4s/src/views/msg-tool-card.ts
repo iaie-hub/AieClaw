@@ -2,16 +2,13 @@ import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { MessageContentItem } from "../types/chat-types.js";
 
-/** 工具调用/结果卡片（tool_call / tool_result）。 */
+/** 工具调用/结果卡片（tool_call / tool_result）。默认折叠，点击 header 展开/收起。 */
 @customElement("msg-tool-card")
 export class MsgToolCard extends LitElement {
   @property({ attribute: false }) item!: MessageContentItem;
 
-  /** 结果文本是否展开 */
+  /** body 是否展开，默认折叠 */
   @state() private _expanded = false;
-
-  /** 超过此长度折叠显示 */
-  private static readonly PREVIEW_LEN = 200;
 
   static styles = css`
     :host {
@@ -167,34 +164,21 @@ export class MsgToolCard extends LitElement {
     const cardClass = isCall ? "tool-card--call" : "tool-card--result";
 
     const bodyText = isCall ? this._renderArgs(this.item.args) : (this.item.text ?? "");
-
     const hasBody = bodyText.trim().length > 0;
-    const isLong = bodyText.length > MsgToolCard.PREVIEW_LEN;
-    const displayText =
-      isLong && !this._expanded ? bodyText.slice(0, MsgToolCard.PREVIEW_LEN) + "…" : bodyText;
 
     return html`
       <div class="tool-card ${cardClass}">
-        <div class="tool-header" @click=${hasBody ? this._toggleBody : nothing}>
+        <div class="tool-header" @click=${this._toggleBody}>
           <span class="tool-icon">${icon}</span>
           <span class="tool-name">${name}</span>
           <span class="tool-kind-tag">${kindLabel}</span>
-          ${hasBody ? html`<span class="toggle-icon">${this._expanded ? "▲" : "▼"}</span>` : nothing}
+          <span class="toggle-icon">${this._expanded ? "▲" : "▼"}</span>
         </div>
         ${
-          hasBody && this._expanded
+          this._expanded && hasBody
             ? html`
               <div class="tool-body">
-                <pre>${displayText}</pre>
-                ${
-                  isLong
-                    ? html`
-                      <button class="expand-btn" @click=${this._toggleBody}>
-                        ${this._expanded ? "收起" : "展开全部"}
-                      </button>
-                    `
-                    : nothing
-                }
+                <pre>${bodyText}</pre>
               </div>
             `
             : nothing

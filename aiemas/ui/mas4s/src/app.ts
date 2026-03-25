@@ -1,3 +1,4 @@
+import "katex/dist/katex.min.css";
 import { LitElement, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { AuthController, type MasAuthState } from "./controllers/auth-controller.js";
@@ -98,11 +99,15 @@ export class Mas4sApp extends LitElement {
       });
     }
 
-    // Authenticated but temporarily disconnected — show reconnecting overlay
-    // instead of the login page so the auto-reconnect in GatewayBrowserClient
-    // can restore the session without user interaction.
-    if (!this._connected) {
-      return renderChecking();
+    // When disconnected, show login view so user can re-authenticate or check gateway status
+    if (!this._connected && this._masAuthState === "authenticated") {
+      return renderLogin("login", this._connectError, {
+        onLoginSuccess: () => this._auth.onLoginSuccess(),
+        onGatewayConnect: (e: Event) => {
+          const { initialized } = (e as CustomEvent<{ initialized: boolean }>).detail;
+          this._auth.onGatewayConnect(initialized);
+        },
+      });
     }
 
     return renderMain(this._ctrl.store, this._activeNav, this._dialog, {
@@ -117,11 +122,22 @@ export class Mas4sApp extends LitElement {
       onSessionCreate: (e) => this._session.onSessionCreate(e),
       onSessionRename: (e) => this._session.onSessionRename(e),
       onSessionDelete: (e) => this._session.onSessionDelete(e),
-      onSessionRefresh: () => void this._session.onSessionRefresh(),
+      onSessionRefresh: (e: Event) => void this._session.onSessionRefresh(e),
+      onSessionArchive: (e: CustomEvent<{ sessionKey: string }>) =>
+        this._session.onSessionArchive(e),
+      onSessionUnarchive: (e: CustomEvent<{ sessionKey: string }>) =>
+        this._session.onSessionUnarchive(e),
+      onSessionMembersFetch: (e: CustomEvent<{ sessionKey: string }>) =>
+        this._session.onSessionMembersFetch(e),
+      onUserInvite: (e: CustomEvent<{ sessionKey: string; userId: string }>) =>
+        this._session.onUserInvite(e),
+      onMemberRemove: (e: CustomEvent<{ sessionKey: string; userId: string }>) =>
+        this._session.onMemberRemove(e),
       onSendMessage: (e) => this._message.onSendMessage(e),
       onResolveApproval: (e) => this._message.onResolveApproval(e),
       onInviteOpen: () => this._ui.onInviteOpen(),
       onDialogClose: () => this._ui.onDialogClose(),
+      onLoadMoreHistory: (e) => this._session.onLoadMoreHistory(e),
     });
   }
 }

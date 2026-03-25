@@ -7,17 +7,29 @@
  * the gateway continues without multi-tenant features.
  */
 
+import { resolveEnvApiKey } from "../agents/model-auth-env.js";
+import type { OpenClawConfig } from "../config/config.js";
+import { collectConfigRuntimeEnvVars } from "../config/env-vars.js";
+import { isValidEnvSecretRefId } from "../config/types.secrets.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
+import { resolveSecretInputString } from "../secrets/resolve-secret-input-string.js";
+import { ADMIN_SCOPE, READ_SCOPE, WRITE_SCOPE } from "./method-scopes.js";
+import { chatHandlers } from "./server-methods/chat.js";
 import { sessionsHandlers } from "./server-methods/sessions.js";
-import type { GatewayRequestHandler, GatewayRequestHandlers } from "./server-methods/types.js";
+import type {
+  GatewayRequestHandler,
+  GatewayRequestHandlers,
+  GatewayClient,
+} from "./server-methods/types.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
+import { loadGatewaySessionRow } from "./session-utils.js";
 
 type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
 
 export interface Mas4sIntegration {
   extraHandlers: GatewayRequestHandlers;
   onClientConnected: (client: GatewayWsClient, upgradeReq: { url?: string }) => void;
-  onSessionCreated: (sessionKey: string, label: string, client: GatewayWsClient) => void;
+  onSessionCreated: (sessionKey: string, label: string, client: GatewayClient) => void;
   /**
    * Pre-request interceptor: check RBAC + session access before dispatching.
    * Returns null to allow, or an error shape to reject.
@@ -25,7 +37,7 @@ export interface Mas4sIntegration {
   interceptRequest: (
     method: string,
     params: Record<string, unknown>,
-    client: GatewayWsClient | null,
+    client: GatewayClient | null,
   ) => { allowed: true } | { allowed: false; code: string; message: string };
   /**
    * Broadcast filter: returns a Set of connIds that should receive the event,
@@ -39,11 +51,16 @@ export interface Mas4sIntegration {
   /**
    * Filter sessions.list results to only include sessions the user has membership for.
    */
-  filterSessionsList: (sessions: unknown[], client: GatewayWsClient | null) => unknown[];
+  filterSessionsList: (sessions: unknown[], client: GatewayClient | null) => unknown[];
   /**
    * Called when a WS client disconnects. Marks the user offline if authenticated.
    */
   onClientDisconnected: (client: GatewayWsClient) => void;
+  /**
+   * Internal: allows server.impl.ts to keep the clients reference up to date.
+   * This is used by the MAS4S bridge to track user presence across all connections.
+   */
+  _setActiveClients?: (clients: Set<GatewayWsClient>) => void;
 }
 
 const NOOP_INTEGRATION: Mas4sIntegration = {
@@ -54,20 +71,161 @@ const NOOP_INTEGRATION: Mas4sIntegration = {
   interceptRequest: () => ({ allowed: true }),
   filterBroadcast: () => null,
   filterSessionsList: (sessions) => sessions,
+  _setActiveClients: () => {},
 };
+
+async function resolveLlmKey(
+  config: OpenClawConfig,
+  value: unknown,
+  provider?: string,
+): Promise<string> {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  // 1. Try standard secret resolution (handles ${VLLM_API_KEY} etc)
+  const resolved = await resolveSecretInputString({
+    config,
+    value,
+    env: process.env,
+  });
+
+  if (resolved && resolved !== value) {
+    return resolved;
+  }
+
+  // 2. Prepare merged environment (process.env + config.env.vars)
+  const mergedEnv = { ...process.env, ...collectConfigRuntimeEnvVars(config) };
+
+  // 3. If a provider is known, try auth profile store first (written by `openclaw configure`)
+  //    This is the primary storage path: real keys live in auth-profiles.json, not openclaw.json.
+  if (provider) {
+    try {
+      const { ensureAuthProfileStore, resolveApiKeyForProfile, resolveAuthProfileOrder } =
+        await import("../agents/auth-profiles.js");
+      const store = ensureAuthProfileStore();
+      const order = resolveAuthProfileOrder({ cfg: config, store, provider });
+      for (const profileId of order) {
+        const profileResult = await resolveApiKeyForProfile({ cfg: config, store, profileId });
+        if (profileResult?.apiKey) {
+          console.log(
+            `[mas4s] Resolved LLM key via auth profile "${profileId}" for provider: ${provider}`,
+          );
+          return profileResult.apiKey;
+        }
+      }
+    } catch (err) {
+      console.warn(`[mas4s] Auth profile lookup failed for provider ${provider}: ${String(err)}`);
+    }
+  }
+
+  // 4. If a provider is known, use the provider-specific env resolver
+  if (provider) {
+    const envResolved = resolveEnvApiKey(provider, mergedEnv);
+    if (envResolved) {
+      return envResolved.apiKey;
+    }
+  }
+
+  // 5. Fallback for plain placeholders like "VLLM_API_KEY"
+  if (isValidEnvSecretRefId(value)) {
+    const envVal = mergedEnv[value];
+    if (envVal) {
+      console.log(`[mas4s] Resolved ${value} from merged env (length: ${envVal.length})`);
+      return envVal;
+    }
+
+    console.warn(`[mas4s] Failed to resolve plain placeholder: ${value}`);
+    // CRITICAL: If it looks like an env var but we couldn't find one,
+    // DO NOT return the placeholder name as a literal key.
+    // However, self-hosted providers (vllm, ollama, sglang, etc.) typically
+    // don't require a real API key. Return "none" so the LLM call can proceed.
+    if (
+      provider &&
+      ["vllm", "ollama", "sglang", "litellm", "lmstudio"].includes(provider.toLowerCase())
+    ) {
+      console.log(`[mas4s] Using placeholder key "none" for self-hosted provider: ${provider}`);
+      return "none";
+    }
+    return "";
+  }
+
+  return resolved ?? "";
+}
 
 /**
  * Attempt to initialize the mas4s plugin. Returns a noop integration
  * on failure so the gateway can start without it.
  */
-export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sIntegration> {
+export async function initMas4sIntegration(
+  log: SubsystemLogger,
+  config?: OpenClawConfig,
+): Promise<Mas4sIntegration> {
+  if (!config) {
+    return NOOP_INTEGRATION;
+  }
   try {
     const { createMas4sGatewayPlugin } =
       await import("../../aiemas/src/gateway-bridge/mas4s-gateway-plugin.js");
     const contextMod = await import("../../aiemas/src/gateway-bridge/context.js");
     const integrationMod = await import("../../aiemas/src/gateway-bridge/integration.js");
 
-    const plugin = await createMas4sGatewayPlugin();
+    const aiemasConfig = config?.plugins?.entries?.["aiemas"]?.config ?? {};
+    const mas4sConfig = config?.plugins?.entries?.["mas4s"]?.config ?? {};
+    let llm = (aiemasConfig["llm"] ?? mas4sConfig["llm"]) as
+      | { baseUrl: string; apiKey: string; model: string }
+      | undefined;
+
+    // Fallback: if no LLM configured for aiemas, try to reuse one from models.providers
+    if (!llm && config?.models?.providers) {
+      const providers = config.models.providers;
+      const bestKey =
+        Object.keys(providers).find((k) => k.toLowerCase() === "openai") ??
+        Object.keys(providers).find((k) => k.toLowerCase().includes("deepseek")) ??
+        Object.keys(providers).find(
+          (k) => k.toLowerCase().includes("vllm") || k.toLowerCase().includes("ollama"),
+        ) ??
+        Object.keys(providers).find((k) => providers[k].api?.startsWith("openai-"));
+
+      if (bestKey) {
+        const p = providers[bestKey];
+        const modelId = p.models?.[0]?.id;
+        if (p.baseUrl && modelId) {
+          // If the key is custom (e.g. "my-vllm"), try to map to a canonical ID for env resolution
+          let providerId = bestKey;
+          const kLower = bestKey.toLowerCase();
+          if (kLower.includes("deepseek")) {
+            providerId = "deepseek";
+          } else if (kLower.includes("vllm")) {
+            providerId = "vllm";
+          } else if (kLower.includes("openai")) {
+            providerId = "openai";
+          } else if (kLower.includes("ollama")) {
+            providerId = "ollama";
+          }
+
+          llm = {
+            baseUrl: p.baseUrl,
+            apiKey: await resolveLlmKey(config, p.apiKey, providerId),
+            model: modelId,
+          };
+          console.log(
+            `[mas4s] LLM fallback config created using provider key: ${bestKey}, hint: ${providerId}, model: ${modelId}, hasApiKey: ${Boolean(llm.apiKey)}`,
+          );
+        } else {
+          console.warn(
+            `[mas4s] Found potential fallback provider ${bestKey}, but it is missing baseUrl (${Boolean(p.baseUrl)}) or models array (${p.models?.length ?? 0})`,
+          );
+        }
+      }
+    }
+
+    // Also resolve apiKey if it was provided in plugin config (non-fallback)
+    if (llm?.apiKey && config) {
+      llm.apiKey = await resolveLlmKey(config, llm.apiKey);
+    }
+
+    const plugin = await createMas4sGatewayPlugin({ llm });
     log.info("mas4s multi-tenant plugin loaded");
 
     // Helper: send an event frame to a specific WS client by connId
@@ -133,10 +291,41 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
         const masAuth = plugin.bridge.authenticateConnect({ masToken });
         contextMod.setMasAuth(client, masAuth);
 
+        // Broadcast online presence immediately if successfully authenticated.
+        // This ensures peers see the user as "online" even on token-based reconnection (refresh).
+        if (masAuth.userId && masAuth.tenantId) {
+          plugin.bridge.pushUserPresence(
+            masAuth.userId,
+            masAuth.tenantId,
+            true,
+            buildConnectedUsers(),
+            (connId, event, data) => sendToConnId(connId, activeClients, event, data),
+          );
+        }
+
         // Inject displayName into client.connect.client so chat.send can populate SenderName.
         // This mirrors how channel integrations (e.g. Feishu) pass sender identity via MsgContext.
         if (masAuth.displayName && client.connect?.client) {
           client.connect.client.displayName = masAuth.displayName;
+        }
+
+        // Grant gateway scopes to authenticated MAS users so they can pass core authorization.
+        // User-level filtering is still performed by mas4s interceptRequest (RBAC).
+        if (masAuth.userId && client.connect) {
+          const scopes = client.connect.scopes ?? [];
+          if (masAuth.masRole === "admin") {
+            if (!scopes.includes(ADMIN_SCOPE)) {
+              scopes.push(ADMIN_SCOPE);
+            }
+          } else {
+            if (!scopes.includes(READ_SCOPE)) {
+              scopes.push(READ_SCOPE);
+            }
+            if (!scopes.includes(WRITE_SCOPE)) {
+              scopes.push(WRITE_SCOPE);
+            }
+          }
+          client.connect.scopes = scopes;
         }
       } catch (err) {
         log.warn(`mas4s auth failed for conn=${client.connId}: ${String(err)}`);
@@ -174,6 +363,45 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
     };
 
     const filterBroadcast: Mas4sIntegration["filterBroadcast"] = (event, payload, clients) => {
+      // ── Intercept broadcast events to capture messages for history storage ──────
+      // This replaces the onSessionTranscriptUpdate path for tool calls and assistant
+      // final messages, which never pass through the transcript event bus.
+      try {
+        const p = payload as Record<string, unknown>;
+        const evtSessionKey = typeof p["sessionKey"] === "string" ? p["sessionKey"] : "";
+
+        if (evtSessionKey) {
+          // 1. Tool call events (agent stream:tool / session.tool)
+          if (event === "agent" || event === "session.tool") {
+            if (p["stream"] === "tool") {
+              const data = p["data"] as Record<string, unknown> | undefined;
+              const phase = typeof data?.["phase"] === "string" ? data["phase"] : "";
+              const toolCallId = typeof data?.["toolCallId"] === "string" ? data["toolCallId"] : "";
+              const name = typeof data?.["name"] === "string" ? data["name"] : "tool";
+              if (toolCallId && (phase === "start" || phase === "result")) {
+                plugin.transcriptStore.recordToolEvent({
+                  sessionKey: evtSessionKey,
+                  toolCallId,
+                  name,
+                  phase,
+                  args: phase === "start" ? data?.["args"] : undefined,
+                  result:
+                    phase === "result" ? (data?.["result"] ?? data?.["partialResult"]) : undefined,
+                  timestamp: typeof p["ts"] === "number" ? p["ts"] : Date.now(),
+                });
+              }
+            }
+          }
+
+          // 2. Assistant final message: handled by the transcript event path (handleUpdate).
+          // recordAssistantFinal is intentionally not called here to avoid double-writing,
+          // since handleUpdate already captures the full assistant message (including
+          // thinking + toolCall blocks) from the JSONL transcript event.
+        }
+      } catch (err) {
+        log.warn(`mas4s filterBroadcast capture failed for event=${event}: ${String(err)}`);
+      }
+      // ── Original filterBroadcast logic ───────────────────────────────────────
       try {
         // Build connectedUsers map: connId → MasAuthContext
         const connectedUsers = new Map<
@@ -277,11 +505,15 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
                     | Record<string, unknown>
                     | undefined)
                 : undefined;
+
+            const sessionRow = loadGatewaySessionRow(sessionKey);
+            const sessionLabel = sessionRow?.displayName ?? sessionRow?.label ?? sessionKey;
+
             plugin.bridge.pushSessionJoined(
               targetUserId,
               {
                 sessionKey,
-                label: String((opts.params["label"] as string | undefined) ?? sessionKey),
+                label: sessionLabel,
                 invitedBy: callerAuth.userId ?? "",
                 joinedAt: member ? Number(member["joinedAt"] ?? Date.now()) : Date.now(),
               },
@@ -326,6 +558,261 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
             );
           } catch (err) {
             log.warn(`mas4s pushSessionRemoved failed: ${String(err)}`);
+          }
+        }
+      };
+    }
+
+    // Inject gatewayDispatch so plugin handlers can call core gateway methods (e.g. chat.history).
+    // The dispatch captures the adapted handler's context per-request via closure.
+    // We wrap archive/summary handlers below to provide the context.
+    let currentRequestContext:
+      | import("./server-methods/types.js").GatewayRequestContext
+      | undefined;
+    let currentRequestClient: GatewayWsClient | null = null;
+
+    plugin.gatewayDispatch = async (method, params, _client) => {
+      const { handleGatewayRequest: dispatch } = await import("./server-methods.js");
+      const context = currentRequestContext;
+      if (!context) {
+        throw new Error("Gateway context not available for internal dispatch");
+      }
+      return new Promise<unknown>((resolve, reject) => {
+        void dispatch({
+          req: { type: "req" as const, method, params, id: `mas4s-internal-${Date.now()}` },
+          client: currentRequestClient,
+          isWebchatConnect: () => false,
+          respond: (ok, payload, error) => {
+            if (ok) {
+              resolve(payload);
+            } else {
+              reject(
+                new Error(
+                  typeof error === "object" && error
+                    ? ((error as { message?: string }).message ?? JSON.stringify(error))
+                    : String(error),
+                ),
+              );
+            }
+          },
+          context,
+          // Pass extraHandlers so internal dispatches can reach mas4s-registered
+          // methods like session.history.range (not in coreGatewayHandlers).
+          extraHandlers,
+        });
+      });
+    };
+
+    // Wrap session.archive to push session.archived event to all members on success.
+    const origArchive = extraHandlers["session.archive"];
+    if (origArchive) {
+      extraHandlers["session.archive"] = async (opts) => {
+        const sessionKey =
+          typeof opts.params["sessionKey"] === "string" ? opts.params["sessionKey"] : "";
+        let archiveOk = false;
+        let archivePayload: Record<string, unknown> | undefined;
+
+        // Set request context so gatewayDispatch can call chat.history
+        currentRequestContext = opts.context;
+        currentRequestClient = opts.client as GatewayWsClient | null;
+        try {
+          await origArchive({
+            ...opts,
+            respond: (ok, payload, error, meta) => {
+              archiveOk = ok;
+              if (ok && payload && typeof payload === "object") {
+                archivePayload = payload as Record<string, unknown>;
+              }
+              opts.respond(ok, payload, error, meta);
+            },
+          });
+        } finally {
+          currentRequestContext = undefined;
+          currentRequestClient = null;
+        }
+
+        if (archiveOk && sessionKey && archivePayload) {
+          try {
+            const connectedUsers = buildConnectedUsers();
+            const callerAuth = opts.client
+              ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
+              : contextMod.NULL_MAS_AUTH;
+            plugin.bridge.pushSessionArchived(
+              sessionKey,
+              {
+                sessionKey,
+                archivedAt: Number(archivePayload["archivedAt"] ?? Date.now()),
+                archivedBy: callerAuth.userId ?? "",
+              },
+              connectedUsers,
+              (connId, event, data) => sendToConnId(connId, activeClients, event, data),
+            );
+          } catch (err) {
+            log.warn(`mas4s pushSessionArchived failed: ${String(err)}`);
+          }
+        }
+      };
+    }
+
+    // Wrap session.unarchive to push session.unarchived event to all members on success.
+    const origUnarchive = extraHandlers["session.unarchive"];
+    if (origUnarchive) {
+      extraHandlers["session.unarchive"] = async (opts) => {
+        const sessionKey =
+          typeof opts.params["sessionKey"] === "string" ? opts.params["sessionKey"] : "";
+        let unarchiveOk = false;
+
+        await origUnarchive({
+          ...opts,
+          respond: (ok, payload, error, meta) => {
+            unarchiveOk = ok;
+            opts.respond(ok, payload, error, meta);
+          },
+        });
+
+        if (unarchiveOk && sessionKey) {
+          try {
+            const connectedUsers = buildConnectedUsers();
+            const callerAuth = opts.client
+              ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
+              : contextMod.NULL_MAS_AUTH;
+            plugin.bridge.pushSessionUnarchived(
+              sessionKey,
+              { sessionKey, unarchivedBy: callerAuth.userId ?? "" },
+              connectedUsers,
+              (connId, event, data) => sendToConnId(connId, activeClients, event, data),
+            );
+          } catch (err) {
+            log.warn(`mas4s pushSessionUnarchived failed: ${String(err)}`);
+          }
+        }
+      };
+    }
+
+    // Wrap session.summary.generate to push session.summary.updated when persisted (archived session).
+    const origSummaryGenerate = extraHandlers["session.summary.generate"];
+    if (origSummaryGenerate) {
+      extraHandlers["session.summary.generate"] = async (opts) => {
+        const sessionKey =
+          typeof opts.params["sessionKey"] === "string" ? opts.params["sessionKey"] : "";
+        let generateOk = false;
+        let generatePayload: Record<string, unknown> | undefined;
+
+        // Set request context so gatewayDispatch can call chat.history
+        currentRequestContext = opts.context;
+        currentRequestClient = opts.client as GatewayWsClient | null;
+        try {
+          await origSummaryGenerate({
+            ...opts,
+            respond: (ok, payload, error, meta) => {
+              generateOk = ok;
+              if (ok && payload && typeof payload === "object") {
+                generatePayload = payload as Record<string, unknown>;
+              }
+              opts.respond(ok, payload, error, meta);
+            },
+          });
+        } finally {
+          currentRequestContext = undefined;
+          currentRequestClient = null;
+        }
+
+        if (generateOk && sessionKey && generatePayload?.["persisted"] === true) {
+          try {
+            const connectedUsers = buildConnectedUsers();
+            plugin.bridge.pushSummaryUpdated(
+              sessionKey,
+              {
+                sessionKey,
+                generatedAt: Number(generatePayload["generatedAt"] ?? Date.now()),
+              },
+              connectedUsers,
+              (connId: string, event: string, data: unknown) =>
+                sendToConnId(connId, activeClients, event, data),
+            );
+          } catch (err) {
+            log.warn(`mas4s pushSummaryUpdated failed: ${String(err)}`);
+          }
+        }
+      };
+    }
+
+    // Wrap sessions.delete to clean up summary records when a session is deleted.
+    const coreSessionsDelete = sessionsHandlers["sessions.delete"];
+    if (coreSessionsDelete) {
+      extraHandlers["sessions.delete"] = async (opts) => {
+        const sessionKey = typeof opts.params["key"] === "string" ? opts.params["key"] : "";
+        let deleteOk = false;
+
+        await coreSessionsDelete({
+          ...opts,
+          respond: (ok, payload, error, meta) => {
+            deleteOk = ok;
+            opts.respond(ok, payload, error, meta);
+          },
+        });
+
+        if (deleteOk && sessionKey) {
+          try {
+            plugin.bridge.onSessionDeleted(sessionKey);
+          } catch (err) {
+            log.warn(`mas4s onSessionDeleted failed for session=${sessionKey}: ${String(err)}`);
+          }
+        }
+      };
+    }
+
+    // Wrap chat.send to broadcast user input to other session members.
+    // The core handler does not broadcast 'user' messages via the 'chat' event,
+    // only via 'session.message' (transcript updates), which doesn't include
+    // sender display names. We add a custom broadcast here to sustain real-time
+    // collaboration for aiemas users.
+    const coreChatSend = chatHandlers["chat.send"];
+    if (coreChatSend) {
+      extraHandlers["chat.send"] = async (opts) => {
+        const masAuth = opts.client
+          ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
+          : contextMod.NULL_MAS_AUTH;
+        const sessionKey =
+          typeof opts.params["sessionKey"] === "string" ? opts.params["sessionKey"] : "";
+        const message = typeof opts.params["message"] === "string" ? opts.params["message"] : "";
+        const clientRunId =
+          typeof opts.params["clientRunId"] === "string" ? opts.params["clientRunId"] : undefined;
+
+        // Record sender context for message capture before core handler runs
+        if (sessionKey) {
+          plugin.transcriptStore.recordSenderContext(sessionKey, {
+            userId: masAuth.userId ?? null,
+            tenantId: masAuth.tenantId ?? null,
+          });
+        }
+
+        // Run core handler first (manages idempotency, persistence, agent run)
+        await coreChatSend(opts);
+
+        // Broadcast the user's message to other members in the session.
+        // We include runId and senderUserId so the receiving frontend can deduplicate
+        // and filterBroadcastTargets can exclude the sender.
+        if (masAuth.userId && sessionKey && message) {
+          try {
+            opts.context.broadcast(
+              "chat",
+              {
+                sessionKey,
+                runId: clientRunId,
+                state: "user",
+                senderUserId: masAuth.userId,
+                message: {
+                  role: "user",
+                  content: message,
+                  timestamp: Date.now(),
+                  senderLabel: masAuth.displayName || "User",
+                },
+              },
+              { dropIfSlow: true },
+            );
+          } catch (err) {
+            log.warn(`mas4s user message broadcast failed: ${String(err)}`);
           }
         }
       };
@@ -469,7 +956,7 @@ export async function initMas4sIntegration(log: SubsystemLogger): Promise<Mas4sI
       filterSessionsList,
       /** Internal: allows server.impl.ts to keep the clients reference up to date */
       _setActiveClients: setActiveClients,
-    } as Mas4sIntegration & { _setActiveClients: (c: Set<GatewayWsClient>) => void };
+    };
   } catch (err) {
     log.info(`mas4s plugin not available, skipping: ${String(err)}`);
     return NOOP_INTEGRATION;

@@ -1,6 +1,6 @@
 import type { GatewayBrowserClient } from "../lib/gateway.js";
 import type { GatewaySessionRow } from "../lib/types.js";
-import type { MasSession } from "../types/session-types.js";
+import type { MasParticipant, MasSession } from "../types/session-types.js";
 
 /**
  * 生成会话分享链接（纯前端，不调用 gateway）。
@@ -92,4 +92,50 @@ export async function joinSessionFromInvite(
     notificationCount: 0,
     participants: [],
   } as MasSession;
+}
+
+interface RawMember {
+  userId: string;
+  displayName?: string;
+  role: string;
+}
+
+/**
+ * 获取会话成员列表。
+ */
+export async function listSessionMembers(
+  client: GatewayBrowserClient,
+  sessionKey: string,
+): Promise<MasParticipant[]> {
+  const result = await client.request<{ members: RawMember[] }>("session.members", {
+    sessionKey,
+  });
+  const rawMembers = result.members || [];
+  return rawMembers.map((m) => ({
+    id: m.userId,
+    name: m.displayName || m.userId,
+    isInitiator: m.role === "owner",
+  }));
+}
+
+/**
+ * 邀请用户加入会话。
+ */
+export async function inviteUser(
+  client: GatewayBrowserClient,
+  sessionKey: string,
+  targetUserId: string,
+): Promise<void> {
+  await client.request("session.invite", { sessionKey, targetUserId });
+}
+
+/**
+ * 从会话中移除成员。
+ */
+export async function removeMember(
+  client: GatewayBrowserClient,
+  sessionKey: string,
+  targetUserId: string,
+): Promise<void> {
+  await client.request("session.removeMember", { sessionKey, targetUserId });
 }

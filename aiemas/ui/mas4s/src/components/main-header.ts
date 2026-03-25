@@ -3,23 +3,9 @@ import { customElement, property, state } from "lit/decorators.js";
 import type { SessionRunStatus } from "../lib/types.js";
 import { AppStoreController } from "../store/app-store.js";
 import type { ApprovalRequest } from "../types/approval-types.js";
-import { resolveStatusType } from "../types/session-types.js";
+import type { MasSession } from "../types/session-types.js";
 import "./notif-badge.js";
-
-const STATUS_LABELS: Record<string, string> = {
-  running: "运行中",
-  done: "已完成",
-  failed: "失败",
-  killed: "已终止",
-  timeout: "超时",
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  danger: "#ef4444",
-  warning: "#f59e0b",
-  success: "#10b981",
-  info: "#3b82f6",
-};
+import "./confirm-dialog.js";
 
 /**
  * 主工作区顶部 Header（70px 高）。
@@ -33,7 +19,9 @@ export class MainHeader extends LitElement {
   @property({ type: Number }) approvalCount = 0;
   @property({ attribute: false }) pendingApprovals: ApprovalRequest[] = [];
   @property({ type: Boolean }) showInvite = false;
+  @property({ attribute: false }) session: MasSession | undefined = undefined;
   @state() private _notifOpen = false;
+  @state() private _confirmingAction: "none" | "archive" | "unarchive" = "none";
 
   static styles = css`
     :host {
@@ -45,7 +33,7 @@ export class MainHeader extends LitElement {
       border-bottom: 1px solid #e2e8f0;
       padding: 0 30px;
       flex-shrink: 0;
-      z-index: 5;
+      z-index: 100;
       box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
       box-sizing: border-box;
     }
@@ -69,23 +57,106 @@ export class MainHeader extends LitElement {
     }
 
     .invite-btn {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
+      padding: 5px 12px;
+      border-radius: 8px;
       border: 1px solid #e2e8f0;
       background: white;
       cursor: pointer;
       display: flex;
       align-items: center;
-      justify-content: center;
-      font-size: 14px;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 500;
       transition: all 0.2s;
-      color: #64748b;
+      color: #3b82f6;
     }
 
     .invite-btn:hover {
-      border-color: #93c5fd;
-      color: #3b82f6;
+      border-color: #3b82f6;
+      background: #eff6ff;
+    }
+
+    .summary-btn {
+      padding: 5px 12px;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+      background: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #7c3aed;
+      transition: all 0.2s;
+    }
+
+    .summary-btn:hover {
+      border-color: #7c3aed;
+      background: #f5f3ff;
+    }
+
+    .archive-btn {
+      padding: 5px 12px;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+      background: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #64748b;
+      transition: all 0.2s;
+      position: relative;
+    }
+
+    .archive-btn:hover {
+      background: #f1f5f9;
+      color: #1e293b;
+      border-color: #94a3b8;
+    }
+
+    .archive-btn.unarchive {
+      background: #fdf2f2;
+      color: #ef4444;
+      border-color: #fecaca;
+      position: relative;
+    }
+
+    .archive-btn.unarchive:hover {
+      background: #fef2f2;
+      border-color: #fca5a5;
+    }
+
+    /* CSS tooltip */
+    .archive-btn::after {
+      content: attr(data-tip);
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e293b;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 400;
+      white-space: pre-wrap;
+      line-height: 1.5;
+      text-align: center;
+      width: max-content;
+      max-width: 260px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+      z-index: 200;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .archive-btn:hover::after {
+      opacity: 1;
     }
 
     .right {
@@ -276,6 +347,54 @@ export class MainHeader extends LitElement {
     this.dispatchEvent(new CustomEvent("invite-click", { bubbles: true }));
   };
 
+  private _onSummaryClick = () => {
+    if (!this.session) {
+      return;
+    }
+    this.dispatchEvent(
+      new CustomEvent("summary-click", {
+        detail: { sessionKey: this.session.key },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  };
+
+  private _onArchive = () => {
+    if (!this.session) {
+      return;
+    }
+    this._confirmingAction = "archive";
+  };
+
+  private _onUnarchive = () => {
+    if (!this.session) {
+      return;
+    }
+    this._confirmingAction = "unarchive";
+  };
+
+  private _onConfirmAction = () => {
+    if (!this.session || this._confirmingAction === "none") {
+      return;
+    }
+
+    const action = this._confirmingAction;
+    this._confirmingAction = "none";
+
+    this.dispatchEvent(
+      new CustomEvent(action === "archive" ? "session-archive" : "session-unarchive", {
+        detail: { sessionKey: this.session.key },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  };
+
+  private _onCancelConfirm = () => {
+    this._confirmingAction = "none";
+  };
+
   private _onNotifOpen = () => {
     this._notifOpen = !this._notifOpen;
   };
@@ -342,10 +461,31 @@ export class MainHeader extends LitElement {
     `;
   }
 
+  private _renderConfirmDialog() {
+    if (this._confirmingAction === "none") {
+      return nothing;
+    }
+
+    const isArchive = this._confirmingAction === "archive";
+    return html`
+      <confirm-dialog
+        .title=${isArchive ? "归档会话" : "取消归档"}
+        .message=${
+          isArchive
+            ? "归档后会话将冻结，成员无法继续发送消息，同时生成摘要。如需恢复可取消归档"
+            : "取消归档后将恢复会话，成员可继续发送消息"
+        }
+        .confirmText=${isArchive ? "归档" : "恢复"}
+        .confirmVariant=${isArchive ? "primary" : "primary"}
+        @confirm=${this._onConfirmAction}
+        @cancel=${this._onCancelConfirm}
+      ></confirm-dialog>
+    `;
+  }
+
   render() {
-    const statusType = resolveStatusType(this.status);
-    const statusColor = STATUS_COLORS[statusType] ?? STATUS_COLORS["info"];
-    const statusLabel = this.status ? (STATUS_LABELS[this.status] ?? this.status) : "";
+    const isInitiator = this.session?.masType === "initiated";
+    const isArchived = this.session?.archivedAt != null;
 
     return html`
       <div class="left">
@@ -354,22 +494,41 @@ export class MainHeader extends LitElement {
             ? html`
               <span>${this.title}</span>
               ${
-                this.status
+                this.showInvite
                   ? html`
-                    <span
-                      class="status-tag"
-                      style="background:${statusColor}20;color:${statusColor}"
-                    >
-                      ${statusLabel}
-                    </span>
+                    <button class="invite-btn" @click=${this._onInviteClick} title="邀请协作者">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="19" y1="8" x2="19" y2="14"></line><line x1="22" y1="11" x2="16" y2="11"></line></svg>
+                      邀请
+                    </button>
                   `
                   : nothing
               }
               ${
-                this.showInvite
+                isInitiator
+                  ? isArchived
+                    ? html`
+                      <button class="archive-btn unarchive" @click=${this._onUnarchive} title="取消归档"
+                        data-tip="取消归档后将恢复会话，&#10;成员可继续发送消息">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10h18"></path><path d="M8 14h8"></path><path d="M7 6v1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1z"></path><path d="M21 5h-2a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1z"></path><path d="M12 2v3"></path></svg>
+                        取消归档
+                      </button>
+                    `
+                    : html`
+                      <button class="archive-btn" @click=${this._onArchive} title="归档会话"
+                        data-tip="归档后会话将冻结，同时生成摘要，&#10;成员无法继续发送消息。如需恢复可取消归档">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>
+                        归档
+                      </button>
+                    `
+                  : nothing
+              }
+              ${
+                // 摘要按钮：未归档时所有成员可见；已归档时仅 owner 可见（需求 4.10）
+                !isArchived || isInitiator
                   ? html`
-                    <button class="invite-btn" @click=${this._onInviteClick} title="邀请协作者">
-                      🔗
+                    <button class="summary-btn" @click=${this._onSummaryClick} title="查看/生成摘要">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                      摘要
                     </button>
                   `
                   : nothing
@@ -389,6 +548,8 @@ export class MainHeader extends LitElement {
           <span class="user-name">${this._ctrl.store.currentUser?.displayName || "User"}</span>
         </div>
       </div>
+
+      ${this._renderConfirmDialog()}
     `;
   }
 }

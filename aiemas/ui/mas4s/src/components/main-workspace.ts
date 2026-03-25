@@ -16,6 +16,9 @@ export class MainWorkspace extends LitElement {
   @property({ attribute: false }) session: MasSession | undefined = undefined;
   @property({ attribute: false }) messages: ChatMessage[] = [];
   @property({ attribute: false }) pendingApprovals: ApprovalRequest[] = [];
+  @property({ type: Boolean }) hasSummary = false;
+  @property({ type: Boolean }) truncated = false;
+  @property({ type: Boolean }) hasMoreHistory = false;
 
   static styles = css`
     :host {
@@ -50,6 +53,18 @@ export class MainWorkspace extends LitElement {
     );
   };
 
+  private _onSummaryClick = (e: CustomEvent) => {
+    // 将 header 的 summary-click 转发给 chat-view（让其打开 summary-dialog）
+    const chatView = this.shadowRoot?.querySelector("chat-view") as
+      | (HTMLElement & { _onSummaryClick?: (e: CustomEvent) => void })
+      | null;
+    if (chatView) {
+      chatView.dispatchEvent(
+        new CustomEvent("summary-click", { detail: e.detail, bubbles: true, composed: false }),
+      );
+    }
+  };
+
   render() {
     const hasSession = !!this.session;
     const isInitiator = this.session?.masType === "initiated";
@@ -61,8 +76,12 @@ export class MainWorkspace extends LitElement {
         .approvalCount=${this.pendingApprovals.length}
         .pendingApprovals=${this.pendingApprovals}
         .showInvite=${hasSession}
+        .session=${this.session}
         @invite-click=${this._onInviteClick}
+        @summary-click=${this._onSummaryClick}
         @resolve-approval=${this._onResolve}
+        @session-archive=${this._onSessionArchive}
+        @session-unarchive=${this._onSessionUnarchive}
       ></main-header>
 
       <div class="workspace-content">
@@ -74,7 +93,11 @@ export class MainWorkspace extends LitElement {
                 .session=${this.session}
                 .isInitiator=${isInitiator}
                 .pendingApprovals=${this.pendingApprovals}
+                .hasSummary=${this.hasSummary}
+                .truncated=${this.truncated}
+                .hasMoreHistory=${this.hasMoreHistory}
                 @resolve=${this._onResolve}
+                @load-more-history=${this._onLoadMoreHistory}
               ></chat-view>
             `
             : html`
@@ -88,6 +111,23 @@ export class MainWorkspace extends LitElement {
   private _onResolve = (e: CustomEvent) => {
     this.dispatchEvent(
       new CustomEvent("resolve-approval", { detail: e.detail, bubbles: true, composed: true }),
+    );
+  };
+
+  private _onSessionArchive = (e: CustomEvent) => {
+    e.stopPropagation();
+    this.dispatchEvent(new CustomEvent("session-archive", { detail: e.detail, bubbles: true }));
+  };
+
+  private _onSessionUnarchive = (e: CustomEvent) => {
+    e.stopPropagation();
+    this.dispatchEvent(new CustomEvent("session-unarchive", { detail: e.detail, bubbles: true }));
+  };
+
+  private _onLoadMoreHistory = (e: CustomEvent) => {
+    e.stopPropagation();
+    this.dispatchEvent(
+      new CustomEvent("load-more-history", { detail: e.detail, bubbles: true, composed: true }),
     );
   };
 }

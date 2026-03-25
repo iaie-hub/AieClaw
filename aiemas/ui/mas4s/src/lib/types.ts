@@ -35,4 +35,5 @@ export type GatewaySessionRow = {
   model?: string;
   modelProvider?: string;
   contextTokens?: number;
+  masRole?: "owner" | "participant";
 };

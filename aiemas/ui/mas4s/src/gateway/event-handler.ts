@@ -66,6 +66,11 @@ export function registerEventHandlers(): void {
       case "agent":
         handleAgentEvent(store, evt.payload);
         break;
+      case "session.tool":
+        // 协作者通过 session.tool 接收工具调用事件（run 发起者通过 agent 事件接收）
+        // 复用 handleAgentEvent 的工具流处理逻辑
+        handleAgentEvent(store, evt.payload);
+        break;
       case "exec.approval.requested":
         store.addApproval(evt.payload as ApprovalRequest);
         break;
@@ -113,6 +118,76 @@ export function registerEventHandlers(): void {
           isOnline: boolean;
         };
         store.updateUserPresence(userId, isOnline);
+        break;
+      }
+      case "session.archived": {
+        const { sessionKey, archivedAt } = evt.payload as {
+          sessionKey: string;
+          archivedAt: number;
+          archivedBy: string;
+        };
+        store.updateSessionArchived(sessionKey, archivedAt);
+        console.info("会话已归档，无法继续发送消息");
+        break;
+      }
+      case "session.unarchived": {
+        const { sessionKey } = evt.payload as {
+          sessionKey: string;
+          unarchivedBy: string;
+        };
+        store.updateSessionArchived(sessionKey, null);
+        break;
+      }
+      case "sessions.changed": {
+        // When a session is patched or reset, re-sync label from aiemas DB
+        // in case the gateway's sessions.json lost the displayName.
+        const { sessionKey: changedKey, reason: changedReason } = evt.payload as {
+          sessionKey?: string;
+          reason?: string;
+        };
+        if (
+          changedKey &&
+          (changedReason === "patch" || changedReason === "new" || changedReason === "reset")
+        ) {
+          void (async () => {
+            try {
+              const { getClient } = await import("./client.js");
+              const { fetchSessionLabel } = await import("./session-manager.js");
+              const entry = await fetchSessionLabel(getClient(), changedKey);
+              if (entry) {
+                store.patchSessionLabelFromDb(changedKey, {
+                  label: entry.label,
+                  displayName: entry.displayName,
+                });
+              }
+            } catch {
+              // Non-critical: label sync failure should not surface as an error
+            }
+          })();
+        }
+        break;
+      }
+      case "session.summary.updated": {
+        const { sessionKey: summarySessionKey } = evt.payload as {
+          sessionKey: string;
+          generatedAt: number;
+        };
+        // 需求4.12：拉取最新持久化摘要写入 SummaryStore，触发 SummaryDialog 刷新
+        void (async () => {
+          try {
+            const { getClient } = await import("./client.js");
+            const { getSummary } = await import("./session-archive.js");
+            const { SummaryStore } = await import("../store/summary-store.js");
+            const result = await getSummary(getClient(), summarySessionKey);
+            if (result) {
+              SummaryStore.instance.set(summarySessionKey, result);
+            }
+          } catch {
+            // 拉取失败时静默忽略，不影响其他功能
+          } finally {
+            store.notify();
+          }
+        })();
         break;
       }
     }
@@ -234,18 +309,32 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
     return;
   }
 
-  if (stream === "thinking" && data?.delta && runId) {
-    // 累积 thinking delta，下次 assistant 流更新时一起带入 content
-    const prev = _thinkingByRun.get(runId) ?? "";
-    _thinkingByRun.set(runId, prev + data.delta);
+  if (stream === "thinking" && runId) {
+    // 使用 data.text (全量累计文本) 更新思考缓存，并立即触发界面更新
+    const thinkingText = data?.text ?? "";
+    _thinkingByRun.set(runId, thinkingText);
+
+    if (sessionKey) {
+      const streamMsg: ChatMessage = {
+        role: "assistant",
+        content: [{ type: "thinking", thinking: thinkingText }],
+        timestamp: Date.now(),
+        id: runId,
+        senderLabel: null,
+      };
+      updateChatStream(store, sessionKey, streamMsg, false);
+    }
     return;
   }
 }
 
 /**
  * 流式消息更新策略：
- * - 若最后一条 assistant 消息 id 相同则更新内容（无论 delta 还是 final）
+ * - 若最后一条消息 id 相同且 role 相同则更新内容（无论 delta 还是 final）
  * - 否则追加新消息
+ *
+ * 注意：必须同时校验 role，避免用户消息与 agent 消息共用同一 runId 时
+ * 发生 role 错误（content 被替换但 role 保留为 "user"）。
  */
 export function updateChatStream(
   store: AppStore,
@@ -256,7 +345,7 @@ export function updateChatStream(
   const msgs = store.messagesBySession.get(sessionKey) ?? [];
   const last = msgs[msgs.length - 1];
 
-  if (last?.role === "assistant" && last.id && last.id === msg.id) {
+  if (last?.id && last.id === msg.id && last.role === msg.role) {
     store.updateLastMessage(sessionKey, { ...last, content: msg.content });
   } else {
     store.appendMessage(sessionKey, msg);

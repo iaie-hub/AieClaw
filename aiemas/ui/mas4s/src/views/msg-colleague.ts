@@ -1,4 +1,4 @@
-import { LitElement, html, css } from "lit";
+import { LitElement, html, css, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import type { ChatMessage } from "../types/chat-types.js";
 
@@ -85,7 +85,7 @@ export class MsgColleague extends LitElement {
         <div class="message-avatar">${avatarChar}</div>
         <div class="message-content">
           <div class="message-name">${name}</div>
-          <div class="message-bubble">${text}</div>
+          ${text.trim() ? html`<div class="message-bubble">${text}</div>` : nothing}
         </div>
       </div>
     `;

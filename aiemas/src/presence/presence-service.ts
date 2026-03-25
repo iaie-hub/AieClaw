@@ -6,15 +6,26 @@ const OFFLINE_THRESHOLD_MS = 15 * 60 * 1000;
 /**
  * Update a user's presence: set isOnline=1 and lastSeenAt=now.
  * Creates the record if it doesn't exist (UPSERT).
+ * If isActualLogin is true, also updates lastLoginAt.
  */
-export function updatePresence(db: DatabaseSync, userId: string): void {
+export function updatePresence(db: DatabaseSync, userId: string, isActualLogin = false): void {
   const now = Date.now();
-  db.prepare(
-    `INSERT INTO user_presence (userId, lastSeenAt, isOnline)
-     VALUES (?, ?, 1)
-     ON CONFLICT(userId) DO UPDATE SET lastSeenAt = excluded.lastSeenAt, isOnline = 1`,
-  ).run(userId, now);
-  console.log(`[mas4s:presence] updatePresence userId=${userId} lastSeenAt=${now}`);
+  if (isActualLogin) {
+    db.prepare(
+      `INSERT INTO user_presence (userId, lastSeenAt, isOnline, lastLoginAt)
+       VALUES (?, ?, 1, ?)
+       ON CONFLICT(userId) DO UPDATE SET lastSeenAt = excluded.lastSeenAt, isOnline = 1, lastLoginAt = excluded.lastLoginAt`,
+    ).run(userId, now, now);
+  } else {
+    db.prepare(
+      `INSERT INTO user_presence (userId, lastSeenAt, isOnline)
+       VALUES (?, ?, 1)
+       ON CONFLICT(userId) DO UPDATE SET lastSeenAt = excluded.lastSeenAt, isOnline = 1`,
+    ).run(userId, now);
+  }
+  console.log(
+    `[mas4s:presence] updatePresence userId=${userId} lastSeenAt=${now} isActualLogin=${isActualLogin}`,
+  );
 }
 
 /**
@@ -23,11 +34,11 @@ export function updatePresence(db: DatabaseSync, userId: string): void {
 export function markOffline(db: DatabaseSync, userId: string): void {
   const now = Date.now();
   db.prepare(
-    `INSERT INTO user_presence (userId, lastSeenAt, isOnline)
-     VALUES (?, ?, 0)
-     ON CONFLICT(userId) DO UPDATE SET lastSeenAt = excluded.lastSeenAt, isOnline = 0`,
-  ).run(userId, now);
-  console.log(`[mas4s:presence] markOffline userId=${userId} lastSeenAt=${now}`);
+    `INSERT INTO user_presence (userId, lastSeenAt, isOnline, lastOfflineAt)
+     VALUES (?, ?, 0, ?)
+     ON CONFLICT(userId) DO UPDATE SET lastSeenAt = excluded.lastSeenAt, isOnline = 0, lastOfflineAt = excluded.lastOfflineAt`,
+  ).run(userId, now, now);
+  // console.log(`[mas4s:presence] markOffline userId=${userId} lastSeenAt=${now}`);
 }
 
 /**

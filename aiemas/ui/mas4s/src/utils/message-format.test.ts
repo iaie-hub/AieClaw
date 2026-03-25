@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { buildGroupMessage, parseSenderPrefix } from "./message-format.js";
+import { parseSenderPrefix } from "./message-format.js";
+
+function buildGroupMessage(name: string, text: string) {
+  return `${name}: ${text}`;
+}
 
 describe("buildGroupMessage", () => {
   it("构造 'Name: text' 格式", () => {

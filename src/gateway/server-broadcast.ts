@@ -63,7 +63,14 @@ function hasEventScope(client: GatewayWsClient, event: string): boolean {
   return required.some((scope) => scopes.includes(scope));
 }
 
-export function createGatewayBroadcaster(params: { clients: Set<GatewayWsClient> }) {
+export function createGatewayBroadcaster(params: {
+  clients: Set<GatewayWsClient>;
+  filterBroadcast?: (
+    event: string,
+    payload: unknown,
+    clients: Set<GatewayWsClient>,
+  ) => ReadonlySet<string> | null;
+}) {
   let seq = 0;
 
   const broadcastInternal = (
@@ -75,7 +82,20 @@ export function createGatewayBroadcaster(params: { clients: Set<GatewayWsClient>
     if (params.clients.size === 0) {
       return;
     }
-    const isTargeted = Boolean(targetConnIds);
+
+    // Apply mas4s filterBroadcast if available and no explicit target is set
+    let effectiveTargetConnIds = targetConnIds;
+    if (!targetConnIds && params.filterBroadcast) {
+      const filtered = params.filterBroadcast(event, payload, params.clients);
+      if (filtered === null) {
+        // null means broadcast to all (compat mode)
+        effectiveTargetConnIds = undefined;
+      } else {
+        effectiveTargetConnIds = filtered;
+      }
+    }
+
+    const isTargeted = Boolean(effectiveTargetConnIds);
     const eventSeq = isTargeted ? undefined : ++seq;
     const frame = JSON.stringify({
       type: "event",
@@ -89,7 +109,7 @@ export function createGatewayBroadcaster(params: { clients: Set<GatewayWsClient>
         event,
         seq: eventSeq ?? "targeted",
         clients: params.clients.size,
-        targets: targetConnIds ? targetConnIds.size : undefined,
+        targets: effectiveTargetConnIds ? effectiveTargetConnIds.size : undefined,
         dropIfSlow: opts?.dropIfSlow,
         presenceVersion: opts?.stateVersion?.presence,
         healthVersion: opts?.stateVersion?.health,
@@ -100,7 +120,7 @@ export function createGatewayBroadcaster(params: { clients: Set<GatewayWsClient>
       logWs("out", "event", logMeta);
     }
     for (const c of params.clients) {
-      if (targetConnIds && !targetConnIds.has(c.connId)) {
+      if (effectiveTargetConnIds && !effectiveTargetConnIds.has(c.connId)) {
         continue;
       }
       if (!hasEventScope(c, event)) {

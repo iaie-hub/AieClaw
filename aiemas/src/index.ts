@@ -9,15 +9,15 @@ import { updatePresence, markOffline, startOfflineScanner } from "./presence/pre
 import { checkPermission as _checkPermission } from "./rbac/permission-checker.js";
 import type { SessionPermissionContext, PermissionResult } from "./rbac/permission-checker.js";
 import { initDatabase } from "./store/database.js";
+import { UserCache } from "./users/user-cache.js";
 import {
   registerUser,
   listUsers,
   updateUser,
   approveUser,
   rejectUser,
-  findUserByUsername,
+  findUserById,
   verifyPassword,
-  getSystemStatus,
 } from "./users/user-service.js";
 import type { RegisterParams, UpdateUserParams } from "./users/user-service.js";
 
@@ -30,6 +30,11 @@ export interface TenantServiceConfig {
   dbPath?: string;
   bcryptRounds?: number;
   tokenExpirySeconds?: number;
+  llm?: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+  };
 }
 
 export interface TenantService {
@@ -43,11 +48,7 @@ export interface TenantService {
     | { ok: true; token: string; user: PublicUser }
     | { ok: false; error: string; retryAfterMs?: number };
 
-  verify(
-    token: string,
-  ):
-    | { ok: true; userId: string; tenantId: string; role: GlobalRole }
-    | { ok: false; error: string };
+  verify(token: string): { ok: true; user: PublicUser } | { ok: false; error: string };
 
   refresh(token: string): { ok: true; token: string } | { ok: false; error: string };
 
@@ -73,9 +74,13 @@ export interface TenantService {
 
   // Presence
   logout(userId: string): void;
+  updatePresence(userId: string, isActualLogin?: boolean): void;
 
   // System status
   getSystemStatus(): { initialized: boolean };
+
+  // Cache lookup (no DB hit)
+  resolveDisplayName(userId: string): string | undefined;
 
   // Lifecycle
   init(): Promise<void>;
@@ -90,6 +95,9 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
   // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
   let db: DatabaseSync | undefined;
   let _stopOfflineScanner: (() => void) | undefined;
+
+  // In-memory user cache — populated on init(), kept in sync on mutations.
+  const cache = new UserCache();
 
   // In-memory sliding window rate limiter: ip -> timestamps of failures
   const failureMap = new Map<string, number[]>();
@@ -112,6 +120,8 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
       getJwtSecret();
       // Initialize database
       db = initDatabase(dbPath);
+      // Load all users into the in-memory cache
+      cache.load(db);
       // Start offline presence scanner (runs every 60s)
       _stopOfflineScanner = startOfflineScanner(db);
       console.log("[mas4s] TenantService initialized successfully.");
@@ -130,11 +140,10 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
 
       const database = getDb();
 
-      // Find user by username (and optional tenantId)
-      const user = findUserByUsername(database, username, tenantId);
+      // Find user by username from cache (no DB hit)
+      const user = cache.findByUsername(username, tenantId);
 
       if (!user) {
-        // Record failure for rate limiting
         if (clientIp) {
           recordLoginFailure(failureMap, clientIp);
         }
@@ -163,8 +172,8 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
       // Sign token
       const token = signToken({ userId: user.userId, tenantId: user.tenantId, role: user.role });
 
-      // Mark user as online on successful login
-      updatePresence(database, user.userId);
+      // Mark user as online on successful login (actual login = true)
+      updatePresence(database, user.userId, true);
 
       const publicUser: PublicUser = {
         userId: user.userId,
@@ -186,7 +195,25 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
     verify(token) {
       try {
         const claims = verifyToken(token);
-        return { ok: true, userId: claims.userId, tenantId: claims.tenantId, role: claims.role };
+        // Read from cache — no DB hit
+        const user = cache.findById(claims.userId);
+        if (!user || user.status !== "approved") {
+          return { ok: false, error: "ACCOUNT_INVALID" };
+        }
+
+        // Update presence on successful verify (heartbeat/reconnect)
+        updatePresence(getDb(), claims.userId, false);
+
+        const publicUser: PublicUser = {
+          userId: user.userId,
+          username: user.username,
+          displayName: user.displayName,
+          role: user.role,
+          tenantId: user.tenantId,
+          status: user.status,
+          createdAt: user.createdAt,
+        };
+        return { ok: true, user: publicUser };
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         return { ok: false, error: message };
@@ -198,7 +225,7 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
         const newToken = refreshToken(token);
         // Update presence on successful refresh
         const claims = verifyToken(newToken);
-        updatePresence(getDb(), claims.userId);
+        updatePresence(getDb(), claims.userId, false);
         return { ok: true, token: newToken };
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -207,7 +234,14 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
     },
 
     registerUser(params, callerRole) {
-      return registerUser(getDb(), params, callerRole);
+      // Write to DB, then sync cache
+      const publicUser = registerUser(getDb(), params, callerRole);
+      // Re-read the full User row (with passwordHash) to populate cache correctly
+      const full = findUserById(getDb(), publicUser.userId);
+      if (full) {
+        cache.set(full);
+      }
+      return publicUser;
     },
 
     listUsers(tenantId, callerRole) {
@@ -215,15 +249,23 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
     },
 
     updateUser(params, callerRole) {
-      return updateUser(getDb(), params, callerRole);
+      // Write to DB, then patch cache
+      const publicUser = updateUser(getDb(), params, callerRole);
+      cache.patch(params.userId, {
+        ...(params.displayName !== undefined ? { displayName: params.displayName } : {}),
+        ...(params.role !== undefined ? { role: params.role } : {}),
+      });
+      return publicUser;
     },
 
     approveUser(targetUserId, callerRole) {
       approveUser(getDb(), targetUserId, callerRole);
+      cache.patch(targetUserId, { status: "approved" });
     },
 
     rejectUser(targetUserId, callerRole) {
       rejectUser(getDb(), targetUserId, callerRole);
+      cache.patch(targetUserId, { status: "rejected" });
     },
 
     checkPermission(userId, role, method, sessionContext) {
@@ -255,11 +297,20 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
     },
 
     getSystemStatus() {
-      return getSystemStatus(getDb());
+      // Use cache size to avoid a DB query on every status check
+      return { initialized: cache.size() > 0 };
+    },
+
+    resolveDisplayName(userId: string) {
+      return cache.findById(userId)?.displayName;
     },
 
     logout(userId: string) {
       markOffline(getDb(), userId);
+    },
+
+    updatePresence(userId: string, isActualLogin?: boolean) {
+      updatePresence(getDb(), userId, isActualLogin);
     },
   };
 }

@@ -12,11 +12,17 @@ export interface AppShellHandlers {
   onSessionCreate: (e: CustomEvent<{ label: string }>) => void;
   onSessionRename: (e: CustomEvent<{ sessionKey: string; label: string }>) => void;
   onSessionDelete: (e: CustomEvent<{ sessionKey: string }>) => void;
-  onSessionRefresh: () => void;
+  onSessionRefresh: (e: Event) => void;
+  onSessionArchive: (e: CustomEvent<{ sessionKey: string }>) => void;
+  onSessionUnarchive: (e: CustomEvent<{ sessionKey: string }>) => void;
+  onSessionMembersFetch: (e: CustomEvent<{ sessionKey: string }>) => void;
+  onUserInvite: (e: CustomEvent<{ sessionKey: string; userId: string }>) => void;
+  onMemberRemove: (e: CustomEvent<{ sessionKey: string; userId: string }>) => void;
   onSendMessage: (e: CustomEvent<{ text: string }>) => void;
   onResolveApproval: (e: CustomEvent<{ id: string; decision: string }>) => void;
   onInviteOpen: () => void;
   onDialogClose: () => void;
+  onLoadMoreHistory: (e: CustomEvent<{ sessionKey: string }>) => void;
 }
 
 /** 检查中占位 */
@@ -102,9 +108,33 @@ export function renderMain(
                   : []
               }
               .pendingApprovals=${store.pendingApprovals}
+              .hasSummary=${
+                store.activeSessionId
+                  ? store.getHistoryMeta(store.activeSessionId).hasSummary
+                  : false
+              }
+              .truncated=${
+                store.activeSessionId
+                  ? store.getHistoryMeta(store.activeSessionId).truncated
+                  : false
+              }
+              .hasMoreHistory=${(() => {
+                if (!store.activeSessionId) {
+                  return false;
+                }
+                const meta = store.getHistoryMeta(store.activeSessionId);
+                // Use page < totalPages as the authoritative signal.
+                // totalMsgCount cannot be compared against loaded message count because
+                // splitHistoryMessage expands one raw message into multiple render bubbles,
+                // causing loaded > totalMsgCount even when earlier pages still exist.
+                return meta.page < meta.totalPages;
+              })()}
               @send-message=${h.onSendMessage}
               @resolve-approval=${h.onResolveApproval}
               @invite-open=${h.onInviteOpen}
+              @session-archive=${h.onSessionArchive}
+              @session-unarchive=${h.onSessionUnarchive}
+              @load-more-history=${h.onLoadMoreHistory}
             ></main-workspace>
           `
       }
@@ -117,6 +147,9 @@ export function renderMain(
           <invite-dialog
             .session=${store.activeSession}
             @close=${h.onDialogClose}
+            @members-fetch=${h.onSessionMembersFetch}
+            @user-invite=${h.onUserInvite}
+            @member-remove=${h.onMemberRemove}
           ></invite-dialog>
         `
         : ""

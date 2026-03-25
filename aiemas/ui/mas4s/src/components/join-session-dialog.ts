@@ -148,7 +148,7 @@ export class JoinSessionDialog extends LitElement {
   };
 
   private _onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && !e.isComposing) {
       this._onJoin();
     }
     if (e.key === "Escape") {

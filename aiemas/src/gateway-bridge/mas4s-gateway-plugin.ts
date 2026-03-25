@@ -1,9 +1,17 @@
 import { TenantServiceError } from "../errors.js";
 import type { TenantService, TenantServiceConfig } from "../index.js";
 import { createTenantService } from "../index.js";
+import {
+  upsertSessionLabel,
+  getSessionLabel,
+  listSessionLabels,
+  deleteSessionLabel,
+} from "../session-history/session-label-store.js";
+import { deleteSummary, deleteSessionMessages } from "../session-history/session-summary-store.js";
 import { GatewayAuthBridge } from "./bridge.js";
 import { getMasAuth, NULL_MAS_AUTH } from "./context.js";
 import { extractMasTokenFromUrl } from "./integration.js";
+import type { StoredMessageForSummary } from "./summary-llm.js";
 
 /**
  * Generic handler type that avoids importing from src/gateway/ directly.
@@ -17,11 +25,28 @@ type SimpleHandler = (opts: {
 
 type SimpleHandlers = Record<string, SimpleHandler>;
 
+/**
+ * Callback to dispatch an internal gateway request.
+ * Set by the integration layer after plugin creation.
+ * Returns the response payload on success, throws on failure.
+ */
+export type GatewayDispatchFn = (
+  method: string,
+  params: Record<string, unknown>,
+  client: unknown,
+) => Promise<unknown>;
+
 export interface Mas4sGatewayPlugin {
   bridge: GatewayAuthBridge;
   tenantService: TenantService;
   extraHandlers: SimpleHandlers;
   extractMasTokenFromUrl: typeof extractMasTokenFromUrl;
+  /** Set by integration layer to enable internal gateway calls (e.g. chat.history). */
+  gatewayDispatch: GatewayDispatchFn | null;
+  /** Session transcript store for capturing messages. */
+  transcriptStore: import("../session-history/session-transcript-store.js").SessionTranscriptStore;
+  /** Stop the session label lifecycle event subscription. */
+  stopLabelSync: () => void;
 }
 
 function errorShape(code: string, message: string): { code: string; message: string } {
@@ -67,9 +92,114 @@ export async function createMas4sGatewayPlugin(
   };
   console.log(`[mas4s] Gateway started: ${userCountRow.count} user(s) in database`);
 
-  const bridge = new GatewayAuthBridge(tenantService, db);
+  // Initialize message capture store in a separate DB for performance isolation
+  const { initMessageDatabase } = await import("../store/database.js");
+  const messageDbPath = config?.dbPath ? config.dbPath.replace(/\.db$/, ".message.db") : undefined;
+  const messageDb = initMessageDatabase(messageDbPath);
+
+  const { SessionTranscriptStore } = await import("../session-history/session-transcript-store.js");
+  const transcriptStore = new SessionTranscriptStore(messageDb);
+  transcriptStore.start();
+
+  const bridge = new GatewayAuthBridge(tenantService, db, config?.llm, transcriptStore);
+  // Subscribe to session lifecycle events to persist label/displayName into mas4s.db.
+  // This survives session resets because sessionKey is stable across resets.
+  const { onSessionLifecycleEvent } =
+    await import("../../../src/sessions/session-lifecycle-events.js");
+  const stopLabelSync = onSessionLifecycleEvent((event) => {
+    try {
+      // On session delete, remove the label, all messages, and summary from message DB.
+      if (event.reason === "session-delete") {
+        deleteSessionLabel(db, event.sessionKey);
+        deleteSummary(messageDb, event.sessionKey);
+        deleteSessionMessages(messageDb, event.sessionKey);
+        return;
+      }
+      const hasLabel = event.label !== undefined;
+      const hasDisplayName = event.displayName !== undefined;
+      if (!hasLabel && !hasDisplayName) {
+        return;
+      }
+      upsertSessionLabel(db, event.sessionKey, {
+        ...(hasLabel ? { label: event.label ?? null } : {}),
+        ...(hasDisplayName ? { displayName: event.displayName ?? null } : {}),
+      });
+    } catch (err) {
+      console.error("[mas4s:label-sync] upsertSessionLabel error:", err);
+    }
+  });
 
   const extraHandlers: SimpleHandlers = {
+    "chat.send": async ({ params: _params, client: _client, respond }) => {
+      // Note: This handler is replaced by the mas4s-integration wrapper,
+      // which calls recordSenderContext before the core handler.
+      // This handler is kept for reference but is not actually invoked.
+      respond(true, {}, undefined);
+    },
+
+    "session.history.range": async ({ params, client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        const sessionKey = str(params["sessionKey"]);
+        if (!sessionKey) {
+          respond(false, undefined, errorShape("INVALID_PARAMS", "sessionKey required"));
+          return;
+        }
+
+        // Permission check: verify access when userId is present
+        if (auth.userId) {
+          const access = bridge.checkSessionAccess(sessionKey, auth);
+          if (!access.allowed) {
+            respond(false, undefined, errorShape(access.code, access.message));
+            return;
+          }
+        }
+
+        const { queryHistoryRange } = await import("../session-history/session-history-query.js");
+
+        // from/to are optional: when absent the query returns all messages.
+        const resolvedFrom = typeof params["from"] === "number" ? params["from"] : undefined;
+        const resolvedTo = typeof params["to"] === "number" ? params["to"] : undefined;
+        const resolvedSid =
+          typeof params["sessionId"] === "string" ? params["sessionId"] : undefined;
+        const buffered = transcriptStore.getBuffered(
+          sessionKey,
+          resolvedFrom,
+          resolvedTo,
+          resolvedSid,
+        );
+
+        const queryParams = {
+          sessionKey,
+          sessionId: resolvedSid,
+          from: resolvedFrom,
+          to: resolvedTo,
+          page: typeof params["page"] === "number" ? params["page"] : undefined,
+          pageSize: typeof params["pageSize"] === "number" ? params["pageSize"] : undefined,
+          bufferedCount: buffered.length,
+        };
+        console.log("[mas4s:session.history.range] params:", JSON.stringify(queryParams));
+        const result = queryHistoryRange(messageDb, {
+          sessionKey,
+          sessionId: resolvedSid,
+          from: resolvedFrom,
+          to: resolvedTo,
+          page: queryParams.page,
+          pageSize: queryParams.pageSize,
+          buffered,
+          resolveDisplayName: (userId) => tenantService.resolveDisplayName(userId),
+        });
+        console.log(
+          `[mas4s:session.history.range] result: total=${result.total} page=${result.page}/${result.totalPages} messages=${result.messages.length} hasSummary=${result.hasSummary}`,
+        );
+        respond(true, result, undefined);
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
+
     "system.status": async ({ respond }) => {
       try {
         const result = tenantService.getSystemStatus();
@@ -330,12 +460,185 @@ export async function createMas4sGatewayPlugin(
         respond(false, undefined, errorShape(e.code, e.message));
       }
     },
+
+    "session.archive": async ({ params, client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        const callerUserId = auth.userId;
+        if (!callerUserId) {
+          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
+          return;
+        }
+        const sessionKey = str(params["sessionKey"]);
+        const fetchHistory = buildFetchHistory(plugin, sessionKey, client);
+        const result = await bridge.archiveSession({ sessionKey, callerUserId, fetchHistory });
+        if (result.ok) {
+          respond(true, result, undefined);
+        } else {
+          respond(false, undefined, errorShape(result.code, result.message));
+        }
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
+
+    "session.unarchive": async ({ params, client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        const callerUserId = auth.userId;
+        if (!callerUserId) {
+          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
+          return;
+        }
+        const sessionKey = str(params["sessionKey"]);
+        const result = bridge.unarchiveSession({ sessionKey, callerUserId });
+        if (result.ok) {
+          respond(true, result, undefined);
+        } else {
+          respond(false, undefined, errorShape(result.code, result.message));
+        }
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
+
+    "session.summary.generate": async ({ params, client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        const callerUserId = auth.userId;
+        if (!callerUserId) {
+          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
+          return;
+        }
+        const sessionKey = str(params["sessionKey"]);
+        const fetchHistory = buildFetchHistory(plugin, sessionKey, client);
+        const result = await bridge.generateSummary({ sessionKey, callerUserId, fetchHistory });
+        if (result.ok) {
+          respond(true, result, undefined);
+        } else {
+          respond(false, undefined, errorShape(result.code, result.message));
+        }
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
+
+    "session.summary.get": async ({ params, client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        const callerUserId = auth.userId;
+        if (!callerUserId) {
+          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
+          return;
+        }
+        const sessionKey = str(params["sessionKey"]);
+
+        // Access check
+        const access = bridge.checkSessionAccess(sessionKey, { ...auth, userId: callerUserId });
+        if (!access.allowed) {
+          respond(false, undefined, errorShape(access.code, access.message));
+          return;
+        }
+
+        const { getSummary } = await import("../session-history/session-summary-store.js");
+        const summary = getSummary(messageDb, sessionKey);
+        respond(true, { summary }, undefined);
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
+
+    "session.label.get": async ({ params, client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        const sessionKey = str(params["sessionKey"]);
+        if (!sessionKey) {
+          respond(false, undefined, errorShape("INVALID_PARAMS", "sessionKey required"));
+          return;
+        }
+        if (auth.userId) {
+          const access = bridge.checkSessionAccess(sessionKey, auth);
+          if (!access.allowed) {
+            respond(false, undefined, errorShape(access.code, access.message));
+            return;
+          }
+        }
+        const entry = getSessionLabel(db, sessionKey);
+        respond(
+          true,
+          {
+            sessionKey,
+            label: entry?.label ?? null,
+            displayName: entry?.displayName ?? null,
+            updatedAt: entry?.updatedAt ?? null,
+          },
+          undefined,
+        );
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
+
+    "session.label.list": async ({ client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        if (!auth.userId) {
+          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
+          return;
+        }
+        const all = listSessionLabels(db);
+        respond(true, { labels: all }, undefined);
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
   };
 
-  return {
+  const plugin: Mas4sGatewayPlugin = {
     bridge,
     tenantService,
     extraHandlers,
     extractMasTokenFromUrl,
+    gatewayDispatch: null,
+    transcriptStore,
+    stopLabelSync,
+  };
+
+  return plugin;
+}
+
+/**
+ * Build a fetchHistory callback that calls the gateway's session.history.range method
+ * via the integration-layer dispatch function and extracts the messages array.
+ * Fetches the latest 1000 messages for summary generation.
+ */
+function buildFetchHistory(
+  plugin: Mas4sGatewayPlugin,
+  sessionKey: string,
+  client: unknown,
+): () => Promise<StoredMessageForSummary[]> {
+  return async () => {
+    if (!plugin.gatewayDispatch) {
+      console.warn("[mas4s] gatewayDispatch not set, cannot fetch chat history");
+      return [];
+    }
+    const payload = (await plugin.gatewayDispatch(
+      "session.history.range",
+      { sessionKey, pageSize: 1000, page: 1 },
+      client,
+    )) as { messages?: StoredMessageForSummary[] } | undefined;
+    return payload?.messages ?? [];
   };
 }

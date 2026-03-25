@@ -24,13 +24,14 @@ export class MessageController {
 
     const displayName = this.store.currentUser?.displayName ?? "我";
     const rawText = e.detail.text;
+    const clientRunId = crypto.randomUUID();
 
     // 乐观追加用户消息，立即显示在聊天列表中
     this.store.appendMessage(session.key, {
       role: "user",
       content: [{ type: "text", text: rawText }],
       timestamp: Date.now(),
-      id: undefined,
+      id: clientRunId,
       senderLabel: displayName,
       subType: undefined,
     });
@@ -42,6 +43,7 @@ export class MessageController {
         buildChatSendParams({
           sessionKey: session.key,
           message: rawText,
+          clientRunId: clientRunId, // Pass clientRunId to params
         }),
       );
       console.debug("[mas4s:message] send ← chat.send ok");

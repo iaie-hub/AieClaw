@@ -208,3 +208,75 @@ export function getSessionOwnerUserIds(db: DatabaseSync, sessionKey: string): st
     .all(sessionKey) as Array<{ userId: string }>;
   return rows.map((r) => r.userId);
 }
+
+/**
+ * Archive a session. Only the owner can archive.
+ * Idempotent: if already archived, returns the existing archivedAt timestamp without updating.
+ * Returns the archivedAt timestamp.
+ */
+export function archiveSession(db: DatabaseSync, sessionKey: string, callerUserId: string): number {
+  // Verify caller is the owner
+  const callerRow = db
+    .prepare("SELECT role FROM session_memberships WHERE sessionKey = ? AND userId = ?")
+    .get(sessionKey, callerUserId) as { role: string } | undefined;
+
+  if (!callerRow || callerRow.role !== "owner") {
+    throw new TenantServiceError(
+      SESSION_ACCESS_DENIED,
+      "Only the session owner can archive the session",
+    );
+  }
+
+  // Check if already archived (idempotent)
+  const ownership = db
+    .prepare("SELECT archivedAt FROM session_ownership WHERE sessionKey = ?")
+    .get(sessionKey) as { archivedAt: number | null } | undefined;
+
+  if (ownership?.archivedAt != null) {
+    return ownership.archivedAt;
+  }
+
+  const now = Date.now();
+  db.prepare("UPDATE session_ownership SET archivedAt = ? WHERE sessionKey = ?").run(
+    now,
+    sessionKey,
+  );
+  return now;
+}
+
+/**
+ * Check if a session is archived (archivedAt is not NULL).
+ */
+export function isSessionArchived(db: DatabaseSync, sessionKey: string): boolean {
+  const row = db
+    .prepare("SELECT archivedAt FROM session_ownership WHERE sessionKey = ?")
+    .get(sessionKey) as { archivedAt: number | null } | undefined;
+  return row?.archivedAt != null;
+}
+
+/**
+ * Unarchive a session (reset archivedAt to NULL). Only the owner can unarchive.
+ */
+export function unarchiveSession(db: DatabaseSync, sessionKey: string, callerUserId: string): void {
+  // Verify caller is the owner
+  const callerRow = db
+    .prepare("SELECT role FROM session_memberships WHERE sessionKey = ? AND userId = ?")
+    .get(sessionKey, callerUserId) as { role: string } | undefined;
+
+  if (!callerRow || callerRow.role !== "owner") {
+    throw new TenantServiceError(
+      SESSION_ACCESS_DENIED,
+      "Only the session owner can unarchive the session",
+    );
+  }
+
+  db.prepare("UPDATE session_ownership SET archivedAt = NULL WHERE sessionKey = ?").run(sessionKey);
+}
+
+/**
+ * Delete all session records (ownership + memberships) for a deleted session.
+ */
+export function deleteSessionRecords(db: DatabaseSync, sessionKey: string): void {
+  db.prepare("DELETE FROM session_memberships WHERE sessionKey = ?").run(sessionKey);
+  db.prepare("DELETE FROM session_ownership WHERE sessionKey = ?").run(sessionKey);
+}

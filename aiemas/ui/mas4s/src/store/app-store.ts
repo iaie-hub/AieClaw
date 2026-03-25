@@ -1,7 +1,7 @@
 import type { ReactiveController, ReactiveControllerHost } from "lit";
 import type { ApprovalRequest } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
-import type { MasSession } from "../types/session-types.js";
+import type { MasSession, MasParticipant } from "../types/session-types.js";
 
 export type GlobalRole = "admin" | "member" | "viewer";
 
@@ -69,6 +69,50 @@ export class AppStore {
 
   // ── 消息缓存（sessionKey → 消息数组） ────────────
   messagesBySession: Map<string, ChatMessage[]> = new Map();
+
+  // ── 历史消息元数据（sessionKey → { truncated, hasSummary, page, totalPages, sessionStats }） ──
+  historyMetaBySession: Map<
+    string,
+    {
+      truncated: boolean;
+      hasSummary: boolean;
+      page: number;
+      totalPages: number;
+      sessionStats: { firstMsgAt: number | null; lastMsgAt: number | null; totalMsgCount: number };
+    }
+  > = new Map();
+
+  setHistoryMeta(
+    sessionKey: string,
+    meta: {
+      truncated: boolean;
+      hasSummary: boolean;
+      page: number;
+      totalPages: number;
+      sessionStats: { firstMsgAt: number | null; lastMsgAt: number | null; totalMsgCount: number };
+    },
+  ): void {
+    this.historyMetaBySession.set(sessionKey, meta);
+    this.notify();
+  }
+
+  getHistoryMeta(sessionKey: string): {
+    truncated: boolean;
+    hasSummary: boolean;
+    page: number;
+    totalPages: number;
+    sessionStats: { firstMsgAt: number | null; lastMsgAt: number | null; totalMsgCount: number };
+  } {
+    return (
+      this.historyMetaBySession.get(sessionKey) ?? {
+        truncated: false,
+        hasSummary: false,
+        page: 1,
+        totalPages: 1,
+        sessionStats: { firstMsgAt: null, lastMsgAt: null, totalMsgCount: 0 },
+      }
+    );
+  }
 
   // ── 工具流缓存（toolCallId → 工具执行状态） ──────
   // key: toolCallId, value: { name, args, output, sessionKey, runId }
@@ -138,6 +182,42 @@ export class AppStore {
     this.notify();
   }
 
+  /** 用 aiemas DB 的持久化值修补 label（仅在 gateway 返回值为空时使用） */
+  patchSessionLabelFromDb(
+    sessionKey: string,
+    patch: { label?: string | null; displayName?: string | null },
+  ): void {
+    this.sessions = this.sessions.map((s) => {
+      if (s.key !== sessionKey) {
+        return s;
+      }
+      // Only apply if current label is still missing
+      if (s.label) {
+        return s;
+      }
+      const resolved = patch.label ?? patch.displayName ?? undefined;
+      return resolved ? { ...s, label: resolved } : s;
+    });
+    this.notify();
+  }
+
+  updateSessionArchived(sessionKey: string, archivedAt: number | null): void {
+    this.sessions = this.sessions.map((s) => (s.key === sessionKey ? { ...s, archivedAt } : s));
+    this.notify();
+  }
+
+  updateSessionParticipants(sessionKey: string, participants: MasParticipant[]): void {
+    this.sessions = this.sessions.map((s) => (s.key === sessionKey ? { ...s, participants } : s));
+    this.notify();
+  }
+
+  // ── 摘要操作（已迁移至 SummaryStore，此处仅保留 notify 触发响应式更新） ──
+
+  /** 通知所有组件重新读取 SummaryStore 缓存 */
+  notifySummaryUpdated(): void {
+    this.notify();
+  }
+
   // ── 消息操作 ──────────────────────────────────────
 
   appendMessage(sessionKey: string, msg: ChatMessage): void {
@@ -161,6 +241,20 @@ export class AppStore {
   clearMessages(sessionKey: string): void {
     this.messagesBySession.set(sessionKey, []);
     this.notify();
+  }
+
+  /**
+   * 将旧消息前插到现有消息列表头部（用于向上翻页加载更早的历史）。
+   * 不触发 notify()，由调用方在锚点恢复后统一触发，避免页面闪烁。
+   */
+  prependMessages(sessionKey: string, older: ChatMessage[]): void {
+    if (older.length === 0) {
+      return;
+    }
+    const current = this.messagesBySession.get(sessionKey) ?? [];
+    this.messagesBySession.set(sessionKey, [...older, ...current]);
+    // Intentionally no notify() here — caller must call notify() after
+    // restoring the scroll anchor to prevent visible layout jump.
   }
 
   // ── 工具流操作 ────────────────────────────────────

@@ -229,6 +229,7 @@ export async function initSessionState(params: {
   let persistedAuthProfileOverrideSource: SessionEntry["authProfileOverrideSource"];
   let persistedAuthProfileOverrideCompactionCount: number | undefined;
   let persistedLabel: string | undefined;
+  let persistedDisplayName: string | undefined;
 
   const normalizedChatType = normalizeChatType(ctx.ChatType);
   const isGroup =
@@ -387,6 +388,7 @@ export async function initSessionState(params: {
       persistedAuthProfileOverrideSource = entry.authProfileOverrideSource;
       persistedAuthProfileOverrideCompactionCount = entry.authProfileOverrideCompactionCount;
       persistedLabel = entry.label;
+      persistedDisplayName = entry.displayName;
     }
   }
 
@@ -448,7 +450,7 @@ export async function initSessionState(params: {
     queueDebounceMs: baseEntry?.queueDebounceMs,
     queueCap: baseEntry?.queueCap,
     queueDrop: baseEntry?.queueDrop,
-    displayName: baseEntry?.displayName,
+    displayName: persistedDisplayName ?? baseEntry?.displayName,
     chatType: baseEntry?.chatType,
     channel: baseEntry?.channel,
     groupId: baseEntry?.groupId,

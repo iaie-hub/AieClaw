@@ -13,11 +13,10 @@ import { AppStore } from "./app-store.js";
 /** 构造最小 MasSession fixture */
 function makeMasSession(overrides: Partial<MasSession> & { key: string }): MasSession {
   return {
-    key: overrides.key,
-    label: overrides.label ?? "Test Session",
+    label: "Test Session",
     kind: "group",
     status: "running",
-    masType: overrides.masType ?? "initiated",
+    masType: "initiated",
     hasNotification: false,
     notificationCount: 0,
     participants: [],
