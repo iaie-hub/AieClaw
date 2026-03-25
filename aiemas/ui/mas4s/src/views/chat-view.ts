@@ -19,6 +19,8 @@ export class ChatView extends LitElement {
   @property({ attribute: false }) session: MasSession | undefined = undefined;
   @property({ attribute: false }) pendingApprovals: ApprovalRequest[] = [];
   @property({ type: Boolean }) isInitiator = false;
+  @property({ type: Boolean }) hasSummary = false;
+  @property({ type: Boolean }) truncated = false;
 
   @state() private _inputText = "";
   @state() private _summaryOpen = false;
@@ -138,6 +140,28 @@ export class ChatView extends LitElement {
       color: #94a3b8;
       font-size: 15px;
     }
+
+    .history-summary-hint {
+      text-align: center;
+      padding: 8px 16px;
+      margin-bottom: 12px;
+      background: #f0f9ff;
+      border: 1px solid #bae6fd;
+      border-radius: 8px;
+      color: #0369a1;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .history-summary-hint:hover {
+      background: #e0f2fe;
+    }
+    .load-more-placeholder {
+      text-align: center;
+      padding: 8px;
+      color: #94a3b8;
+      font-size: 12px;
+      cursor: default;
+    }
   `;
 
   updated(changed: Map<string, unknown>) {
@@ -217,6 +241,24 @@ export class ChatView extends LitElement {
 
     return html`
       <div class="chat-container">
+        ${
+          this.truncated
+            ? html`
+                <div class="load-more-placeholder">
+                  <span>— 加载更多历史消息（即将支持）—</span>
+                </div>
+              `
+            : ""
+        }
+        ${
+          this.hasSummary
+            ? html`
+          <div class="history-summary-hint" @click="${this._onSummaryClick}">
+            <span>更早的消息已生成摘要，点击查看</span>
+          </div>
+        `
+            : ""
+        }
         <div class="session-divider">—— 协作链路已加密连接 ——</div>
         ${
           this.messages.length === 0

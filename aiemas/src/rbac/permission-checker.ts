@@ -45,6 +45,7 @@ export const GLOBAL_ROLE_PERMISSIONS: Record<string, Set<GlobalRole>> = {
   "session.unarchive": new Set(["admin", "member"]),
   "session.summary.generate": new Set(["admin", "member"]),
   "session.summary.get": new Set(["admin", "member", "viewer"]),
+  "session.history.range": new Set(["admin", "member", "viewer"]),
 };
 
 /**
@@ -103,6 +104,7 @@ const GATEWAY_READ_METHODS = new Set([
   "user.register",
   "session.members",
   "session.summary.get",
+  "session.history.range",
 ]);
 
 const GATEWAY_WRITE_METHODS = new Set([
@@ -199,6 +201,7 @@ export const SESSION_ROLE_PERMISSIONS: Record<string, Set<SessionRole>> = {
   "session.unarchive": new Set(["owner"]),
   "session.summary.generate": new Set(["owner", "participant"]),
   "session.summary.get": new Set(["owner", "participant"]),
+  "session.history.range": new Set(["owner", "participant"]),
 };
 
 /**

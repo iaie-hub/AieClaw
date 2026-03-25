@@ -70,6 +70,18 @@ export class AppStore {
   // ── 消息缓存（sessionKey → 消息数组） ────────────
   messagesBySession: Map<string, ChatMessage[]> = new Map();
 
+  // ── 历史消息元数据（sessionKey → { truncated, hasSummary }） ──
+  historyMetaBySession: Map<string, { truncated: boolean; hasSummary: boolean }> = new Map();
+
+  setHistoryMeta(sessionKey: string, meta: { truncated: boolean; hasSummary: boolean }): void {
+    this.historyMetaBySession.set(sessionKey, meta);
+    this.notify();
+  }
+
+  getHistoryMeta(sessionKey: string): { truncated: boolean; hasSummary: boolean } {
+    return this.historyMetaBySession.get(sessionKey) ?? { truncated: false, hasSummary: false };
+  }
+
   // ── 工具流缓存（toolCallId → 工具执行状态） ──────
   // key: toolCallId, value: { name, args, output, sessionKey, runId }
   toolStreamById: Map<string, ToolStreamEntry> = new Map();

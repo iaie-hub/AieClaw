@@ -127,6 +127,46 @@ export async function fetchSessions(client: GatewayBrowserClient): Promise<MasSe
 
   return sessions;
 }
+export interface SessionHistoryRangeResult {
+  messages: ChatMessage[]; // reversed to ASC (oldest first)
+  total: number;
+  truncated: boolean;
+  hasSummary: boolean;
+}
+
+/**
+ * 通过 session.history.range 拉取会话历史（默认最近 30 天，limit 200）。
+ * 后端返回 DESC 顺序，此函数反转为 ASC 后返回。
+ */
+export async function fetchSessionHistoryRange(
+  client: GatewayBrowserClient,
+  sessionKey: string,
+  opts?: { from?: number; to?: number; limit?: number },
+): Promise<SessionHistoryRangeResult> {
+  const result = await client.request<{
+    messages?: unknown[];
+    total?: number;
+    truncated?: boolean;
+    hasSummary?: boolean;
+  }>("session.history.range", {
+    sessionKey,
+    limit: opts?.limit ?? 200,
+    ...(opts?.from != null ? { from: opts.from } : {}),
+    ...(opts?.to != null ? { to: opts.to } : {}),
+  });
+
+  const messages = (result.messages ?? [])
+    .map((raw) => normalizeMessage(raw) as ChatMessage)
+    .toReversed(); // DESC → ASC
+
+  return {
+    messages,
+    total: result.total ?? messages.length,
+    truncated: result.truncated ?? false,
+    hasSummary: result.hasSummary ?? false,
+  };
+}
+
 export async function renameSession(
   client: GatewayBrowserClient,
   sessionKey: string,

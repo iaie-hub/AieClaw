@@ -5,6 +5,7 @@ import {
   createSession,
   deleteSession,
   fetchSessionHistory,
+  fetchSessionHistoryRange,
   fetchSessions,
   renameSession,
 } from "../gateway/session-manager.js";
@@ -98,21 +99,47 @@ export class SessionController {
     console.debug("[mas4s:session] select → sessionKey=%s", sessionKey);
     this.store.setActiveSession(sessionKey);
 
-    // 若该会话尚无缓存消息，则通过 WebSocket chat.history 拉取历史
-    if (!this.store.messagesBySession.has(sessionKey)) {
-      const client = getClient();
-      void fetchSessionHistory(client, sessionKey)
-        .then((messages) => {
-          if (!this.store.messagesBySession.has(sessionKey)) {
-            this.store.messagesBySession.set(sessionKey, messages);
-            this.store.notify();
-          }
-          console.debug("[mas4s:session] select ← history loaded: count=%d", messages.length);
-        })
-        .catch((err) => {
-          console.warn("[mas4s:session] select ← fetchSessionHistory failed:", err);
+    // Always re-fetch history on selection (clear previous cache first)
+    this.store.clearMessages(sessionKey);
+    const client = getClient();
+    const now = Date.now();
+    const from = now - 30 * 24 * 60 * 60 * 1000;
+    void fetchSessionHistoryRange(client, sessionKey, { from, to: now })
+      .then((result) => {
+        this.store.messagesBySession.set(sessionKey, result.messages);
+        this.store.setHistoryMeta(sessionKey, {
+          truncated: result.truncated,
+          hasSummary: result.hasSummary,
         });
-    }
+        this.store.notify();
+        console.debug(
+          "[mas4s:session] select ← history re-loaded (range): count=%d",
+          result.messages.length,
+        );
+      })
+      .catch((err) => {
+        console.warn(
+          "[mas4s:session] select ← fetchSessionHistoryRange failed, falling back:",
+          err,
+        );
+        // Fallback to chat.history
+        void fetchSessionHistory(client, sessionKey)
+          .then((messages) => {
+            this.store.messagesBySession.set(sessionKey, messages);
+            this.store.setHistoryMeta(sessionKey, { truncated: false, hasSummary: false });
+            this.store.notify();
+            console.debug(
+              "[mas4s:session] select ← history re-loaded (fallback): count=%d",
+              messages.length,
+            );
+          })
+          .catch((fallbackErr) => {
+            console.warn(
+              "[mas4s:session] select ← fetchSessionHistory fallback failed:",
+              fallbackErr,
+            );
+          });
+      });
   };
 
   onSessionArchive = async (e: CustomEvent<{ sessionKey: string }>) => {

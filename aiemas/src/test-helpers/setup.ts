@@ -8,7 +8,7 @@ import { rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { initDatabase } from "../store/database.js";
+import { initDatabase, initMessageDatabase } from "../store/database.js";
 
 /**
  * Create a temporary SQLite database for testing.
@@ -17,6 +17,36 @@ import { initDatabase } from "../store/database.js";
 export function createTestDatabase(): { db: DatabaseSync; cleanup: () => void } {
   const dbPath = join(tmpdir(), `mas4s-test-${randomUUID()}.db`);
   const db = initDatabase(dbPath);
+
+  return {
+    db,
+    cleanup: () => {
+      try {
+        db.close();
+      } catch {
+        // ignore
+      }
+      for (const suffix of ["", "-wal", "-shm"]) {
+        const p = dbPath + suffix;
+        if (existsSync(p)) {
+          try {
+            rmSync(p);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    },
+  };
+}
+
+/**
+ * Create a temporary message-only SQLite database for testing.
+ * Uses the separate schema (session_messages table only).
+ */
+export function createTestMessageDatabase(): { db: DatabaseSync; cleanup: () => void } {
+  const dbPath = join(tmpdir(), `mas4s-msg-test-${randomUUID()}.db`);
+  const db = initMessageDatabase(dbPath);
 
   return {
     db,

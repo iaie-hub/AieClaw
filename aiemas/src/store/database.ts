@@ -9,6 +9,12 @@ import { requireNodeSqlite } from "../../../src/memory/sqlite.js";
 export const DEFAULT_DB_PATH = `${process.env.HOME ?? "~"}/.openclaw/aiemas/mas4s.db`;
 
 /**
+ * Default message database path: ~/.openclaw/aiemas/mas4s.message.db
+ * Separated from the main DB for performance isolation.
+ */
+export const DEFAULT_MESSAGE_DB_PATH = `${process.env.HOME ?? "~"}/.openclaw/aiemas/mas4s.message.db`;
+
+/**
  * Initialize the SQLite database at the given path.
  * Creates the directory structure if it doesn't exist,
  * configures WAL mode, busy_timeout, and foreign keys,
@@ -121,5 +127,58 @@ export function ensureMas4sSchema(db: DatabaseSync): void {
       generatedAt INTEGER NOT NULL,
       generatedBy TEXT NOT NULL
     );
+  `);
+}
+
+/**
+ * Initialize the message SQLite database at the given path.
+ * Separate from the main mas4s.db for performance isolation.
+ */
+export function initMessageDatabase(dbPath: string = DEFAULT_MESSAGE_DB_PATH): DatabaseSync {
+  mkdirSync(dirname(dbPath), { recursive: true });
+
+  const { DatabaseSync } = requireNodeSqlite();
+  const db = new DatabaseSync(dbPath);
+
+  db.exec("PRAGMA journal_mode=WAL");
+  db.exec("PRAGMA busy_timeout=5000");
+
+  ensureMessageSchema(db);
+  return db;
+}
+
+/**
+ * Create the session_messages table and indexes if they don't exist.
+ */
+export function ensureMessageSchema(db: DatabaseSync): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS session_messages (
+      id          TEXT    PRIMARY KEY,
+      sessionKey  TEXT    NOT NULL,
+      sessionId   TEXT    NOT NULL,
+      userId      TEXT    NULL,
+      tenantId    TEXT    NULL,
+      role        TEXT    NOT NULL
+                  CHECK(role IN ('user','assistant','tool','summary')),
+      content     TEXT    NOT NULL,
+      timestamp   INTEGER NOT NULL,
+      seq         INTEGER NOT NULL DEFAULT 0,
+      archivedDate TEXT   NULL
+    );
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_session_messages_key_ts
+    ON session_messages(sessionKey, timestamp);
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_session_messages_session_id
+    ON session_messages(sessionId);
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_session_messages_sid_seq
+    ON session_messages(sessionId, seq);
   `);
 }

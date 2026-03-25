@@ -83,7 +83,80 @@ export async function createMas4sGatewayPlugin(
 
   const bridge = new GatewayAuthBridge(tenantService, db, config?.llm);
 
+  // Initialize message capture store in a separate DB for performance isolation
+  const { initMessageDatabase } = await import("../store/database.js");
+  const messageDbPath = config?.dbPath ? config.dbPath.replace(/\.db$/, ".message.db") : undefined;
+  const messageDb = initMessageDatabase(messageDbPath);
+
+  const { SessionTranscriptStore } = await import("../session-history/session-transcript-store.js");
+  const transcriptStore = new SessionTranscriptStore(messageDb);
+  transcriptStore.start();
+
   const extraHandlers: SimpleHandlers = {
+    "chat.send": async ({ params, client, respond }) => {
+      const auth = getCallerAuth(client);
+      const sessionKey = str(params["sessionKey"] ?? "");
+      console.log(
+        `[mas4s:chat.send] sessionKey=${sessionKey} userId=${auth.userId ?? "null"} tenantId=${auth.tenantId ?? "null"}`,
+      );
+      if (sessionKey) {
+        transcriptStore.recordSenderContext(sessionKey, {
+          userId: auth.userId ?? null,
+          tenantId: auth.tenantId ?? null,
+        });
+      }
+      respond(true, {}, undefined);
+    },
+
+    "session.history.range": async ({ params, client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        const sessionKey = str(params["sessionKey"]);
+        if (!sessionKey) {
+          respond(false, undefined, errorShape("INVALID_PARAMS", "sessionKey required"));
+          return;
+        }
+
+        // Permission check: verify access when userId is present
+        if (auth.userId) {
+          const access = bridge.checkSessionAccess(sessionKey, auth);
+          if (!access.allowed) {
+            respond(false, undefined, errorShape(access.code, access.message));
+            return;
+          }
+        }
+
+        const { queryHistoryRange } = await import("../session-history/session-history-query.js");
+
+        const now = Date.now();
+        const resolvedFrom =
+          typeof params["from"] === "number" ? params["from"] : now - 30 * 24 * 60 * 60 * 1000;
+        const resolvedTo = typeof params["to"] === "number" ? params["to"] : now;
+        const resolvedSid =
+          typeof params["sessionId"] === "string" ? params["sessionId"] : undefined;
+        const buffered = transcriptStore.getBuffered(
+          sessionKey,
+          resolvedFrom,
+          resolvedTo,
+          resolvedSid,
+        );
+
+        const result = queryHistoryRange(messageDb, {
+          sessionKey,
+          sessionId: resolvedSid,
+          from: resolvedFrom,
+          to: resolvedTo,
+          limit: typeof params["limit"] === "number" ? params["limit"] : undefined,
+          buffered,
+        });
+        respond(true, result, undefined);
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
+
     "system.status": async ({ respond }) => {
       try {
         const result = tenantService.getSystemStatus();
