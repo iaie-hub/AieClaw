@@ -46,7 +46,7 @@ export interface HistoryRangeParams {
 export type StoredMessageWithSender = StoredMessage & { senderLabel: string | null };
 
 export interface HistoryRangeResult {
-  messages: StoredMessageWithSender[]; // timestamp DESC order
+  messages: StoredMessageWithSender[]; // timestamp ASC order (oldest first)
   total: number; // total count matching the filter (before pagination)
   page: number; // current page (1-based)
   pageSize: number; // effective page size
@@ -141,14 +141,14 @@ export function queryHistoryRange(
   );
 
   // DB messages first, then buffer — buffer overwrites DB for same id.
-  // Sort DESC (newest first) to match the query order.
+  // Sort DESC (newest first) for LIMIT efficiency, reversed to ASC before return.
   const merged = dedupeById([...dbMessages, ...buffered]).toSorted(
     (a, b) => b.timestamp - a.timestamp,
   );
 
   // ── Pagination ─────────────────────────────────────────────────────────────
   const total = merged.length;
-  const hasSummary = merged.some((m) => m.role === "summary");
+  const hasSummary = merged.some((m) => (m.role as string) === "summary");
   const totalPages = Math.max(Math.ceil(total / pageSize), 1);
   const messages = merged.slice(offset, offset + pageSize);
 
@@ -191,7 +191,8 @@ export function queryHistoryRange(
   }
 
   return {
-    messages: enriched,
+    // Reverse from DESC (DB fetch order) to ASC (oldest first) before returning.
+    messages: enriched.toReversed(),
     total,
     page,
     pageSize,

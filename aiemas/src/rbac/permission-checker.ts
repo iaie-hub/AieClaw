@@ -46,6 +46,8 @@ export const GLOBAL_ROLE_PERMISSIONS: Record<string, Set<GlobalRole>> = {
   "session.summary.generate": new Set(["admin", "member"]),
   "session.summary.get": new Set(["admin", "member", "viewer"]),
   "session.history.range": new Set(["admin", "member", "viewer"]),
+  "session.label.get": new Set(["admin", "member", "viewer"]),
+  "session.label.list": new Set(["admin", "member", "viewer"]),
 };
 
 /**
@@ -105,6 +107,8 @@ const GATEWAY_READ_METHODS = new Set([
   "session.members",
   "session.summary.get",
   "session.history.range",
+  "session.label.get",
+  "session.label.list",
 ]);
 
 const GATEWAY_WRITE_METHODS = new Set([

@@ -11,7 +11,7 @@ import { deleteSummary, deleteSessionMessages } from "../session-history/session
 import { GatewayAuthBridge } from "./bridge.js";
 import { getMasAuth, NULL_MAS_AUTH } from "./context.js";
 import { extractMasTokenFromUrl } from "./integration.js";
-import type { ChatHistoryMessage } from "./summary-llm.js";
+import type { StoredMessageForSummary } from "./summary-llm.js";
 
 /**
  * Generic handler type that avoids importing from src/gateway/ directly.
@@ -169,16 +169,29 @@ export async function createMas4sGatewayPlugin(
           resolvedSid,
         );
 
-        const result = queryHistoryRange(messageDb, {
+        const queryParams = {
           sessionKey,
           sessionId: resolvedSid,
           from: resolvedFrom,
           to: resolvedTo,
           page: typeof params["page"] === "number" ? params["page"] : undefined,
           pageSize: typeof params["pageSize"] === "number" ? params["pageSize"] : undefined,
+          bufferedCount: buffered.length,
+        };
+        console.log("[mas4s:session.history.range] params:", JSON.stringify(queryParams));
+        const result = queryHistoryRange(messageDb, {
+          sessionKey,
+          sessionId: resolvedSid,
+          from: resolvedFrom,
+          to: resolvedTo,
+          page: queryParams.page,
+          pageSize: queryParams.pageSize,
           buffered,
           resolveDisplayName: (userId) => tenantService.resolveDisplayName(userId),
         });
+        console.log(
+          `[mas4s:session.history.range] result: total=${result.total} page=${result.page}/${result.totalPages} messages=${result.messages.length} hasSummary=${result.hasSummary}`,
+        );
         respond(true, result, undefined);
       } catch (err) {
         const e =
@@ -615,7 +628,7 @@ function buildFetchHistory(
   plugin: Mas4sGatewayPlugin,
   sessionKey: string,
   client: unknown,
-): () => Promise<ChatHistoryMessage[]> {
+): () => Promise<StoredMessageForSummary[]> {
   return async () => {
     if (!plugin.gatewayDispatch) {
       console.warn("[mas4s] gatewayDispatch not set, cannot fetch chat history");
@@ -625,7 +638,7 @@ function buildFetchHistory(
       "session.history.range",
       { sessionKey, pageSize: 1000, page: 1 },
       client,
-    )) as { messages?: unknown[] } | undefined;
-    return (payload?.messages ?? []) as ChatHistoryMessage[];
+    )) as { messages?: StoredMessageForSummary[] } | undefined;
+    return payload?.messages ?? [];
   };
 }

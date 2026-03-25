@@ -11,8 +11,8 @@ import type { SessionTranscriptStore } from "../session-history/session-transcri
 import type { MasAuthContext } from "./context.js";
 import { NULL_MAS_AUTH } from "./context.js";
 import * as sessionManager from "./session-manager.js";
-import { extractContentForSummary, generateSummaryWithLLM } from "./summary-llm.js";
-import type { ChatHistoryMessage } from "./summary-llm.js";
+import { extractContentFromStoredMessages, generateSummaryWithLLM } from "./summary-llm.js";
+import type { StoredMessageForSummary } from "./summary-llm.js";
 
 export class GatewayAuthBridge {
   constructor(
@@ -376,7 +376,7 @@ export class GatewayAuthBridge {
   async archiveSession(params: {
     sessionKey: string;
     callerUserId: string;
-    fetchHistory: () => Promise<ChatHistoryMessage[]>;
+    fetchHistory: () => Promise<StoredMessageForSummary[]>;
   }): Promise<
     | { ok: true; archivedAt: number; summaryGenerated: boolean }
     | { ok: false; code: string; message: string }
@@ -418,7 +418,7 @@ export class GatewayAuthBridge {
   async generateSummary(params: {
     sessionKey: string;
     callerUserId: string;
-    fetchHistory: () => Promise<ChatHistoryMessage[]>;
+    fetchHistory: () => Promise<StoredMessageForSummary[]>;
   }): Promise<
     | {
         ok: true;
@@ -455,19 +455,7 @@ export class GatewayAuthBridge {
 
     try {
       const messages = await fetchHistory();
-      // console.log(
-      //   `[mas4s:summary] raw messages (${messages.length}):\n` +
-      //     JSON.stringify(messages, null, 2),
-      // );
-      const { textLines, toolPairs } = extractContentForSummary(messages);
-      // console.log(
-      //   `[mas4s:summary] filtered textLines (${textLines.length}):\n` +
-      //     textLines.map((l, i) => `  [${i}] ${l}`).join("\n"),
-      // );
-      // console.log(
-      //   `[mas4s:summary] filtered toolPairs (${toolPairs.length}):\n` +
-      //     JSON.stringify(toolPairs, null, 2),
-      // );
+      const { textLines, toolPairs } = extractContentFromStoredMessages(messages);
       const llmResult = await generateSummaryWithLLM(
         textLines,
         toolPairs,

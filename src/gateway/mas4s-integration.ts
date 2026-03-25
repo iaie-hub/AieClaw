@@ -596,6 +596,9 @@ export async function initMas4sIntegration(
             }
           },
           context,
+          // Pass extraHandlers so internal dispatches can reach mas4s-registered
+          // methods like session.history.range (not in coreGatewayHandlers).
+          extraHandlers,
         });
       });
     };

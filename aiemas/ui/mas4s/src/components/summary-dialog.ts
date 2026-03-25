@@ -2,6 +2,7 @@ import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { getClient } from "../gateway/client.js";
 import { generateSummary, getSummary } from "../gateway/session-archive.js";
+import { markdownMath } from "../lib/markdown-directive.js";
 import { AppStore } from "../store/app-store.js";
 import { SummaryStore } from "../store/summary-store.js";
 import type { MasSession, SessionSummary } from "../types/session-types.js";
@@ -216,12 +217,79 @@ export class SummaryDialog extends LitElement {
       font-size: 14px;
       color: #334155;
       line-height: 1.7;
-      white-space: pre-wrap;
       word-break: break-word;
       background: #f8fafc;
       border: 1px solid #f1f5f9;
       border-radius: 8px;
       padding: 12px 14px;
+    }
+
+    /* Markdown rendered content */
+    .section-content.markdown-body {
+      white-space: normal;
+    }
+
+    .section-content.markdown-body p {
+      margin: 0 0 0.6em;
+    }
+
+    .section-content.markdown-body p:last-child {
+      margin-bottom: 0;
+    }
+
+    .section-content.markdown-body h1,
+    .section-content.markdown-body h2,
+    .section-content.markdown-body h3 {
+      margin: 0.8em 0 0.4em;
+      font-weight: 600;
+      color: #1e293b;
+    }
+
+    .section-content.markdown-body ul,
+    .section-content.markdown-body ol {
+      margin: 0.4em 0;
+      padding-left: 1.4em;
+    }
+
+    .section-content.markdown-body li {
+      margin-bottom: 0.25em;
+    }
+
+    .section-content.markdown-body code {
+      font-family: ui-monospace, monospace;
+      font-size: 12px;
+      background: #e2e8f0;
+      border-radius: 3px;
+      padding: 1px 4px;
+    }
+
+    .section-content.markdown-body pre {
+      background: #1e293b;
+      color: #e2e8f0;
+      border-radius: 6px;
+      padding: 10px 12px;
+      overflow-x: auto;
+      font-size: 12px;
+      margin: 0.5em 0;
+    }
+
+    .section-content.markdown-body pre code {
+      background: none;
+      padding: 0;
+      color: inherit;
+    }
+
+    .section-content.markdown-body blockquote {
+      border-left: 3px solid #7c3aed;
+      margin: 0.5em 0;
+      padding: 2px 12px;
+      color: #64748b;
+    }
+
+    /* KaTeX */
+    .section-content.markdown-body .katex-display {
+      overflow-x: auto;
+      margin: 0.5em 0;
     }
 
     .empty-hint {
@@ -396,23 +464,25 @@ export class SummaryDialog extends LitElement {
 
       <div class="summary-section">
         <div class="section-label">对话摘要</div>
-        <div class="section-content">
+        <div class="section-content markdown-body">
           ${
-            s.textSummary ??
-            html`
-              <span class="empty-hint">暂无对话内容</span>
-            `
+            s.textSummary
+              ? markdownMath(s.textSummary)
+              : html`
+                  <span class="empty-hint">暂无对话内容</span>
+                `
           }
         </div>
       </div>
       <div class="summary-section">
         <div class="section-label">工具调用摘要</div>
-        <div class="section-content">
+        <div class="section-content markdown-body">
           ${
-            s.toolSummary ??
-            html`
-              <span class="empty-hint">暂无工具调用</span>
-            `
+            s.toolSummary
+              ? markdownMath(s.toolSummary)
+              : html`
+                  <span class="empty-hint">暂无工具调用</span>
+                `
           }
         </div>
       </div>

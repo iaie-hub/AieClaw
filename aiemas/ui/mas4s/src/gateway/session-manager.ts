@@ -300,10 +300,11 @@ export async function fetchSessionHistoryRange(
     ...(opts?.page != null ? { page: opts.page } : {}),
   });
 
-  // 先反转（DESC → ASC），再拆分，保证拆分后子消息顺序与原始顺序一致
-  const messages = ([...(result.messages ?? [])] as unknown[])
-    .toReversed() // DESC → ASC (mutates the copy above, safe)
-    .flatMap((raw: unknown) => splitHistoryMessage(normalizeMessage(raw) as ChatMessage));
+  // Backend returns messages in ASC order (oldest first) — no reversal needed.
+  // 先拆分，保证拆分后子消息顺序与原始顺序一致
+  const messages = ([...(result.messages ?? [])] as unknown[]).flatMap((raw: unknown) =>
+    splitHistoryMessage(normalizeMessage(raw) as ChatMessage),
+  );
 
   return {
     messages,
