@@ -155,10 +155,9 @@ export async function createMas4sGatewayPlugin(
 
         const { queryHistoryRange } = await import("../session-history/session-history-query.js");
 
-        const now = Date.now();
-        const resolvedFrom =
-          typeof params["from"] === "number" ? params["from"] : now - 30 * 24 * 60 * 60 * 1000;
-        const resolvedTo = typeof params["to"] === "number" ? params["to"] : now;
+        // from/to are optional: when absent the query returns all messages.
+        const resolvedFrom = typeof params["from"] === "number" ? params["from"] : undefined;
+        const resolvedTo = typeof params["to"] === "number" ? params["to"] : undefined;
         const resolvedSid =
           typeof params["sessionId"] === "string" ? params["sessionId"] : undefined;
         const buffered = transcriptStore.getBuffered(
@@ -173,7 +172,8 @@ export async function createMas4sGatewayPlugin(
           sessionId: resolvedSid,
           from: resolvedFrom,
           to: resolvedTo,
-          limit: typeof params["limit"] === "number" ? params["limit"] : undefined,
+          page: typeof params["page"] === "number" ? params["page"] : undefined,
+          pageSize: typeof params["pageSize"] === "number" ? params["pageSize"] : undefined,
           buffered,
           resolveDisplayName: (userId) => tenantService.resolveDisplayName(userId),
         });

@@ -102,19 +102,21 @@ export class SessionController {
     // Always re-fetch history on selection (clear previous cache first)
     this.store.clearMessages(sessionKey);
     const client = getClient();
-    const now = Date.now();
-    const from = now - 30 * 24 * 60 * 60 * 1000;
-    void fetchSessionHistoryRange(client, sessionKey, { from, to: now })
+    void fetchSessionHistoryRange(client, sessionKey, { page: 1, pageSize: 100 })
       .then((result) => {
         this.store.messagesBySession.set(sessionKey, result.messages);
         this.store.setHistoryMeta(sessionKey, {
           truncated: result.truncated,
           hasSummary: result.hasSummary,
+          page: result.page,
+          totalPages: result.totalPages,
+          sessionStats: result.sessionStats,
         });
-        this.store.notify();
         console.debug(
-          "[mas4s:session] select ← history re-loaded (range): count=%d",
+          "[mas4s:session] select ← history re-loaded (range): count=%d page=%d/%d",
           result.messages.length,
+          result.page,
+          result.totalPages,
         );
       })
       .catch((err) => {
@@ -126,7 +128,13 @@ export class SessionController {
         void fetchSessionHistory(client, sessionKey)
           .then((messages) => {
             this.store.messagesBySession.set(sessionKey, messages);
-            this.store.setHistoryMeta(sessionKey, { truncated: false, hasSummary: false });
+            this.store.setHistoryMeta(sessionKey, {
+              truncated: false,
+              hasSummary: false,
+              page: 1,
+              totalPages: 1,
+              sessionStats: { firstMsgAt: null, lastMsgAt: null, totalMsgCount: 0 },
+            });
             this.store.notify();
             console.debug(
               "[mas4s:session] select ← history re-loaded (fallback): count=%d",
@@ -139,6 +147,48 @@ export class SessionController {
               fallbackErr,
             );
           });
+      });
+  };
+
+  /**
+   * 向上翻页：加载比当前已有消息更早的一页历史。
+   * 由 chat-view 在用户滚动到顶部时触发。
+   * 策略：后端按 DESC 分页，page=1 是最新一页，page=N 是最旧一页。
+   * 当前已加载的是 page=1（最新），向上翻页请求 page=2，依此类推。
+   * 新消息前插到列表头部，滚动锚点由 chat-view 负责保持。
+   */
+  onLoadMoreHistory = (e: CustomEvent<{ sessionKey: string }>) => {
+    const { sessionKey } = e.detail;
+    const meta = this.store.getHistoryMeta(sessionKey);
+
+    // 已经是最旧一页，无需继续
+    if (meta.page >= meta.totalPages) {
+      return;
+    }
+
+    const nextPage = meta.page + 1;
+    const client = getClient();
+    void fetchSessionHistoryRange(client, sessionKey, { page: nextPage, pageSize: 100 })
+      .then((result) => {
+        // prependMessages 不触发 notify，由下面统一触发
+        this.store.prependMessages(sessionKey, result.messages);
+        this.store.setHistoryMeta(sessionKey, {
+          truncated: result.truncated,
+          hasSummary: result.hasSummary,
+          page: result.page,
+          totalPages: result.totalPages,
+          sessionStats: result.sessionStats,
+        });
+        // setHistoryMeta 内部已调用 notify()，无需再次调用
+        console.debug(
+          "[mas4s:session] loadMore ← prepended count=%d page=%d/%d",
+          result.messages.length,
+          result.page,
+          result.totalPages,
+        );
+      })
+      .catch((err) => {
+        console.warn("[mas4s:session] loadMoreHistory failed:", err);
       });
   };
 

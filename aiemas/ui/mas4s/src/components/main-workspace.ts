@@ -16,6 +16,9 @@ export class MainWorkspace extends LitElement {
   @property({ attribute: false }) session: MasSession | undefined = undefined;
   @property({ attribute: false }) messages: ChatMessage[] = [];
   @property({ attribute: false }) pendingApprovals: ApprovalRequest[] = [];
+  @property({ type: Boolean }) hasSummary = false;
+  @property({ type: Boolean }) truncated = false;
+  @property({ type: Boolean }) hasMoreHistory = false;
 
   static styles = css`
     :host {
@@ -90,7 +93,11 @@ export class MainWorkspace extends LitElement {
                 .session=${this.session}
                 .isInitiator=${isInitiator}
                 .pendingApprovals=${this.pendingApprovals}
+                .hasSummary=${this.hasSummary}
+                .truncated=${this.truncated}
+                .hasMoreHistory=${this.hasMoreHistory}
                 @resolve=${this._onResolve}
+                @load-more-history=${this._onLoadMoreHistory}
               ></chat-view>
             `
             : html`
@@ -115,6 +122,13 @@ export class MainWorkspace extends LitElement {
   private _onSessionUnarchive = (e: CustomEvent) => {
     e.stopPropagation();
     this.dispatchEvent(new CustomEvent("session-unarchive", { detail: e.detail, bubbles: true }));
+  };
+
+  private _onLoadMoreHistory = (e: CustomEvent) => {
+    e.stopPropagation();
+    this.dispatchEvent(
+      new CustomEvent("load-more-history", { detail: e.detail, bubbles: true, composed: true }),
+    );
   };
 }
 

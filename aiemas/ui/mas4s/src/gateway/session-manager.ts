@@ -256,41 +256,68 @@ export async function fetchSessions(client: GatewayBrowserClient): Promise<MasSe
 export interface SessionHistoryRangeResult {
   messages: ChatMessage[]; // reversed to ASC (oldest first)
   total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
   truncated: boolean;
   hasSummary: boolean;
+  sessionStats: {
+    firstMsgAt: number | null;
+    lastMsgAt: number | null;
+    totalMsgCount: number;
+  };
 }
 
 /**
- * 通过 session.history.range 拉取会话历史（默认最近 30 天，limit 200）。
- * 后端返回 DESC 顺序，此函数反转为 ASC 后返回。
+ * 通过 session.history.range 拉取会话历史。
+ * - from/to 均为可选，不传时查询全部消息。
+ * - 支持分页（page/pageSize），由调用方显式指定，无内置默认值。
+ * - 后端返回 DESC 顺序，此函数反转为 ASC 后返回。
  */
 export async function fetchSessionHistoryRange(
   client: GatewayBrowserClient,
   sessionKey: string,
-  opts?: { from?: number; to?: number; limit?: number },
+  opts?: { from?: number; to?: number; page?: number; pageSize?: number },
 ): Promise<SessionHistoryRangeResult> {
   const result = await client.request<{
     messages?: unknown[];
     total?: number;
+    page?: number;
+    pageSize?: number;
+    totalPages?: number;
     truncated?: boolean;
     hasSummary?: boolean;
+    sessionStats?: {
+      firstMsgAt?: number | null;
+      lastMsgAt?: number | null;
+      totalMsgCount?: number;
+    };
   }>("session.history.range", {
     sessionKey,
-    limit: opts?.limit ?? 200,
+    ...(opts?.pageSize != null ? { pageSize: opts.pageSize } : {}),
     ...(opts?.from != null ? { from: opts.from } : {}),
     ...(opts?.to != null ? { to: opts.to } : {}),
+    ...(opts?.page != null ? { page: opts.page } : {}),
   });
 
   // 先反转（DESC → ASC），再拆分，保证拆分后子消息顺序与原始顺序一致
-  const messages = (result.messages ?? [])
-    .toReversed() // DESC → ASC
-    .flatMap((raw) => splitHistoryMessage(normalizeMessage(raw) as ChatMessage));
+  const messages = ([...(result.messages ?? [])] as unknown[])
+    .toReversed() // DESC → ASC (mutates the copy above, safe)
+    .flatMap((raw: unknown) => splitHistoryMessage(normalizeMessage(raw) as ChatMessage));
 
   return {
     messages,
     total: result.total ?? messages.length,
+    page: result.page ?? 1,
+    pageSize: result.pageSize ?? messages.length,
+    totalPages: result.totalPages ?? 1,
     truncated: result.truncated ?? false,
     hasSummary: result.hasSummary ?? false,
+    sessionStats: {
+      firstMsgAt: result.sessionStats?.firstMsgAt ?? null,
+      lastMsgAt: result.sessionStats?.lastMsgAt ?? null,
+      totalMsgCount: result.sessionStats?.totalMsgCount ?? 0,
+    },
   };
 }
 

@@ -70,16 +70,48 @@ export class AppStore {
   // ── 消息缓存（sessionKey → 消息数组） ────────────
   messagesBySession: Map<string, ChatMessage[]> = new Map();
 
-  // ── 历史消息元数据（sessionKey → { truncated, hasSummary }） ──
-  historyMetaBySession: Map<string, { truncated: boolean; hasSummary: boolean }> = new Map();
+  // ── 历史消息元数据（sessionKey → { truncated, hasSummary, page, totalPages, sessionStats }） ──
+  historyMetaBySession: Map<
+    string,
+    {
+      truncated: boolean;
+      hasSummary: boolean;
+      page: number;
+      totalPages: number;
+      sessionStats: { firstMsgAt: number | null; lastMsgAt: number | null; totalMsgCount: number };
+    }
+  > = new Map();
 
-  setHistoryMeta(sessionKey: string, meta: { truncated: boolean; hasSummary: boolean }): void {
+  setHistoryMeta(
+    sessionKey: string,
+    meta: {
+      truncated: boolean;
+      hasSummary: boolean;
+      page: number;
+      totalPages: number;
+      sessionStats: { firstMsgAt: number | null; lastMsgAt: number | null; totalMsgCount: number };
+    },
+  ): void {
     this.historyMetaBySession.set(sessionKey, meta);
     this.notify();
   }
 
-  getHistoryMeta(sessionKey: string): { truncated: boolean; hasSummary: boolean } {
-    return this.historyMetaBySession.get(sessionKey) ?? { truncated: false, hasSummary: false };
+  getHistoryMeta(sessionKey: string): {
+    truncated: boolean;
+    hasSummary: boolean;
+    page: number;
+    totalPages: number;
+    sessionStats: { firstMsgAt: number | null; lastMsgAt: number | null; totalMsgCount: number };
+  } {
+    return (
+      this.historyMetaBySession.get(sessionKey) ?? {
+        truncated: false,
+        hasSummary: false,
+        page: 1,
+        totalPages: 1,
+        sessionStats: { firstMsgAt: null, lastMsgAt: null, totalMsgCount: 0 },
+      }
+    );
   }
 
   // ── 工具流缓存（toolCallId → 工具执行状态） ──────
@@ -209,6 +241,20 @@ export class AppStore {
   clearMessages(sessionKey: string): void {
     this.messagesBySession.set(sessionKey, []);
     this.notify();
+  }
+
+  /**
+   * 将旧消息前插到现有消息列表头部（用于向上翻页加载更早的历史）。
+   * 不触发 notify()，由调用方在锚点恢复后统一触发，避免页面闪烁。
+   */
+  prependMessages(sessionKey: string, older: ChatMessage[]): void {
+    if (older.length === 0) {
+      return;
+    }
+    const current = this.messagesBySession.get(sessionKey) ?? [];
+    this.messagesBySession.set(sessionKey, [...older, ...current]);
+    // Intentionally no notify() here — caller must call notify() after
+    // restoring the scroll anchor to prevent visible layout jump.
   }
 
   // ── 工具流操作 ────────────────────────────────────

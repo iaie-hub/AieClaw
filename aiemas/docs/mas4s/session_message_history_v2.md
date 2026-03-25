@@ -39,15 +39,16 @@ persistBatch() — SQLite 事务批量写入
 mas4s.message.db → session_messages 表
 ```
 
-查询路径（与 v1 相同）：
+查询路径（v2 更新）：
 
 ```
 queryHistoryRange(db, params)
       │
-      ├── DB 查询（session_messages WHERE sessionKey + timestamp BETWEEN）
-      ├── 合并内存 buffer（未落盘消息）
+      ├── DB 查询（session_messages WHERE sessionKey [+ timestamp 条件（可选）]）
+      ├── 合并内存 buffer（未落盘消息，同样应用可选时间过滤）
       ├── 去重（同 id 以 buffer 版本优先）
-      └── 返回 timestamp DESC 排序结果
+      ├── 全量排序（timestamp DESC）
+      └── 分页切片（page/pageSize）→ 返回当页消息 + 分页元数据
 ```
 
 前端还原路径（v2 新增）：
@@ -165,7 +166,23 @@ const filterBroadcast = (event, payload, clients) => {
 
 源文件：`aiemas/src/session-history/session-transcript-store.ts`
 
-### 4.1 新增内部状态
+### 4.1 内部状态（集中管理）
+
+所有 per-session 的内存状态统一收敛到 `SessionState` 接口，由 `sessionStates: Map<string, SessionState>` 持有，替代原先分散的 `senderMap` 和 `seqMap`：
+
+```typescript
+interface SessionState {
+  sender: SenderContext; // 发起者（userId / tenantId）
+  lastSeq: number; // 当前最大 seq，下一条消息直接 +1，无需查 DB
+  firstMsgAt: number; // 最早消息时间戳（0 = 尚无消息）
+  lastMsgAt: number; // 最新消息时间戳（0 = 尚无消息）
+  msgCount: number; // 已持久化消息总数
+}
+```
+
+`firstMsgAt` / `lastMsgAt` / `msgCount` 与 `session_msg_statistic` 保持镜像：每次 `persistBatch` 事务提交后立即更新，回滚时不更新（`lastSeq` 在回滚时回退）。
+
+其余跨 session 的状态：
 
 ```typescript
 // 工具调用暂存：toolCallId → PendingToolCall
@@ -299,9 +316,52 @@ v1 的问题：对所有 role 都调用 `resolveDisplayName`，导致 assistant 
 
 ---
 
-## 8. 数据库设计（与 v1 相同）
+## 8. 数据库设计
+
+### 8.1 session_messages（与 v1 相同）
 
 schema 无变更，见 v1 文档第 2 节。
+
+### 8.2 session_msg_statistic（v2 新增）
+
+每个 `sessionKey` 对应一行，维护该 session 的消息聚合统计，与 `session_messages` 在同一事务中写入，保证强一致。
+
+```sql
+CREATE TABLE IF NOT EXISTS session_msg_statistic (
+  sessionKey  TEXT    PRIMARY KEY,
+  firstMsgAt  INTEGER NOT NULL,   -- 最早消息的 Unix ms 时间戳
+  lastMsgAt   INTEGER NOT NULL,   -- 最新消息的 Unix ms 时间戳
+  msgCount    INTEGER NOT NULL DEFAULT 0,  -- 消息总数量
+  lastSeq     INTEGER NOT NULL DEFAULT 0   -- 最新消息的 seq
+);
+```
+
+写入策略：`persistBatch` 在同一 `BEGIN/COMMIT` 事务中，先批量 INSERT `session_messages`，再对每个 `sessionKey` 执行一次 UPSERT：
+
+```sql
+INSERT INTO session_msg_statistic (sessionKey, firstMsgAt, lastMsgAt, msgCount, lastSeq)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(sessionKey) DO UPDATE SET
+  firstMsgAt = MIN(firstMsgAt, excluded.firstMsgAt),
+  lastMsgAt  = MAX(lastMsgAt,  excluded.lastMsgAt),
+  msgCount   = msgCount + excluded.msgCount,
+  lastSeq    = MAX(lastSeq,    excluded.lastSeq);
+```
+
+- `firstMsgAt` 取 `MIN`：支持回放/补录场景下时间戳早于已有记录的消息
+- `lastMsgAt` / `lastSeq` 取 `MAX`：保证单调递增，不受乱序批次影响
+- `msgCount` 累加本批次数量，无需全表 COUNT
+- 事务回滚时两张表同时回滚，不会出现统计与明细不一致的情况
+
+### 8.3 启动加载与内存镜像
+
+服务启动时，`loadSessionStates()` 从 `session_msg_statistic` 全量读取，填充 `sessionStates` Map：
+
+- `lastSeq` 直接来自统计行，不再对 `session_messages` 做 `GROUP BY MAX(seq)` 查询
+- `firstMsgAt` / `lastMsgAt` / `msgCount` 同步加载，供运行时直接读取，无需额外 DB 查询
+- `sender` 字段初始为空，由后续 `recordSenderContext` 调用填充
+
+每次 `persistBatch` 事务提交后，内存中对应 `SessionState` 的统计字段立即更新，与 DB 保持镜像。事务回滚时 `lastSeq` 回退（`-= group.length`），其余统计字段不变（回滚意味着消息未写入，计数不应增加）。
 
 ---
 
@@ -346,11 +406,103 @@ v2 完全向后兼容 v1：
 
 ## 11. 涉及文件
 
-| 文件                                                     | 变更类型 | 说明                                                                                                             |
-| -------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------- |
-| `aiemas/src/session-history/session-transcript-store.ts` | 修改     | 新增 `recordToolEvent`、`recordAssistantFinal`、`pushToBuffer`；`extractContent` 补充 `thinking`/`toolCall` 处理 |
-| `src/gateway/mas4s-integration.ts`                       | 修改     | `filterBroadcast` 新增旁路捕获逻辑                                                                               |
-| `aiemas/src/session-history/session-history-query.ts`    | 修改     | `resolveDisplayName` 仅对 `role=user` 调用                                                                       |
-| `aiemas/ui/mas4s/src/lib/message-normalizer.ts`          | 修改     | 新增 `[thinking]`/`[tool_use:]`/`[tool_result]` 行解析                                                           |
-| `aiemas/ui/mas4s/src/views/message-list.ts`              | 修改     | `role=tool` 走 `msg-agent` 渲染路径                                                                              |
-| `aiemas/ui/mas4s/src/gateway/session-manager.ts`         | 修改     | `fetchSessionHistoryRange` 先 `toReversed()` 再 `flatMap(splitHistoryMessage)`，修复拆分后子消息顺序错乱问题     |
+| 文件                                                     | 变更类型 | 说明                                                                                                                                                                         |
+| -------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `aiemas/src/session-history/session-transcript-store.ts` | 修改     | 新增 `recordToolEvent`、`recordAssistantFinal`、`pushToBuffer`；`extractContent` 补充 `thinking`/`toolCall` 处理；`persistBatch` 在同一事务中 UPSERT `session_msg_statistic` |
+| `aiemas/src/store/database.ts`                           | 修改     | `ensureMessageSchema` 新增 `session_msg_statistic` 表 DDL                                                                                                                    |
+| `src/gateway/mas4s-integration.ts`                       | 修改     | `filterBroadcast` 新增旁路捕获逻辑                                                                                                                                           |
+| `aiemas/src/session-history/session-history-query.ts`    | 修改     | `resolveDisplayName` 仅对 `role=user` 调用                                                                                                                                   |
+| `aiemas/ui/mas4s/src/lib/message-normalizer.ts`          | 修改     | 新增 `[thinking]`/`[tool_use:]`/`[tool_result]` 行解析                                                                                                                       |
+| `aiemas/ui/mas4s/src/views/message-list.ts`              | 修改     | `role=tool` 走 `msg-agent` 渲染路径                                                                                                                                          |
+| `aiemas/ui/mas4s/src/gateway/session-manager.ts`         | 修改     | `fetchSessionHistoryRange` 先 `toReversed()` 再 `flatMap(splitHistoryMessage)`，修复拆分后子消息顺序错乱问题                                                                 |
+
+---
+
+## 12. session.history.range 接口实现方案
+
+### 12.1 接口参数
+
+| 参数         | 类型   | 必填 | 说明                                                   |
+| ------------ | ------ | ---- | ------------------------------------------------------ |
+| `sessionKey` | string | ✅   | 会话标识                                               |
+| `sessionId`  | string | ❌   | 过滤指定 sessionId（跨 reset 场景）                    |
+| `from`       | number | ❌   | Unix ms 下界（含）。**不传则不限制下界，查询全部历史** |
+| `to`         | number | ❌   | Unix ms 上界（含）。**不传则不限制上界**               |
+| `page`       | number | ❌   | 页码（1-based），默认 1                                |
+| `pageSize`   | number | ❌   | 每页条数，默认 100，最大 1000                          |
+
+### 12.2 返回值
+
+```typescript
+interface HistoryRangeResult {
+  messages: StoredMessageWithSender[]; // 当页消息，timestamp DESC（最新在前）
+  total: number; // 满足过滤条件的消息总数（分页前）
+  page: number; // 当前页码（1-based）
+  pageSize: number; // 本次生效的每页条数
+  totalPages: number; // ceil(total / pageSize)
+  truncated: boolean; // total > pageSize（向后兼容字段）
+  hasSummary: boolean; // 全量结果中是否含 role='summary' 消息
+}
+```
+
+消息按 `timestamp DESC` 返回（最新消息在数组最前）。前端 `fetchSessionHistoryRange` 在渲染前调用 `.reverse()` 转为 ASC，再 `flatMap(splitHistoryMessage)` 拆分子消息。
+
+### 12.3 SQL 构造逻辑
+
+`from`/`to` 均为可选，不传时对应的 `WHERE` 子句不生成：
+
+```sql
+-- 不传 from/to（查全部）
+SELECT * FROM session_messages WHERE sessionKey = ?
+  [AND sessionId = ?]
+  ORDER BY timestamp DESC
+
+-- 只传 from
+SELECT * FROM session_messages WHERE sessionKey = ? AND timestamp >= ?
+  [AND sessionId = ?]
+  ORDER BY timestamp DESC
+
+-- 传 from + to
+SELECT * FROM session_messages WHERE sessionKey = ? AND timestamp >= ? AND timestamp <= ?
+  [AND sessionId = ?]
+  ORDER BY timestamp DESC
+```
+
+DB 结果与内存 buffer 合并后，在内存中完成去重、全量排序（DESC），再按 `page`/`pageSize` 切片。
+
+### 12.4 分页设计说明
+
+采用**内存分页**而非 SQL `LIMIT/OFFSET`，原因：
+
+- buffer 中存在未落盘消息，必须先合并再分页，否则分页边界不准确
+- 单个 session 的消息量通常在数千条以内，全量加载后内存排序+切片的开销可接受
+- 避免 SQL `OFFSET` 在大数据量时的性能退化
+
+若未来单 session 消息量超过 10 万条，可改为先 flush buffer 再用 SQL `LIMIT/OFFSET` 分页，并在 `session_msg_statistic.msgCount` 直接取 `total`，无需 COUNT 查询。
+
+### 12.5 前端调用示例
+
+```typescript
+// 查询全部历史，第 1 页，每页 100 条（默认）
+const result = await fetchSessionHistoryRange(client, sessionKey);
+
+// 查询第 2 页
+const page2 = await fetchSessionHistoryRange(client, sessionKey, { page: 2, pageSize: 100 });
+
+// 按时间范围查询（仍支持）
+const ranged = await fetchSessionHistoryRange(client, sessionKey, {
+  from: Date.now() - 7 * 24 * 60 * 60 * 1000,
+  to: Date.now(),
+  page: 1,
+  pageSize: 100,
+});
+```
+
+### 12.6 涉及文件
+
+| 文件                                                     | 变更说明                                                                                   |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `aiemas/src/session-history/session-history-query.ts`    | `from`/`to` 改为真正可选；新增 `page`/`pageSize` 分页；返回 `page`/`pageSize`/`totalPages` |
+| `aiemas/src/session-history/session-transcript-store.ts` | `getBuffered` 的 `from`/`to` 改为 `number \| undefined`                                    |
+| `aiemas/src/gateway-bridge/mas4s-gateway-plugin.ts`      | handler 去掉强制默认时间范围；透传 `page`/`pageSize`                                       |
+| `aiemas/ui/mas4s/src/gateway/session-manager.ts`         | `opts` 新增 `page`/`pageSize`；`SessionHistoryRangeResult` 新增分页字段                    |

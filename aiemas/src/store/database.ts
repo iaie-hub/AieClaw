@@ -160,6 +160,9 @@ export function initMessageDatabase(dbPath: string = DEFAULT_MESSAGE_DB_PATH): D
 
 /**
  * Create the session_messages table and indexes if they don't exist.
+ * Also creates session_msg_statistic which maintains per-session aggregate
+ * counters (earliest/latest timestamp, total message count, latest seq).
+ * Both tables are always updated in the same transaction to stay in sync.
  */
 export function ensureMessageSchema(db: DatabaseSync): void {
   db.exec(`
@@ -191,5 +194,17 @@ export function ensureMessageSchema(db: DatabaseSync): void {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_session_messages_sid_seq
     ON session_messages(sessionId, seq);
+  `);
+
+  // session_msg_statistic: one row per sessionKey, updated atomically with
+  // every session_messages INSERT inside persistBatch's transaction.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS session_msg_statistic (
+      sessionKey    TEXT    PRIMARY KEY,
+      firstMsgAt    INTEGER NOT NULL,
+      lastMsgAt     INTEGER NOT NULL,
+      msgCount      INTEGER NOT NULL DEFAULT 0,
+      lastSeq       INTEGER NOT NULL DEFAULT 0
+    );
   `);
 }

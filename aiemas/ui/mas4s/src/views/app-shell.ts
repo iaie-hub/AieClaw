@@ -22,6 +22,7 @@ export interface AppShellHandlers {
   onResolveApproval: (e: CustomEvent<{ id: string; decision: string }>) => void;
   onInviteOpen: () => void;
   onDialogClose: () => void;
+  onLoadMoreHistory: (e: CustomEvent<{ sessionKey: string }>) => void;
 }
 
 /** 检查中占位 */
@@ -107,11 +108,34 @@ export function renderMain(
                   : []
               }
               .pendingApprovals=${store.pendingApprovals}
+              .hasSummary=${
+                store.activeSessionId
+                  ? store.getHistoryMeta(store.activeSessionId).hasSummary
+                  : false
+              }
+              .truncated=${
+                store.activeSessionId
+                  ? store.getHistoryMeta(store.activeSessionId).truncated
+                  : false
+              }
+              .hasMoreHistory=${(() => {
+                if (!store.activeSessionId) {
+                  return false;
+                }
+                const meta = store.getHistoryMeta(store.activeSessionId);
+                const loaded = store.messagesBySession.get(store.activeSessionId)?.length ?? 0;
+                // Use sessionStats.totalMsgCount (full session count) when available;
+                // fall back to page < totalPages for backward compatibility.
+                return meta.sessionStats.totalMsgCount > 0
+                  ? loaded < meta.sessionStats.totalMsgCount
+                  : meta.page < meta.totalPages;
+              })()}
               @send-message=${h.onSendMessage}
               @resolve-approval=${h.onResolveApproval}
               @invite-open=${h.onInviteOpen}
               @session-archive=${h.onSessionArchive}
               @session-unarchive=${h.onSessionUnarchive}
+              @load-more-history=${h.onLoadMoreHistory}
             ></main-workspace>
           `
       }

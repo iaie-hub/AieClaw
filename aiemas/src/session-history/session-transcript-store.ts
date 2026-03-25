@@ -24,10 +24,30 @@ export interface StoredMessage {
 }
 
 export interface SessionTranscriptStoreOptions {
-  /** Flush interval in ms. Default: 500 */
+  /** Flush interval in ms. Default: 3000 */
   flushIntervalMs?: number;
   /** Max buffer size before forced flush. Default: 100 */
   maxBufferSize?: number;
+}
+
+/**
+ * All per-session in-memory state, centralised in one place.
+ *
+ * - sender:     who initiated the session (set by recordSenderContext)
+ * - lastSeq:    current max seq, used to assign the next seq without a DB read
+ * - firstMsgAt: earliest persisted message timestamp (0 = no messages yet)
+ * - lastMsgAt:  latest persisted message timestamp (0 = no messages yet)
+ * - msgCount:   total persisted message count
+ *
+ * firstMsgAt / lastMsgAt / msgCount mirror session_msg_statistic and are kept
+ * in sync after every persistBatch commit.
+ */
+interface SessionState {
+  sender: SenderContext;
+  lastSeq: number;
+  firstMsgAt: number;
+  lastMsgAt: number;
+  msgCount: number;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -175,6 +195,17 @@ function formatToolResult(value: unknown): string {
   }
 }
 
+/** Return a default (empty) SessionState for a session not yet seen. */
+function defaultSessionState(): SessionState {
+  return {
+    sender: { userId: null, tenantId: null },
+    lastSeq: 0,
+    firstMsgAt: 0,
+    lastMsgAt: 0,
+    msgCount: 0,
+  };
+}
+
 // ── Class ────────────────────────────────────────────────────────────────────
 
 export class SessionTranscriptStore {
@@ -182,11 +213,13 @@ export class SessionTranscriptStore {
   private readonly flushIntervalMs: number;
   private readonly maxBufferSize: number;
 
-  /** sessionKey → { userId, tenantId } — populated by chat.send extraHandler */
-  private readonly senderMap = new Map<string, SenderContext>();
-
-  /** sessionId → current max seq — loaded from DB on start, incremented in-memory. */
-  private readonly seqMap = new Map<string, number>();
+  /**
+   * Central per-session state store.
+   * Keyed by sessionKey (== sessionId in this codebase).
+   * Loaded from session_msg_statistic on construction; kept in sync after every
+   * persistBatch commit so callers never need to query the DB for seq or stats.
+   */
+  private readonly sessionStates = new Map<string, SessionState>();
 
   /** In-memory write buffer; drained on each flush. */
   private readonly buffer: StoredMessage[] = [];
@@ -207,39 +240,70 @@ export class SessionTranscriptStore {
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private unsubscribe: (() => void) | null = null;
 
-  // ── 2.1 Constructor ────────────────────────────────────────────────────────
+  // ── Constructor ────────────────────────────────────────────────────────────
 
   constructor(db: DatabaseSync, opts?: SessionTranscriptStoreOptions) {
     this.db = db;
-    this.flushIntervalMs = opts?.flushIntervalMs ?? 500;
+    this.flushIntervalMs = opts?.flushIntervalMs ?? 3000;
     this.maxBufferSize = opts?.maxBufferSize ?? 100;
-    this.loadSeqCounters();
+    this.loadSessionStates();
   }
 
-  // ── 2.1b loadSeqCounters ──────────────────────────────────────────────────
+  // ── loadSessionStates ──────────────────────────────────────────────────────
 
-  /** Load max seq per sessionId from DB so seq accumulates across restarts. */
-  private loadSeqCounters(): void {
+  /**
+   * Populate sessionStates from session_msg_statistic on startup.
+   * This replaces the old loadSeqCounters() query against session_messages:
+   * lastSeq is read directly from the statistic row, which is always in sync
+   * with session_messages after every committed transaction.
+   */
+  private loadSessionStates(): void {
     try {
       const rows = this.db
-        .prepare("SELECT sessionId, MAX(seq) AS maxSeq FROM session_messages GROUP BY sessionId")
-        .all() as Array<{ sessionId: string; maxSeq: number }>;
+        .prepare(
+          "SELECT sessionKey, firstMsgAt, lastMsgAt, msgCount, lastSeq FROM session_msg_statistic",
+        )
+        .all() as Array<{
+        sessionKey: string;
+        firstMsgAt: number;
+        lastMsgAt: number;
+        msgCount: number;
+        lastSeq: number;
+      }>;
       for (const row of rows) {
-        this.seqMap.set(row.sessionId, row.maxSeq);
+        this.sessionStates.set(row.sessionKey, {
+          sender: { userId: null, tenantId: null },
+          lastSeq: row.lastSeq,
+          firstMsgAt: row.firstMsgAt,
+          lastMsgAt: row.lastMsgAt,
+          msgCount: row.msgCount,
+        });
       }
     } catch {
       // Table may not exist yet during first init — safe to ignore.
     }
   }
 
-  // ── 2.2 recordSenderContext ────────────────────────────────────────────────
+  // ── getOrInitState (private) ───────────────────────────────────────────────
+
+  /** Return the SessionState for a key, creating a default entry if absent. */
+  private getOrInitState(sessionKey: string): SessionState {
+    let state = this.sessionStates.get(sessionKey);
+    if (!state) {
+      state = defaultSessionState();
+      this.sessionStates.set(sessionKey, state);
+    }
+    return state;
+  }
+
+  // ── recordSenderContext ────────────────────────────────────────────────────
 
   /** Called by the chat.send extraHandler to associate a sessionKey with a user. */
   recordSenderContext(sessionKey: string, ctx: SenderContext): void {
-    this.senderMap.set(sessionKey, ctx);
+    this.getOrInitState(sessionKey).sender = ctx;
   }
 
-  // ── 2.3 start ─────────────────────────────────────────────────────────────
+  // ── start ──────────────────────────────────────────────────────────────────
 
   /** Subscribe to transcript updates and start the periodic flush timer. */
   start(): void {
@@ -249,7 +313,7 @@ export class SessionTranscriptStore {
     }, this.flushIntervalMs);
   }
 
-  // ── 2.4 stop ──────────────────────────────────────────────────────────────
+  // ── stop ───────────────────────────────────────────────────────────────────
 
   /** Unsubscribe, clear the timer, and synchronously flush remaining messages. */
   stop(): void {
@@ -264,23 +328,29 @@ export class SessionTranscriptStore {
     this.flush();
   }
 
-  // ── 2.9 getBuffered ───────────────────────────────────────────────────────
+  // ── getBuffered ────────────────────────────────────────────────────────────
 
   /**
    * Return a snapshot of buffer entries matching the given conditions.
+   * from/to are optional: when omitted the corresponding bound is not applied.
    * Read-only — does not modify the buffer.
    */
-  getBuffered(sessionKey: string, from: number, to: number, sessionId?: string): StoredMessage[] {
+  getBuffered(
+    sessionKey: string,
+    from: number | undefined,
+    to: number | undefined,
+    sessionId?: string,
+  ): StoredMessage[] {
     return this.buffer.filter(
       (m) =>
         m.sessionKey === sessionKey &&
-        m.timestamp >= from &&
-        m.timestamp <= to &&
+        (from === undefined || m.timestamp >= from) &&
+        (to === undefined || m.timestamp <= to) &&
         (sessionId === undefined || m.sessionId === sessionId),
     );
   }
 
-  // ── 2.10 recordToolEvent ──────────────────────────────────────────────────
+  // ── recordToolEvent ────────────────────────────────────────────────────────
 
   /**
    * Called from filterBroadcast when an agent stream:tool event is intercepted.
@@ -326,7 +396,7 @@ export class SessionTranscriptStore {
     }
   }
 
-  // ── 2.11 recordAssistantFinal ─────────────────────────────────────────────
+  // ── recordAssistantFinal ───────────────────────────────────────────────────
 
   /**
    * Called from filterBroadcast when a chat state:final event with an assistant
@@ -367,18 +437,20 @@ export class SessionTranscriptStore {
     timestamp: number;
   }): void {
     const { sessionKey, role, content, timestamp } = params;
+    // sessionId == sessionKey in this codebase.
     const sessionId = sessionKey;
-    const sender = this.senderMap.get(sessionKey) ?? { userId: null, tenantId: null };
-    const prevSeq = this.seqMap.get(sessionId) ?? 0;
-    const seq = prevSeq + 1;
-    this.seqMap.set(sessionId, seq);
+    const state = this.getOrInitState(sessionKey);
+    const seq = state.lastSeq + 1;
+    // Eagerly advance lastSeq so subsequent pushes in the same flush cycle get
+    // monotonically increasing seq values without waiting for a DB round-trip.
+    state.lastSeq = seq;
 
     this.buffer.push({
       id: crypto.randomUUID(),
       sessionKey,
       sessionId,
-      userId: sender.userId,
-      tenantId: sender.tenantId,
+      userId: state.sender.userId,
+      tenantId: state.sender.tenantId,
       role,
       content,
       timestamp,
@@ -391,7 +463,7 @@ export class SessionTranscriptStore {
     }
   }
 
-  // ── 2.5 handleUpdate (private) ────────────────────────────────────────────
+  // ── handleUpdate (private) ────────────────────────────────────────────────
 
   private handleUpdate(update: SessionTranscriptUpdate): void {
     try {
@@ -425,19 +497,17 @@ export class SessionTranscriptStore {
       if (role === "user" && isInboundMetaMessage(content)) {
         return;
       }
-      const sender = this.senderMap.get(sessionKey) ?? { userId: null, tenantId: null };
 
-      // Accumulate seq per sessionId: increment from the tracked max.
-      const prevSeq = this.seqMap.get(sessionId) ?? 0;
-      const seq = prevSeq + 1;
-      this.seqMap.set(sessionId, seq);
+      const state = this.getOrInitState(sessionKey);
+      const seq = state.lastSeq + 1;
+      state.lastSeq = seq;
 
       const stored: StoredMessage = {
         id: crypto.randomUUID(),
         sessionKey,
         sessionId,
-        userId: sender.userId,
-        tenantId: sender.tenantId,
+        userId: state.sender.userId,
+        tenantId: state.sender.tenantId,
         role,
         content,
         timestamp,
@@ -455,7 +525,7 @@ export class SessionTranscriptStore {
     }
   }
 
-  // ── 2.6 flush (private) ───────────────────────────────────────────────────
+  // ── flush (private) ───────────────────────────────────────────────────────
 
   private flush(): void {
     try {
@@ -470,10 +540,10 @@ export class SessionTranscriptStore {
     }
   }
 
-  // ── 2.7 persistBatch (private) ────────────────────────────────────────────
+  // ── persistBatch (private) ────────────────────────────────────────────────
 
   private persistBatch(msgs: StoredMessage[]): void {
-    // Group by sessionKey for archive checks.
+    // Group by sessionKey for archive checks and statistic updates.
     const byKey = new Map<string, StoredMessage[]>();
     for (const m of msgs) {
       let group = byKey.get(m.sessionKey);
@@ -490,7 +560,20 @@ export class SessionTranscriptStore {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
-    // Single transaction: archive checks + batch INSERT.
+    // Upsert statistic row: on first insert create the row; on subsequent inserts
+    // update lastMsgAt/msgCount/lastSeq and narrow firstMsgAt if a back-dated
+    // message arrives (e.g. from a replay).
+    const upsertStatStmt = this.db.prepare(
+      `INSERT INTO session_msg_statistic (sessionKey, firstMsgAt, lastMsgAt, msgCount, lastSeq)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(sessionKey) DO UPDATE SET
+         firstMsgAt = MIN(firstMsgAt, excluded.firstMsgAt),
+         lastMsgAt  = MAX(lastMsgAt,  excluded.lastMsgAt),
+         msgCount   = msgCount + excluded.msgCount,
+         lastSeq    = MAX(lastSeq,    excluded.lastSeq)`,
+    );
+
+    // Single transaction: archive checks + batch INSERT + statistic upsert.
     this.db.exec("BEGIN");
     try {
       for (const [sessionKey, group] of byKey) {
@@ -530,21 +613,78 @@ export class SessionTranscriptStore {
         );
       }
 
+      // Upsert session_msg_statistic once per sessionKey.
+      for (const [sessionKey, group] of byKey) {
+        const batchMinTs = group.reduce(
+          (min, m) => (m.timestamp < min ? m.timestamp : min),
+          group[0].timestamp,
+        );
+        const batchMaxTs = group.reduce(
+          (max, m) => (m.timestamp > max ? m.timestamp : max),
+          group[0].timestamp,
+        );
+        const batchMaxSeq = group.reduce((max, m) => (m.seq > max ? m.seq : max), group[0].seq);
+        upsertStatStmt.run(sessionKey, batchMinTs, batchMaxTs, group.length, batchMaxSeq);
+      }
+
       this.db.exec("COMMIT");
     } catch (err) {
       this.db.exec("ROLLBACK");
+      // On rollback, restore lastSeq in memory to the pre-batch value so the
+      // next flush doesn't produce a gap in seq numbers.
+      for (const [sessionKey, group] of byKey) {
+        const state = this.sessionStates.get(sessionKey);
+        if (state) {
+          state.lastSeq -= group.length;
+        }
+      }
       throw err;
+    }
+
+    // Commit succeeded: update in-memory statistic counters to mirror the DB.
+    for (const [sessionKey, group] of byKey) {
+      const state = this.getOrInitState(sessionKey);
+      const batchMinTs = group.reduce(
+        (min, m) => (m.timestamp < min ? m.timestamp : min),
+        group[0].timestamp,
+      );
+      const batchMaxTs = group.reduce(
+        (max, m) => (m.timestamp > max ? m.timestamp : max),
+        group[0].timestamp,
+      );
+      state.firstMsgAt =
+        state.firstMsgAt === 0 ? batchMinTs : Math.min(state.firstMsgAt, batchMinTs);
+      state.lastMsgAt = Math.max(state.lastMsgAt, batchMaxTs);
+      state.msgCount += group.length;
+      // lastSeq was already advanced eagerly in pushToBuffer/handleUpdate;
+      // no further update needed here.
     }
   }
 
-  // ── 2.8 checkArchiveDate (private) ────────────────────────────────────────
+  // ── checkArchiveDate (private) ────────────────────────────────────────────
 
   /**
    * Query the latest active (archivedDate IS NULL) message timestamp for
    * sessionKey. Returns the date string of that message if it differs from
    * newMsgDate (meaning a day boundary was crossed), otherwise null.
+   *
+   * Uses the in-memory lastMsgAt from SessionState when available to avoid a
+   * DB read on the hot path; falls back to a DB query for sessions loaded from
+   * a previous run whose lastMsgAt may reflect archived messages.
    */
   private checkArchiveDate(sessionKey: string, newMsgDate: string): string | null {
+    const state = this.sessionStates.get(sessionKey);
+    const candidateTs = state?.lastMsgAt ?? 0;
+
+    if (candidateTs > 0) {
+      const existingDate = toDateStr(candidateTs);
+      if (existingDate === newMsgDate) {
+        return null;
+      }
+      // Day boundary crossed — confirm against DB (lastMsgAt may include
+      // already-archived rows; we only want to archive still-active ones).
+    }
+
     const row = this.db
       .prepare(
         `SELECT MAX(timestamp) AS maxTs

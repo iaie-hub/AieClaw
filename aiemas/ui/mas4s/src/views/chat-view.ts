@@ -12,6 +12,7 @@ import "../components/summary-dialog.js";
  * - 空白消息拦截
  * - 发送后清空输入框
  * - 触发 send-message 事件
+ * - 滚动到顶部时触发 load-more-history 事件（向上翻页）
  */
 @customElement("chat-view")
 export class ChatView extends LitElement {
@@ -21,9 +22,12 @@ export class ChatView extends LitElement {
   @property({ type: Boolean }) isInitiator = false;
   @property({ type: Boolean }) hasSummary = false;
   @property({ type: Boolean }) truncated = false;
+  /** 是否还有更早的历史页可加载（page < totalPages） */
+  @property({ type: Boolean }) hasMoreHistory = false;
 
   @state() private _inputText = "";
   @state() private _summaryOpen = false;
+  @state() private _loadingMore = false;
 
   @query(".chat-container")
   private _container!: HTMLElement;
@@ -155,25 +159,134 @@ export class ChatView extends LitElement {
     .history-summary-hint:hover {
       background: #e0f2fe;
     }
-    .load-more-placeholder {
-      text-align: center;
+
+    .load-more-btn {
+      display: block;
+      width: 100%;
       padding: 8px;
-      color: #94a3b8;
+      background: none;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      color: #64748b;
       font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s;
+      margin-bottom: 8px;
+    }
+    .load-more-btn:hover:not(:disabled) {
+      background: #f1f5f9;
+    }
+    .load-more-btn:disabled {
+      opacity: 0.5;
       cursor: default;
+    }
+    .load-more-spinner {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border: 2px solid #cbd5e1;
+      border-top-color: #64748b;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
     }
   `;
 
-  updated(changed: Map<string, unknown>) {
-    if (changed.has("messages")) {
-      // 新消息到来时滚动到底部
-      requestAnimationFrame(() => {
-        if (this._container) {
-          this._container.scrollTop = this._container.scrollHeight;
-        }
-      });
+  // ── 滚动锚点（前插消息时保持视口不跳动） ─────────────────────────────────
+  private _prevScrollHeight = 0;
+  private _prevScrollTop = 0;
+  private _anchorRestore = false;
+
+  override willUpdate(changed: Map<string, unknown>) {
+    // 在 DOM 更新前采样滚动高度，用于前插消息后恢复位置
+    if (changed.has("messages") && this._container) {
+      const prev = changed.get("messages") as ChatMessage[] | undefined;
+      if ((prev?.length ?? 0) < this.messages.length && this._container.scrollTop < 200) {
+        // 仅在靠近顶部时才需要锚点恢复（前插场景）
+        this._prevScrollHeight = this._container.scrollHeight;
+        this._prevScrollTop = this._container.scrollTop;
+        this._anchorRestore = true;
+      }
     }
   }
+
+  updated(changed: Map<string, unknown>) {
+    if (changed.has("messages")) {
+      if (this._anchorRestore && this._container) {
+        // 前插消息后：补偿新增高度，使用户视口保持不动
+        const delta = this._container.scrollHeight - this._prevScrollHeight;
+        this._container.scrollTop = this._prevScrollTop + delta;
+        this._anchorRestore = false;
+        // 前插完成后重置加载状态
+        this._loadingMore = false;
+      } else {
+        // 实时新消息追加到末尾：滚动到底部
+        requestAnimationFrame(() => {
+          if (this._container) {
+            this._container.scrollTop = this._container.scrollHeight;
+          }
+        });
+      }
+    }
+  }
+
+  override connectedCallback(): void {
+    super.connectedCallback();
+    this.addEventListener("summary-click", this._onSummaryClick as EventListener);
+  }
+
+  override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.removeEventListener("summary-click", this._onSummaryClick as EventListener);
+    this._container?.removeEventListener("scroll", this._onScroll);
+  }
+
+  override firstUpdated() {
+    if (this._container) {
+      this._container.addEventListener("scroll", this._onScroll, { passive: true });
+    }
+  }
+
+  // ── 滚动到顶部触发向上翻页 ────────────────────────────────────────────────
+
+  /**
+   * 当容器滚动到距顶部 40px 以内时触发向上翻页。
+   * _loadingMore 防止重复触发。
+   */
+  private _onScroll = () => {
+    if (!this.hasMoreHistory || this._loadingMore) {
+      return;
+    }
+    if (this._container.scrollTop <= 40) {
+      this._triggerLoadMore();
+    }
+  };
+
+  private _triggerLoadMore() {
+    if (!this.session || this._loadingMore) {
+      return;
+    }
+    this._loadingMore = true;
+    this.dispatchEvent(
+      new CustomEvent("load-more-history", {
+        detail: { sessionKey: this.session.key },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+    // 兜底：3s 后若父组件未响应则重置，避免 spinner 永久显示
+    setTimeout(() => {
+      this._loadingMore = false;
+    }, 3000);
+  }
+
+  // ── 输入区 ────────────────────────────────────────────────────────────────
 
   private _onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
@@ -188,11 +301,9 @@ export class ChatView extends LitElement {
 
   private _onSend = () => {
     const text = this._inputText.trim();
-    // 属性 5：空白消息被拒绝；归档会话禁止发送
     if (!text || !this.session || this._isArchived) {
       return;
     }
-
     this.dispatchEvent(
       new CustomEvent("send-message", {
         detail: { sessionKey: this.session.key, text },
@@ -203,11 +314,11 @@ export class ChatView extends LitElement {
     this._inputText = "";
   };
 
+  // ── 摘要弹窗 ──────────────────────────────────────────────────────────────
+
   private _onSummaryClick = (e: CustomEvent) => {
-    // 接收从 main-workspace 转发来的 summary-click 事件，打开 dialog
     e.stopPropagation();
     this._summaryOpen = true;
-    // 等 dialog 渲染后触发 openDialog 逻辑
     void this.updateComplete.then(() => {
       const dialog = this.shadowRoot?.querySelector("summary-dialog") as
         | import("../components/summary-dialog.js").SummaryDialog
@@ -216,19 +327,11 @@ export class ChatView extends LitElement {
     });
   };
 
-  override connectedCallback(): void {
-    super.connectedCallback();
-    this.addEventListener("summary-click", this._onSummaryClick as EventListener);
-  }
-
-  override disconnectedCallback(): void {
-    super.disconnectedCallback();
-    this.removeEventListener("summary-click", this._onSummaryClick as EventListener);
-  }
-
   private _onSummaryClose = () => {
     this._summaryOpen = false;
   };
+
+  // ── render ────────────────────────────────────────────────────────────────
 
   render() {
     if (!this.session) {
@@ -242,21 +345,31 @@ export class ChatView extends LitElement {
     return html`
       <div class="chat-container">
         ${
-          this.truncated
+          this.hasMoreHistory
             ? html`
-                <div class="load-more-placeholder">
-                  <span>— 加载更多历史消息（即将支持）—</span>
-                </div>
-              `
+              <button
+                class="load-more-btn"
+                ?disabled=${this._loadingMore}
+                @click=${() => this._triggerLoadMore()}
+              >
+                ${
+                  this._loadingMore
+                    ? html`
+                        <span class="load-more-spinner"></span>加载中…
+                      `
+                    : "↑ 加载更早的消息"
+                }
+              </button>
+            `
             : ""
         }
         ${
           this.hasSummary
             ? html`
-          <div class="history-summary-hint" @click="${this._onSummaryClick}">
-            <span>更早的消息已生成摘要，点击查看</span>
-          </div>
-        `
+              <div class="history-summary-hint" @click=${this._onSummaryClick}>
+                <span>更早的消息已生成摘要，点击查看</span>
+              </div>
+            `
             : ""
         }
         <div class="session-divider">—— 协作链路已加密连接 ——</div>
@@ -273,7 +386,6 @@ export class ChatView extends LitElement {
         }
       </div>
 
-      <!-- 摘要弹出面板（需求 4.10）：监听从 header 冒泡的 summary-click -->
       <summary-dialog
         .session=${this.session}
         .isOwner=${isOwner}
@@ -285,7 +397,11 @@ export class ChatView extends LitElement {
         <div class="chat-input-area">
           <textarea
             rows="2"
-            placeholder=${this._isArchived ? "会话已归档，无法发送消息" : "输入消息，Shift+Enter 换行，Enter 发送…"}
+            placeholder=${
+              this._isArchived
+                ? "会话已归档，无法发送消息"
+                : "输入消息，Shift+Enter 换行，Enter 发送…"
+            }
             .value=${this._inputText}
             ?disabled=${this._isArchived}
             @input=${(e: Event) => {

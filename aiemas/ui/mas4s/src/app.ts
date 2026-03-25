@@ -137,6 +137,7 @@ export class Mas4sApp extends LitElement {
       onResolveApproval: (e) => this._message.onResolveApproval(e),
       onInviteOpen: () => this._ui.onInviteOpen(),
       onDialogClose: () => this._ui.onDialogClose(),
+      onLoadMoreHistory: (e) => this._session.onLoadMoreHistory(e),
     });
   }
 }
