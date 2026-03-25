@@ -726,6 +726,14 @@ export async function initMas4sIntegration(
         const clientRunId =
           typeof opts.params["clientRunId"] === "string" ? opts.params["clientRunId"] : undefined;
 
+        // Record sender context for message capture before core handler runs
+        if (sessionKey) {
+          plugin.transcriptStore.recordSenderContext(sessionKey, {
+            userId: masAuth.userId ?? null,
+            tenantId: masAuth.tenantId ?? null,
+          });
+        }
+
         // Run core handler first (manages idempotency, persistence, agent run)
         await coreChatSend(opts);
 

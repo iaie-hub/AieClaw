@@ -15,10 +15,19 @@ export interface HistoryRangeParams {
   limit?: number;
   /** Buffer messages not yet persisted, merged with DB results */
   buffered?: StoredMessage[];
+  /**
+   * Optional resolver: given a userId returns the user's current displayName.
+   * When provided, each message is enriched with a senderLabel field.
+   * Kept as a callback so callers can use an in-memory cache instead of a DB query.
+   */
+  resolveDisplayName?: (userId: string) => string | undefined;
 }
 
+/** StoredMessage enriched with the sender's current displayName. */
+export type StoredMessageWithSender = StoredMessage & { senderLabel: string | null };
+
 export interface HistoryRangeResult {
-  messages: StoredMessage[]; // timestamp DESC order
+  messages: StoredMessageWithSender[]; // timestamp DESC order
   total: number; // total count in time range (including buffer)
   truncated: boolean;
   hasSummary: boolean; // whether any message has role='summary'
@@ -103,8 +112,15 @@ export function queryHistoryRange(
   const hasSummary = merged.some((m) => m.role === "summary");
   const messages = merged.slice(0, limit);
 
+  // ── Enrich with senderLabel via resolveDisplayName callback ───────────────
+  const { resolveDisplayName } = params;
+  const enriched: StoredMessageWithSender[] = messages.map((m) => ({
+    ...m,
+    senderLabel: m.userId && resolveDisplayName ? (resolveDisplayName(m.userId) ?? null) : null,
+  }));
+
   return {
-    messages,
+    messages: enriched,
     total,
     truncated: messages.length < total,
     hasSummary,

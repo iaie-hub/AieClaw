@@ -38,6 +38,19 @@ function toDateStr(ts: number): string {
 }
 
 /**
+ * Returns true if the content string is a gateway-injected inbound metadata
+ * message (the second SessionTranscriptUpdate fired after buildInboundUserContextPrefix
+ * prepends Sender/Conversation blocks to the stored user turn).
+ * We skip these to avoid duplicate user messages in session_messages.
+ */
+function isInboundMetaMessage(content: string): boolean {
+  return (
+    content.includes("Sender (untrusted metadata):") ||
+    content.includes("Conversation info (untrusted metadata):")
+  );
+}
+
+/**
  * 从 message.content 中提取纯文本。
  * - 字符串：直接返回
  * - 数组（assistant/tool 消息）：拼接所有 type=text 块的 text 字段
@@ -220,10 +233,13 @@ export class SessionTranscriptStore {
       }
 
       const role = normaliseRole(rawRole);
+      // Skip gateway-injected inbound metadata messages (second transcript event
+      // fired after buildInboundUserContextPrefix prepends Sender/Conversation blocks).
+      // These are duplicates of the original user message and must not be stored.
+      if (role === "user" && isInboundMetaMessage(content)) {
+        return;
+      }
       const sender = this.senderMap.get(sessionKey) ?? { userId: null, tenantId: null };
-      console.log(
-        `[mas4s:transcript-store] handleUpdate sessionKey=${sessionKey} role=${role} senderMapHit=${this.senderMap.has(sessionKey)} userId=${sender.userId ?? "null"}`,
-      );
 
       // Accumulate seq per sessionId: increment from the tracked max.
       const prevSeq = this.seqMap.get(sessionId) ?? 0;

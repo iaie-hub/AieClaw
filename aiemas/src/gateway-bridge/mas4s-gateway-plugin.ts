@@ -36,6 +36,8 @@ export interface Mas4sGatewayPlugin {
   extractMasTokenFromUrl: typeof extractMasTokenFromUrl;
   /** Set by integration layer to enable internal gateway calls (e.g. chat.history). */
   gatewayDispatch: GatewayDispatchFn | null;
+  /** Session transcript store for capturing messages. */
+  transcriptStore: import("../session-history/session-transcript-store.js").SessionTranscriptStore;
 }
 
 function errorShape(code: string, message: string): { code: string; message: string } {
@@ -93,18 +95,10 @@ export async function createMas4sGatewayPlugin(
   transcriptStore.start();
 
   const extraHandlers: SimpleHandlers = {
-    "chat.send": async ({ params, client, respond }) => {
-      const auth = getCallerAuth(client);
-      const sessionKey = str(params["sessionKey"] ?? "");
-      console.log(
-        `[mas4s:chat.send] sessionKey=${sessionKey} userId=${auth.userId ?? "null"} tenantId=${auth.tenantId ?? "null"}`,
-      );
-      if (sessionKey) {
-        transcriptStore.recordSenderContext(sessionKey, {
-          userId: auth.userId ?? null,
-          tenantId: auth.tenantId ?? null,
-        });
-      }
+    "chat.send": async ({ params: _params, client: _client, respond }) => {
+      // Note: This handler is replaced by the mas4s-integration wrapper,
+      // which calls recordSenderContext before the core handler.
+      // This handler is kept for reference but is not actually invoked.
       respond(true, {}, undefined);
     },
 
@@ -148,6 +142,7 @@ export async function createMas4sGatewayPlugin(
           to: resolvedTo,
           limit: typeof params["limit"] === "number" ? params["limit"] : undefined,
           buffered,
+          resolveDisplayName: (userId) => tenantService.resolveDisplayName(userId),
         });
         respond(true, result, undefined);
       } catch (err) {
@@ -515,6 +510,7 @@ export async function createMas4sGatewayPlugin(
     extraHandlers,
     extractMasTokenFromUrl,
     gatewayDispatch: null,
+    transcriptStore,
   };
 
   return plugin;

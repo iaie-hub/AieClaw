@@ -229,6 +229,66 @@ describe("SessionTranscriptStore unit tests", () => {
     expect(result2.map((m) => m.content).toSorted()).toEqual(["match1", "no-match-sid"].toSorted());
   });
 
+  it("recordSenderContext: userId and tenantId are associated with sessionKey and used in handleUpdate", () => {
+    // Record sender context for a session
+    store.recordSenderContext("sk-sender", {
+      userId: "user-123",
+      tenantId: "tenant-456",
+    });
+
+    const handleUpdate = (
+      store as unknown as { handleUpdate: (u: unknown) => void }
+    ).handleUpdate.bind(store);
+
+    // Trigger handleUpdate with a message for that sessionKey
+    handleUpdate({
+      sessionKey: "sk-sender",
+      message: { role: "user", content: "hello", sessionId: "sid-sender", timestamp: 1000 },
+    });
+
+    // Flush to persist
+    (store as unknown as { flush: () => void }).flush();
+
+    // Verify the message was persisted with the correct userId and tenantId
+    const row = db
+      .prepare("SELECT userId, tenantId FROM session_messages WHERE sessionKey = ?")
+      .get("sk-sender") as { userId: string | null; tenantId: string | null } | undefined;
+
+    expect(row).toBeDefined();
+    expect(row!.userId).toBe("user-123");
+    expect(row!.tenantId).toBe("tenant-456");
+  });
+
+  it("inbound metadata duplicate: Sender-prefixed user messages are skipped and not stored", () => {
+    const handleUpdate = (
+      store as unknown as { handleUpdate: (u: unknown) => void }
+    ).handleUpdate.bind(store);
+
+    // First event: plain user message (seq=1)
+    handleUpdate({
+      sessionKey: "sk-dedup",
+      message: { role: "user", content: "你好", sessionId: "sid-dedup", timestamp: 1000 },
+    });
+
+    // Second event: gateway-injected metadata duplicate (should be skipped)
+    const senderPrefixed =
+      'Sender (untrusted metadata):\n```json\n{"label":"管理员"}\n```\n\n[Wed 2026-03-25 10:51 GMT+8] 你好';
+    handleUpdate({
+      sessionKey: "sk-dedup",
+      message: { role: "user", content: senderPrefixed, sessionId: "sid-dedup", timestamp: 1001 },
+    });
+
+    (store as unknown as { flush: () => void }).flush();
+
+    const rows = db
+      .prepare("SELECT content FROM session_messages WHERE sessionKey = ? ORDER BY seq")
+      .all("sk-dedup") as Array<{ content: string }>;
+
+    // Only the original plain message should be stored
+    expect(rows).toHaveLength(1);
+    expect(rows[0].content).toBe("你好");
+  });
+
   it("seq via handleUpdate accumulates correctly across flushes", () => {
     const handleUpdate = (
       store as unknown as { handleUpdate: (u: unknown) => void }
@@ -429,6 +489,43 @@ describe("queryHistoryRange unit tests", () => {
     // Should have only 1 message (deduplicated), and buffer version wins
     expect(result.messages).toHaveLength(1);
     expect(result.messages[0].content).toBe("buffer-version");
+  });
+
+  it("senderLabel enrichment: displayName is resolved from usersDb by userId", () => {
+    const userId = crypto.randomUUID() as string;
+    const displayNameMap = new Map([[userId, "Alice Chen"]]);
+
+    const msg = makeMsg({ sessionKey: "sk-sl", sessionId: "sid-sl", timestamp: BASE_TS, userId });
+    insertMsg(msg);
+
+    const result = queryHistoryRange(db, {
+      sessionKey: "sk-sl",
+      from: BASE_TS - 1,
+      to: BASE_TS + 1,
+      resolveDisplayName: (uid) => displayNameMap.get(uid),
+    });
+
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0].senderLabel).toBe("Alice Chen");
+  });
+
+  it("senderLabel enrichment: null userId yields null senderLabel", () => {
+    const msg = makeMsg({
+      sessionKey: "sk-sl-null",
+      sessionId: "sid",
+      timestamp: BASE_TS,
+      userId: null,
+    });
+    insertMsg(msg);
+
+    const result = queryHistoryRange(db, {
+      sessionKey: "sk-sl-null",
+      from: BASE_TS - 1,
+      to: BASE_TS + 1,
+    });
+
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0].senderLabel).toBeNull();
   });
 });
 
