@@ -238,6 +238,12 @@ export async function applySessionsPatchToStore(params: {
         }
       }
       next.label = parsed.label;
+      // Seed displayName from label when not yet set, so sessions.list returns
+      // a non-null displayName immediately after create/rename without waiting
+      // for the first chat.send to populate origin.label.
+      if (!next.displayName) {
+        next.displayName = parsed.label;
+      }
     }
   }
 

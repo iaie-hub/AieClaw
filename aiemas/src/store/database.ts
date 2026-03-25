@@ -128,6 +128,17 @@ export function ensureMas4sSchema(db: DatabaseSync): void {
       generatedBy TEXT NOT NULL
     );
   `);
+
+  // session_labels: persistent label/displayName store, survives session resets.
+  // Acts as the authoritative source for session naming, independent of sessions.json.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS session_labels (
+      sessionKey   TEXT    PRIMARY KEY,
+      label        TEXT    NULL,
+      displayName  TEXT    NULL,
+      updatedAt    INTEGER NOT NULL
+    );
+  `);
 }
 
 /**

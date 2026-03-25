@@ -138,6 +138,35 @@ export function registerEventHandlers(): void {
         store.updateSessionArchived(sessionKey, null);
         break;
       }
+      case "sessions.changed": {
+        // When a session is patched or reset, re-sync label from aiemas DB
+        // in case the gateway's sessions.json lost the displayName.
+        const { sessionKey: changedKey, reason: changedReason } = evt.payload as {
+          sessionKey?: string;
+          reason?: string;
+        };
+        if (
+          changedKey &&
+          (changedReason === "patch" || changedReason === "new" || changedReason === "reset")
+        ) {
+          void (async () => {
+            try {
+              const { getClient } = await import("./client.js");
+              const { fetchSessionLabel } = await import("./session-manager.js");
+              const entry = await fetchSessionLabel(getClient(), changedKey);
+              if (entry) {
+                store.patchSessionLabelFromDb(changedKey, {
+                  label: entry.label,
+                  displayName: entry.displayName,
+                });
+              }
+            } catch {
+              // Non-critical: label sync failure should not surface as an error
+            }
+          })();
+        }
+        break;
+      }
       case "session.summary.updated": {
         const { sessionKey: summarySessionKey } = evt.payload as {
           sessionKey: string;

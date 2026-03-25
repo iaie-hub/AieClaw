@@ -150,6 +150,25 @@ export class AppStore {
     this.notify();
   }
 
+  /** 用 aiemas DB 的持久化值修补 label（仅在 gateway 返回值为空时使用） */
+  patchSessionLabelFromDb(
+    sessionKey: string,
+    patch: { label?: string | null; displayName?: string | null },
+  ): void {
+    this.sessions = this.sessions.map((s) => {
+      if (s.key !== sessionKey) {
+        return s;
+      }
+      // Only apply if current label is still missing
+      if (s.label) {
+        return s;
+      }
+      const resolved = patch.label ?? patch.displayName ?? undefined;
+      return resolved ? { ...s, label: resolved } : s;
+    });
+    this.notify();
+  }
+
   updateSessionArchived(sessionKey: string, archivedAt: number | null): void {
     this.sessions = this.sessions.map((s) => (s.key === sessionKey ? { ...s, archivedAt } : s));
     this.notify();

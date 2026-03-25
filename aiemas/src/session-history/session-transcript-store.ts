@@ -71,7 +71,20 @@ function extractContent(raw: unknown): string {
         if (b["type"] === "text" && typeof b["text"] === "string") {
           return b["text"];
         }
-        // tool_use block: { type: "tool_use", name: "...", input: {...} }
+        // thinking block: { type: "thinking", thinking: "..." }
+        // Serialise so it can be restored as a thinking content item in the history view.
+        // Newlines within the thinking text are escaped to \n literals to keep the
+        // serialised form on a single line, matching the line-prefix parsing in normalizeMessage.
+        if (b["type"] === "thinking" && typeof b["thinking"] === "string") {
+          return `[thinking] ${b["thinking"].replace(/\n/g, "\\n")}`;
+        }
+        // toolCall block (pi-coding-agent format): { type: "toolCall", name: "...", arguments: {...} }
+        if (b["type"] === "toolCall") {
+          const name = typeof b["name"] === "string" ? b["name"] : "tool";
+          const args = b["arguments"] != null ? JSON.stringify(b["arguments"]) : "";
+          return args ? `[tool_use:${name}] ${args}` : `[tool_use:${name}]`;
+        }
+        // tool_use block (Anthropic format): { type: "tool_use", name: "...", input: {...} }
         if (b["type"] === "tool_use") {
           const name = typeof b["name"] === "string" ? b["name"] : "tool";
           const input = b["input"] != null ? JSON.stringify(b["input"]) : "";
@@ -113,6 +126,55 @@ function normaliseRole(raw: unknown): "user" | "assistant" | "tool" | "summary" 
   return "user";
 }
 
+// ── Helpers (tool event) ─────────────────────────────────────────────────────
+
+/** Pending tool call entry: holds start-phase data until result arrives. */
+interface PendingToolCall {
+  sessionKey: string;
+  name: string;
+  /** Serialised "[tool_use:name] {...}" string */
+  callContent: string;
+  timestamp: number;
+}
+
+/**
+ * Truncate and stringify a tool result value for storage.
+ * Mirrors the TOOL_OUTPUT_CHAR_LIMIT logic in the frontend event-handler.
+ */
+function formatToolResult(value: unknown): string {
+  const LIMIT = 120_000;
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value.length > LIMIT ? value.slice(0, LIMIT) + "\n…(truncated)" : value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  const rec = value as Record<string, unknown>;
+  if (typeof rec["text"] === "string") {
+    return formatToolResult(rec["text"]);
+  }
+  if (Array.isArray(rec["content"])) {
+    const parts = (rec["content"] as unknown[])
+      .map((item) => {
+        const x = item as Record<string, unknown>;
+        return x["type"] === "text" && typeof x["text"] === "string" ? x["text"] : null;
+      })
+      .filter((s): s is string => s !== null);
+    if (parts.length > 0) {
+      return formatToolResult(parts.join("\n"));
+    }
+  }
+  try {
+    const json = JSON.stringify(value, null, 2);
+    return json.length > LIMIT ? json.slice(0, LIMIT) + "\n…(truncated)" : json;
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
+}
+
 // ── Class ────────────────────────────────────────────────────────────────────
 
 export class SessionTranscriptStore {
@@ -128,6 +190,19 @@ export class SessionTranscriptStore {
 
   /** In-memory write buffer; drained on each flush. */
   private readonly buffer: StoredMessage[] = [];
+
+  /**
+   * Pending tool calls keyed by toolCallId.
+   * Populated on phase=start, consumed on phase=result to emit a single record.
+   */
+  private readonly pendingToolCalls = new Map<string, PendingToolCall>();
+
+  /**
+   * Dedup set for assistant final messages: tracks runIds already stored via
+   * recordAssistantFinal to avoid double-writing when both transcript events
+   * and filterBroadcast capture the same message.
+   */
+  private readonly storedRunIds = new Set<string>();
 
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -203,6 +278,117 @@ export class SessionTranscriptStore {
         m.timestamp <= to &&
         (sessionId === undefined || m.sessionId === sessionId),
     );
+  }
+
+  // ── 2.10 recordToolEvent ──────────────────────────────────────────────────
+
+  /**
+   * Called from filterBroadcast when an agent stream:tool event is intercepted.
+   * phase=start: records the tool call start, waiting for the result.
+   * phase=result: merges start+result into a single assistant record and buffers it.
+   */
+  recordToolEvent(params: {
+    sessionKey: string;
+    toolCallId: string;
+    name: string;
+    phase: string;
+    args?: unknown;
+    result?: unknown;
+    timestamp: number;
+  }): void {
+    const { sessionKey, toolCallId, name, phase, args, result, timestamp } = params;
+
+    if (phase === "start") {
+      const argsStr = args != null ? JSON.stringify(args) : "";
+      const callContent = argsStr ? `[tool_use:${name}] ${argsStr}` : `[tool_use:${name}]`;
+      this.pendingToolCalls.set(toolCallId, { sessionKey, name, callContent, timestamp });
+      return;
+    }
+
+    if (phase === "result") {
+      const pending = this.pendingToolCalls.get(toolCallId);
+      if (!pending) {
+        return;
+      }
+      this.pendingToolCalls.delete(toolCallId);
+
+      const resultStr = formatToolResult(result);
+      const content = resultStr
+        ? `${pending.callContent}\n[tool_result] ${resultStr.replace(/\n/g, "\\n")}`
+        : pending.callContent;
+
+      this.pushToBuffer({
+        sessionKey: pending.sessionKey,
+        role: "assistant",
+        content,
+        timestamp: pending.timestamp,
+      });
+    }
+  }
+
+  // ── 2.11 recordAssistantFinal ─────────────────────────────────────────────
+
+  /**
+   * Called from filterBroadcast when a chat state:final event with an assistant
+   * message is intercepted. Stores the final assistant text, deduplicating by runId
+   * to avoid double-writing when the transcript event path also fires.
+   */
+  recordAssistantFinal(params: {
+    sessionKey: string;
+    runId: string;
+    text: string;
+    timestamp: number;
+  }): void {
+    const { sessionKey, runId, text, timestamp } = params;
+    if (!text.trim()) {
+      return;
+    }
+    // Dedup: if this runId was already stored via handleUpdate (transcript path), skip.
+    if (this.storedRunIds.has(runId)) {
+      return;
+    }
+    this.storedRunIds.add(runId);
+    // Evict old entries to prevent unbounded growth (keep last 500 runIds).
+    if (this.storedRunIds.size > 500) {
+      const first = this.storedRunIds.values().next().value;
+      if (first !== undefined) {
+        this.storedRunIds.delete(first);
+      }
+    }
+    this.pushToBuffer({ sessionKey, role: "assistant", content: text, timestamp });
+  }
+
+  // ── pushToBuffer (private) ────────────────────────────────────────────────
+
+  private pushToBuffer(params: {
+    sessionKey: string;
+    role: StoredMessage["role"];
+    content: string;
+    timestamp: number;
+  }): void {
+    const { sessionKey, role, content, timestamp } = params;
+    const sessionId = sessionKey;
+    const sender = this.senderMap.get(sessionKey) ?? { userId: null, tenantId: null };
+    const prevSeq = this.seqMap.get(sessionId) ?? 0;
+    const seq = prevSeq + 1;
+    this.seqMap.set(sessionId, seq);
+
+    this.buffer.push({
+      id: crypto.randomUUID(),
+      sessionKey,
+      sessionId,
+      userId: sender.userId,
+      tenantId: sender.tenantId,
+      role,
+      content,
+      timestamp,
+      seq,
+      archivedDate: null,
+    });
+
+    if (this.buffer.length >= this.maxBufferSize) {
+      this.flush();
+    }
   }
 
   // ── 2.5 handleUpdate (private) ────────────────────────────────────────────

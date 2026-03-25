@@ -1,6 +1,12 @@
 import { TenantServiceError } from "../errors.js";
 import type { TenantService, TenantServiceConfig } from "../index.js";
 import { createTenantService } from "../index.js";
+import {
+  upsertSessionLabel,
+  getSessionLabel,
+  listSessionLabels,
+  deleteSessionLabel,
+} from "../session-history/session-label-store.js";
 import { GatewayAuthBridge } from "./bridge.js";
 import { getMasAuth, NULL_MAS_AUTH } from "./context.js";
 import { extractMasTokenFromUrl } from "./integration.js";
@@ -38,6 +44,8 @@ export interface Mas4sGatewayPlugin {
   gatewayDispatch: GatewayDispatchFn | null;
   /** Session transcript store for capturing messages. */
   transcriptStore: import("../session-history/session-transcript-store.js").SessionTranscriptStore;
+  /** Stop the session label lifecycle event subscription. */
+  stopLabelSync: () => void;
 }
 
 function errorShape(code: string, message: string): { code: string; message: string } {
@@ -93,6 +101,31 @@ export async function createMas4sGatewayPlugin(
   const { SessionTranscriptStore } = await import("../session-history/session-transcript-store.js");
   const transcriptStore = new SessionTranscriptStore(messageDb);
   transcriptStore.start();
+
+  // Subscribe to session lifecycle events to persist label/displayName into mas4s.db.
+  // This survives session resets because sessionKey is stable across resets.
+  const { onSessionLifecycleEvent } =
+    await import("../../../src/sessions/session-lifecycle-events.js");
+  const stopLabelSync = onSessionLifecycleEvent((event) => {
+    try {
+      // On session delete, remove the persisted label entry.
+      if (event.reason === "session-delete") {
+        deleteSessionLabel(db, event.sessionKey);
+        return;
+      }
+      const hasLabel = event.label !== undefined;
+      const hasDisplayName = event.displayName !== undefined;
+      if (!hasLabel && !hasDisplayName) {
+        return;
+      }
+      upsertSessionLabel(db, event.sessionKey, {
+        ...(hasLabel ? { label: event.label ?? null } : {}),
+        ...(hasDisplayName ? { displayName: event.displayName ?? null } : {}),
+      });
+    } catch (err) {
+      console.error("[mas4s:label-sync] upsertSessionLabel error:", err);
+    }
+  });
 
   const extraHandlers: SimpleHandlers = {
     "chat.send": async ({ params: _params, client: _client, respond }) => {
@@ -502,6 +535,55 @@ export async function createMas4sGatewayPlugin(
         respond(false, undefined, errorShape(e.code, e.message));
       }
     },
+
+    "session.label.get": async ({ params, client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        const sessionKey = str(params["sessionKey"]);
+        if (!sessionKey) {
+          respond(false, undefined, errorShape("INVALID_PARAMS", "sessionKey required"));
+          return;
+        }
+        if (auth.userId) {
+          const access = bridge.checkSessionAccess(sessionKey, auth);
+          if (!access.allowed) {
+            respond(false, undefined, errorShape(access.code, access.message));
+            return;
+          }
+        }
+        const entry = getSessionLabel(db, sessionKey);
+        respond(
+          true,
+          {
+            sessionKey,
+            label: entry?.label ?? null,
+            displayName: entry?.displayName ?? null,
+            updatedAt: entry?.updatedAt ?? null,
+          },
+          undefined,
+        );
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
+
+    "session.label.list": async ({ client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        if (!auth.userId) {
+          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
+          return;
+        }
+        const all = listSessionLabels(db);
+        respond(true, { labels: all }, undefined);
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
   };
 
   const plugin: Mas4sGatewayPlugin = {
@@ -511,6 +593,7 @@ export async function createMas4sGatewayPlugin(
     extractMasTokenFromUrl,
     gatewayDispatch: null,
     transcriptStore,
+    stopLabelSync,
   };
 
   return plugin;

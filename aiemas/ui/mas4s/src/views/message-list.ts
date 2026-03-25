@@ -37,7 +37,7 @@ export class MessageList extends LitElement {
     if (msg.role === "user" || msg.role === "User") {
       return html`<msg-user .message=${msg}></msg-user>`;
     }
-    if (msg.role === "assistant" || msg.role === "toolResult") {
+    if (msg.role === "assistant" || msg.role === "toolResult" || msg.role === "tool") {
       return html`<msg-agent .message=${msg}></msg-agent>`;
     }
     // 其他 role（tool、system 等）暂不渲染

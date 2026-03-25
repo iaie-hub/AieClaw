@@ -85,6 +85,24 @@ export class MsgAgent extends LitElement {
       font-weight: 600;
     }
 
+    .tool-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #fef3c7;
+      color: #92400e;
+      border: 1px solid #fde68a;
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .tool-tag-icon {
+      font-size: 11px;
+    }
+
     .message-bubble {
       padding: 14px 18px;
       border-radius: 16px;
@@ -299,6 +317,11 @@ export class MsgAgent extends LitElement {
         })()
       : "";
 
+    // 判断消息是否包含工具调用/结果，用于显示 Tool 标签
+    const hasTool = this.message.content.some(
+      (c) => c.type === "tool_call" || c.type === "tool_result",
+    );
+
     return html`
       <div class="message-row">
         <div class="message-avatar">
@@ -319,6 +342,13 @@ export class MsgAgent extends LitElement {
         <div class="message-content">
           <div class="message-name">
             ${name}
+            ${
+              hasTool
+                ? html`
+                    <span class="tool-tag"> <span class="tool-tag-icon">⚡</span>Tool </span>
+                  `
+                : nothing
+            }
             ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
           </div>
           ${this._renderContent(this.message.content)}

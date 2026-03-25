@@ -2,9 +2,117 @@ import type { GatewayBrowserClient } from "../lib/gateway.js";
 import { normalizeMessage } from "../lib/message-normalizer.js";
 import type { GatewaySessionRow } from "../lib/types.js";
 import { SummaryStore } from "../store/summary-store.js";
-import type { ChatMessage } from "../types/chat-types.js";
+import type { ChatMessage, MessageContentItem } from "../types/chat-types.js";
 import type { MasSession } from "../types/session-types.js";
 import { getSummary } from "./session-archive.js";
+
+// ── splitHistoryMessage ───────────────────────────────────────────────────────
+
+/**
+ * Split a single history message into multiple messages when it contains mixed
+ * content types (thinking, tool_call, text). This mirrors the real-time view
+ * where each type is rendered as a separate bubble.
+ *
+ * Preserves the original content order by scanning items sequentially and
+ * emitting a new bubble whenever the "group type" changes:
+ *   - thinking items group together
+ *   - each tool_call (with its immediately following tool_result) is one bubble
+ *   - text items group together
+ *
+ * If the message contains only one type, it is returned as-is.
+ */
+function splitHistoryMessage(msg: ChatMessage): ChatMessage[] {
+  const { content } = msg;
+
+  const hasThinking = content.some((c) => c.type === "thinking");
+  const hasToolCall = content.some((c) => c.type === "tool_call");
+
+  // Nothing to split — single type content
+  if (!hasThinking && !hasToolCall) {
+    return [msg];
+  }
+
+  const result: ChatMessage[] = [];
+  let currentGroup: MessageContentItem[] = [];
+  // "thinking" | "tool" | "text"
+  let currentType: string | null = null;
+
+  const flushGroup = () => {
+    if (currentGroup.length > 0) {
+      result.push({ ...msg, content: [...currentGroup] });
+      currentGroup = [];
+    }
+    currentType = null;
+  };
+
+  for (let i = 0; i < content.length; i++) {
+    const item = content[i];
+    if (!item) {
+      continue;
+    }
+
+    if (item.type === "thinking") {
+      if (currentType !== "thinking") {
+        flushGroup();
+        currentType = "thinking";
+      }
+      currentGroup.push(item);
+    } else if (item.type === "tool_call") {
+      // Each tool_call starts a new bubble
+      flushGroup();
+      currentType = "tool";
+      const toolItems: MessageContentItem[] = [item];
+      // Attach immediately following tool_result if present
+      const next = content[i + 1];
+      if (next?.type === "tool_result") {
+        toolItems.push(next);
+        i++;
+      }
+      result.push({ ...msg, content: toolItems });
+      currentType = null;
+    } else if (item.type === "tool_result") {
+      // Orphaned tool_result (no preceding tool_call in this message) — own bubble
+      flushGroup();
+      result.push({ ...msg, content: [item] });
+    } else {
+      // text or other
+      if (currentType !== "text") {
+        flushGroup();
+        currentType = "text";
+      }
+      currentGroup.push(item);
+    }
+  }
+
+  flushGroup();
+
+  return result.length > 0 ? result : [msg];
+}
+
+// ── session.label.get 响应类型 ────────────────────────────────────────────────
+
+interface SessionLabelResult {
+  sessionKey: string;
+  label: string | null;
+  displayName: string | null;
+  updatedAt: number | null;
+}
+
+/**
+ * 从 aiemas DB 查询持久化的 label/displayName。
+ * 当 sessions.list 返回的 label/displayName 均为 null 时作为 fallback。
+ */
+export async function fetchSessionLabel(
+  client: GatewayBrowserClient,
+  sessionKey: string,
+): Promise<SessionLabelResult | null> {
+  try {
+    const result = await client.request<SessionLabelResult>("session.label.get", { sessionKey });
+    return result;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * 通过 WebSocket chat.history 拉取会话历史消息。
@@ -80,9 +188,10 @@ export async function createSession(
 /**
  * 将 GatewaySessionRow 归一化为 MasSession。
  * label 优先使用 row.label，回退到 row.displayName（gateway 从 channel/subject 派生），
+ * 再回退到 persistedLabel（来自 aiemas DB session_labels 表），
  * 确保渲染层始终有可用的显示名称。
  */
-function rowToMasSession(row: GatewaySessionRow): MasSession {
+function rowToMasSession(row: GatewaySessionRow, persistedLabel?: string | null): MasSession {
   let masType: "initiated" | "participated" = "initiated";
   if (row.masRole === "participant") {
     masType = "participated";
@@ -90,7 +199,7 @@ function rowToMasSession(row: GatewaySessionRow): MasSession {
 
   return {
     ...row,
-    label: row.label ?? row.displayName,
+    label: row.label ?? row.displayName ?? persistedLabel ?? undefined,
     kind: row.kind === "group" ? "group" : row.kind,
     masType,
     hasNotification: false,
@@ -102,10 +211,27 @@ function rowToMasSession(row: GatewaySessionRow): MasSession {
 /**
  * 拉取当前用户有权限的会话列表（按 session_memberships 过滤）。
  * 在连接成功后调用，用于恢复历史会话。
+ * 对 label/displayName 均为 null 的会话，fallback 查询 aiemas DB 的持久化 label。
  */
 export async function fetchSessions(client: GatewayBrowserClient): Promise<MasSession[]> {
   const result = await client.request<{ sessions: GatewaySessionRow[] }>("sessions.list", {});
-  const sessions = (result.sessions ?? []).map((row) => rowToMasSession(row));
+  const rows = result.sessions ?? [];
+
+  // Batch-fetch persisted labels for rows that have no label/displayName from gateway.
+  // This covers sessions whose label was lost due to reset path issues.
+  const needsLabelFallback = rows.filter((r) => !r.label && !r.displayName);
+  const labelMap = new Map<string, string | null>();
+  if (needsLabelFallback.length > 0) {
+    await Promise.all(
+      needsLabelFallback.map(async (row) => {
+        const entry = await fetchSessionLabel(client, row.key);
+        const resolved = entry?.label ?? entry?.displayName ?? null;
+        labelMap.set(row.key, resolved);
+      }),
+    );
+  }
+
+  const sessions = rows.map((row) => rowToMasSession(row, labelMap.get(row.key)));
 
   // Batch-load persisted summaries for sessions that have one (requirement 4.10)
   const withSummary = sessions.filter((s) => s.hasSummary === true);
@@ -155,9 +281,10 @@ export async function fetchSessionHistoryRange(
     ...(opts?.to != null ? { to: opts.to } : {}),
   });
 
+  // 先反转（DESC → ASC），再拆分，保证拆分后子消息顺序与原始顺序一致
   const messages = (result.messages ?? [])
-    .map((raw) => normalizeMessage(raw) as ChatMessage)
-    .toReversed(); // DESC → ASC
+    .toReversed() // DESC → ASC
+    .flatMap((raw) => splitHistoryMessage(normalizeMessage(raw) as ChatMessage));
 
   return {
     messages,

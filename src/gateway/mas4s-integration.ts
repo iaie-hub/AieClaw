@@ -353,6 +353,45 @@ export async function initMas4sIntegration(
     };
 
     const filterBroadcast: Mas4sIntegration["filterBroadcast"] = (event, payload, clients) => {
+      // ── Intercept broadcast events to capture messages for history storage ──────
+      // This replaces the onSessionTranscriptUpdate path for tool calls and assistant
+      // final messages, which never pass through the transcript event bus.
+      try {
+        const p = payload as Record<string, unknown>;
+        const evtSessionKey = typeof p["sessionKey"] === "string" ? p["sessionKey"] : "";
+
+        if (evtSessionKey) {
+          // 1. Tool call events (agent stream:tool / session.tool)
+          if (event === "agent" || event === "session.tool") {
+            if (p["stream"] === "tool") {
+              const data = p["data"] as Record<string, unknown> | undefined;
+              const phase = typeof data?.["phase"] === "string" ? data["phase"] : "";
+              const toolCallId = typeof data?.["toolCallId"] === "string" ? data["toolCallId"] : "";
+              const name = typeof data?.["name"] === "string" ? data["name"] : "tool";
+              if (toolCallId && (phase === "start" || phase === "result")) {
+                plugin.transcriptStore.recordToolEvent({
+                  sessionKey: evtSessionKey,
+                  toolCallId,
+                  name,
+                  phase,
+                  args: phase === "start" ? data?.["args"] : undefined,
+                  result:
+                    phase === "result" ? (data?.["result"] ?? data?.["partialResult"]) : undefined,
+                  timestamp: typeof p["ts"] === "number" ? p["ts"] : Date.now(),
+                });
+              }
+            }
+          }
+
+          // 2. Assistant final message: handled by the transcript event path (handleUpdate).
+          // recordAssistantFinal is intentionally not called here to avoid double-writing,
+          // since handleUpdate already captures the full assistant message (including
+          // thinking + toolCall blocks) from the JSONL transcript event.
+        }
+      } catch (err) {
+        log.warn(`mas4s filterBroadcast capture failed for event=${event}: ${String(err)}`);
+      }
+      // ── Original filterBroadcast logic ───────────────────────────────────────
       try {
         // Build connectedUsers map: connId → MasAuthContext
         const connectedUsers = new Map<
