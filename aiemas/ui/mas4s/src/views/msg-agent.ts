@@ -256,9 +256,81 @@ export class MsgAgent extends LitElement {
       background: #fafffe;
       color: #475569;
       line-height: 1.6;
-      white-space: pre-wrap;
       word-break: break-word;
       border-top: 1px solid #d1fae5;
+    }
+
+    /* Markdown styles inside thinking block */
+    .thinking-body p {
+      margin: 0 0 0.5em;
+    }
+    .thinking-body p:last-child {
+      margin-bottom: 0;
+    }
+    .thinking-body h1,
+    .thinking-body h2,
+    .thinking-body h3,
+    .thinking-body h4 {
+      margin: 0.6em 0 0.3em;
+      font-weight: 600;
+    }
+    .thinking-body ul,
+    .thinking-body ol {
+      margin: 0.3em 0;
+      padding-left: 1.4em;
+    }
+    .thinking-body li {
+      margin: 0.15em 0;
+    }
+    .thinking-body code {
+      background: #ecfdf5;
+      border: 1px solid #d1fae5;
+      border-radius: 3px;
+      padding: 1px 4px;
+      font-size: 0.87em;
+      font-family: ui-monospace, monospace;
+    }
+    .thinking-body pre {
+      background: #f0fdf4;
+      border: 1px solid #d1fae5;
+      border-radius: 6px;
+      padding: 8px 12px;
+      overflow-x: auto;
+      margin: 0.5em 0;
+    }
+    .thinking-body pre code {
+      background: none;
+      border: none;
+      padding: 0;
+    }
+    .thinking-body blockquote {
+      border-left: 3px solid #10b981;
+      margin: 0.5em 0;
+      padding: 3px 10px;
+      color: #64748b;
+      background: #f0fdf4;
+      border-radius: 0 4px 4px 0;
+    }
+    .thinking-body strong {
+      font-weight: 600;
+    }
+    .thinking-body em {
+      font-style: italic;
+    }
+    .thinking-body table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 0.5em 0;
+      font-size: 0.9em;
+    }
+    .thinking-body th,
+    .thinking-body td {
+      border: 1px solid #d1fae5;
+      padding: 4px 8px;
+    }
+    .thinking-body th {
+      background: #ecfdf5;
+      font-weight: 600;
     }
   `;
 
@@ -286,7 +358,7 @@ export class MsgAgent extends LitElement {
               </div>
               ${
                 this._thinkingExpanded
-                  ? html`<div class="thinking-body">${thinkingText}</div>`
+                  ? html`<div class="thinking-body">${markdownMath(thinkingText)}</div>`
                   : nothing
               }
             </div>
