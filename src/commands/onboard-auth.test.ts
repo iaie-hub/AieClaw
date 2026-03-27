@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { OAuthCredentials } from "@mariozechner/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import { applyLitellmProviderConfig } from "../../extensions/litellm/onboard.js";
 import {
   applyMinimaxApiConfig,
   applyMinimaxApiProviderConfig,
@@ -55,7 +56,6 @@ import {
   ZAI_CODING_CN_BASE_URL,
   ZAI_GLOBAL_BASE_URL,
 } from "../plugins/provider-model-definitions.js";
-import { applyLitellmProviderConfig } from "./onboard-auth.config-litellm.js";
 import {
   createAuthTestLifecycle,
   readAuthProfilesForAgent,
