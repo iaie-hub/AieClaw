@@ -635,8 +635,24 @@ function enrichSessionRow(
   const membership = db
     .prepare("SELECT role FROM session_memberships WHERE sessionKey = ? AND userId = ?")
     .get(sessionKey, userId) as { role: string } | undefined;
+
+  // Resolve displayName: always prefer persisted label in session_labels
+  // (survives session resets because sessionKey is stable) over the gateway
+  // value, which may be stale or derived from the sender name after a reset.
+  const gatewayDisplayName = session["displayName"] as string | null | undefined;
+  const persisted = db
+    .prepare("SELECT label, displayName FROM session_labels WHERE sessionKey = ?")
+    .get(sessionKey) as { label: string | null; displayName: string | null } | undefined;
+  const resolvedDisplayName =
+    persisted?.displayName ??
+    persisted?.label ??
+    gatewayDisplayName ??
+    (session["label"] as string | null | undefined) ??
+    null;
+
   return {
     ...session,
+    displayName: resolvedDisplayName,
     archivedAt: ownership?.archivedAt ?? null,
     masRole: membership?.role ?? null,
   };

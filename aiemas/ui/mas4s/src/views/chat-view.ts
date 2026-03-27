@@ -1,6 +1,6 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state, query } from "lit/decorators.js";
-import type { ApprovalRequest } from "../types/approval-types.js";
+import type { ApprovalRequest, ApprovalResolved } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
 import type { MasSession } from "../types/session-types.js";
 import "./message-list.js";
@@ -19,6 +19,10 @@ export class ChatView extends LitElement {
   @property({ attribute: false }) messages: ChatMessage[] = [];
   @property({ attribute: false }) session: MasSession | undefined = undefined;
   @property({ attribute: false }) pendingApprovals: ApprovalRequest[] = [];
+  @property({ attribute: false }) resolvedApprovals: Map<
+    string,
+    { approval: ApprovalRequest; resolved: ApprovalResolved }
+  > = new Map();
   @property({ type: Boolean }) isInitiator = false;
   @property({ type: Boolean }) hasSummary = false;
   @property({ type: Boolean }) truncated = false;
@@ -442,6 +446,7 @@ export class ChatView extends LitElement {
             : html`<message-list
               .messages=${this.messages}
               .pendingApprovals=${this.pendingApprovals}
+              .resolvedApprovals=${this.resolvedApprovals}
               .isInitiator=${this.isInitiator}
             ></message-list>`
         }

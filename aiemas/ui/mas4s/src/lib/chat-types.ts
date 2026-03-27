@@ -4,7 +4,13 @@
 
 /** Content item types in a normalized message */
 export type MessageContentItem = {
-  type: "text" | "tool_call" | "tool_result" | "thinking";
+  type:
+    | "text"
+    | "tool_call"
+    | "tool_result"
+    | "thinking"
+    | "approval_requested"
+    | "approval_resolved";
   text?: string;
   thinking?: string;
   name?: string;

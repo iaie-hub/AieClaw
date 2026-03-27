@@ -143,6 +143,13 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
         items.push({ type: "thinking", thinking: (thinkingMatch[1] ?? "").replace(/\\n/g, "\n") });
         continue;
       }
+      // [text] prefix — explicit text block (serialised by extractContent)
+      const textBlockMatch = /^\[text\] (.*)$/.exec(line);
+      if (textBlockMatch) {
+        flushText();
+        items.push({ type: "text", text: (textBlockMatch[1] ?? "").replace(/\\n/g, "\n") });
+        continue;
+      }
       // [tool_use:name] {...} prefix
       const toolMatch = /^\[tool_use:([^\]]+)\]\s*(.*)$/.exec(line);
       if (toolMatch) {
@@ -164,6 +171,43 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
       if (resultMatch) {
         flushText();
         items.push({ type: "tool_result", text: (resultMatch[1] ?? "").replace(/\\n/g, "\n") });
+        continue;
+      }
+      // [approval:requested] {...} prefix — exec approval request stored for history replay
+      const approvalReqMatch = /^\[approval:requested\]\s*(.*)$/.exec(line);
+      if (approvalReqMatch) {
+        flushText();
+        try {
+          const data = JSON.parse(approvalReqMatch[1] ?? "{}");
+          items.push({ type: "approval_requested", args: data });
+        } catch {
+          items.push({ type: "text", text: line });
+        }
+        continue;
+      }
+      // [approval:resolved] {...} prefix — exec approval decision stored for history replay
+      const approvalResMatch = /^\[approval:resolved\]\s*(.*)$/.exec(line);
+      if (approvalResMatch) {
+        flushText();
+        try {
+          const data = JSON.parse(approvalResMatch[1] ?? "{}");
+          items.push({ type: "approval_resolved", args: data });
+        } catch {
+          items.push({ type: "text", text: line });
+        }
+        continue;
+      }
+      // [approval:user-resolve] {...} prefix — user's resolve request (before gateway broadcast)
+      const approvalUserResMatch = /^\[approval:user-resolve\]\s*(.*)$/.exec(line);
+      if (approvalUserResMatch) {
+        flushText();
+        try {
+          const data = JSON.parse(approvalUserResMatch[1] ?? "{}");
+          // Mark as user-resolve so message-list can render it as a user action bubble
+          items.push({ type: "approval_resolved", args: { ...data, _source: "user-resolve" } });
+        } catch {
+          items.push({ type: "text", text: line });
+        }
         continue;
       }
       textLines.push(line);

@@ -17,7 +17,7 @@ export interface StoredMessage {
   sessionId: string;
   userId: string | null;
   tenantId: string | null;
-  role: "user" | "assistant" | "tool";
+  role: "user" | "assistant" | "tool" | "approval";
   content: string;
   timestamp: number;
   seq: number;
@@ -89,8 +89,11 @@ function extractContent(raw: unknown): string {
         }
         const b = block as Record<string, unknown>;
         // text block: { type: "text", text: "..." }
+        // Serialise with a [text] prefix so normalizeMessage can reconstruct
+        // the correct item order when thinking and text appear in the same message.
+        // Newlines are escaped to keep the serialised form on a single line.
         if (b["type"] === "text" && typeof b["text"] === "string") {
-          return b["text"];
+          return `[text] ${b["text"].replace(/\n/g, "\\n")}`;
         }
         // thinking block: { type: "thinking", thinking: "..." }
         // Serialise so it can be restored as a thinking content item in the history view.
@@ -130,7 +133,7 @@ function extractContent(raw: unknown): string {
 }
 
 /** Normalise raw role strings to the allowed set. */
-function normaliseRole(raw: unknown): "user" | "assistant" | "tool" {
+function normaliseRole(raw: unknown): "user" | "assistant" | "tool" | "approval" {
   if (raw === "human" || raw === "user") {
     return "user";
   }
@@ -139,6 +142,9 @@ function normaliseRole(raw: unknown): "user" | "assistant" | "tool" {
   }
   if (raw === "tool" || raw === "toolResult" || raw === "tool_result") {
     return "tool";
+  }
+  if (raw === "approval") {
+    return "approval";
   }
   // Unknown roles fall back to "user" to satisfy the DB CHECK constraint.
   return "user";
@@ -381,9 +387,13 @@ export class SessionTranscriptStore {
       this.pendingToolCalls.delete(toolCallId);
 
       const resultStr = formatToolResult(result);
-      const content = resultStr
-        ? `${pending.callContent}\n[tool_result] ${resultStr.replace(/\n/g, "\\n")}`
-        : pending.callContent;
+      if (!resultStr) {
+        // No result content — the JSONL transcript path (handleUpdate) already captured
+        // the tool_use block in the assistant message. Skip to avoid a duplicate
+        // tool_call bubble without a result in the history view.
+        return;
+      }
+      const content = `${pending.callContent}\n[tool_result] ${resultStr.replace(/\n/g, "\\n")}`;
 
       this.pushToBuffer({
         sessionKey: pending.sessionKey,
@@ -392,6 +402,30 @@ export class SessionTranscriptStore {
         timestamp: pending.timestamp,
       });
     }
+  }
+
+  // ── recordApprovalEvent ───────────────────────────────────────────────────
+
+  /**
+   * Persist an exec.approval event (requested or resolved) to session_messages.
+   * Content format: `[approval:requested] {...}` or `[approval:resolved] {...}`
+   * or `[approval:user-resolve] {...}` so normalizeMessage can reconstruct the
+   * approval card on history replay.
+   */
+  recordApprovalEvent(params: {
+    sessionKey: string;
+    type: "requested" | "resolved" | "user-resolve";
+    payload: unknown;
+    timestamp: number;
+  }): void {
+    const { sessionKey, type, payload, timestamp } = params;
+    const content = `[approval:${type}] ${JSON.stringify(payload)}`;
+    this.pushToBuffer({
+      sessionKey,
+      role: "approval",
+      content,
+      timestamp,
+    });
   }
 
   // ── persistSummary ────────────────────────────────────────────────────────
@@ -530,6 +564,88 @@ export class SessionTranscriptStore {
       };
 
       this.buffer.push(stored);
+
+      // Back-fill triggeredByMsgId into the most recent [approval:requested] record
+      // for this session. exec.approval.requested (path C) fires before the JSONL
+      // transcript event (path A), so by the time this assistant message arrives the
+      // approval record may already have been flushed to DB by the periodic timer.
+      // We therefore update the DB row directly rather than patching the in-memory
+      // buffer, which avoids the race with the flush timer.
+      //
+      // Only link assistant messages whose timestamp is strictly after the approval's
+      // createdAtMs, so that the earlier assistant message containing the tool_use
+      // that triggered the approval is not incorrectly linked.
+      if (role === "assistant") {
+        try {
+          // Back-fill triggeredByMsgId into the most recent [approval:requested] record
+          // for this session. exec.approval.requested (path C) fires before the JSONL
+          // transcript event (path A), so by the time this assistant message arrives the
+          // approval record may already have been flushed to DB by the periodic timer.
+          //
+          // Only link assistant messages whose timestamp is strictly after the approval's
+          // createdAtMs, so that the earlier assistant message containing the tool_use
+          // that triggered the approval is not incorrectly linked.
+          //
+          // The two steps below are mutually exclusive: an approval record is either
+          // in the buffer (not yet flushed) or in the DB (already flushed), never both.
+          // Step 1 handles the already-flushed case; step 2 handles the still-buffered case.
+
+          // Step 1: patch a DB row that was already flushed.
+          let dbPatched = false;
+          const row = this.db
+            .prepare(
+              `SELECT id, content FROM session_messages
+                  WHERE sessionKey = ? AND role = 'approval'
+                    AND content LIKE '[approval:requested]%'
+                  ORDER BY timestamp DESC
+                  LIMIT 1`,
+            )
+            .get(sessionKey) as { id: string; content: string } | undefined;
+
+          if (row) {
+            const jsonStart = row.content.indexOf(" ") + 1;
+            const parsed = JSON.parse(row.content.slice(jsonStart)) as Record<string, unknown>;
+            const createdAtMs =
+              typeof parsed["createdAtMs"] === "number" ? parsed["createdAtMs"] : 0;
+            if (!parsed["triggeredByMsgId"] && timestamp > createdAtMs) {
+              parsed["triggeredByMsgId"] = stored.id;
+              const newContent = `[approval:requested] ${JSON.stringify(parsed)}`;
+              this.db
+                .prepare(`UPDATE session_messages SET content = ? WHERE id = ?`)
+                .run(newContent, row.id);
+              dbPatched = true;
+            }
+          }
+
+          // Step 2: patch a matching entry still in the buffer (not yet flushed).
+          // Skipped if step 1 already patched the DB row.
+          if (!dbPatched) {
+            for (let i = this.buffer.length - 2; i >= 0; i--) {
+              const entry = this.buffer[i];
+              if (!entry || entry.sessionKey !== sessionKey || entry.role !== "approval") {
+                continue;
+              }
+              if (!entry.content.startsWith("[approval:requested]")) {
+                continue;
+              }
+              const jsonStart = entry.content.indexOf(" ") + 1;
+              const entryParsed = JSON.parse(entry.content.slice(jsonStart)) as Record<
+                string,
+                unknown
+              >;
+              const entryCreatedAtMs =
+                typeof entryParsed["createdAtMs"] === "number" ? entryParsed["createdAtMs"] : 0;
+              if (!entryParsed["triggeredByMsgId"] && timestamp > entryCreatedAtMs) {
+                entryParsed["triggeredByMsgId"] = stored.id;
+                entry.content = `[approval:requested] ${JSON.stringify(entryParsed)}`;
+              }
+              break;
+            }
+          }
+        } catch (err) {
+          console.warn("[mas4s:transcript-store] backfill triggeredByMsgId failed:", err);
+        }
+      }
 
       if (this.buffer.length >= this.maxBufferSize) {
         this.flush();

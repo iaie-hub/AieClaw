@@ -1,7 +1,6 @@
 import { html, type TemplateResult } from "lit";
 import type { NavItem, DialogKind } from "../controllers/ui-state-controller.js";
 import type { AppStore } from "../store/app-store.js";
-import "./exec-approval-overlay.js";
 
 export interface AppShellHandlers {
   onLoginSuccess: () => void;
@@ -108,6 +107,7 @@ export function renderMain(
                   : []
               }
               .pendingApprovals=${store.pendingApprovals}
+              .resolvedApprovals=${store.resolvedApprovals}
               .hasSummary=${
                 store.activeSessionId
                   ? store.getHistoryMeta(store.activeSessionId).hasSummary
@@ -151,18 +151,6 @@ export function renderMain(
             @user-invite=${h.onUserInvite}
             @member-remove=${h.onMemberRemove}
           ></invite-dialog>
-        `
-        : ""
-    }
-
-    <!-- 人工审核浮层（exec-approval HITL） -->
-    ${
-      store.pendingApprovals.length > 0
-        ? html`
-          <exec-approval-overlay
-            .queue=${store.pendingApprovals}
-            @resolve-approval=${h.onResolveApproval}
-          ></exec-approval-overlay>
         `
         : ""
     }

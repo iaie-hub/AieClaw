@@ -195,21 +195,25 @@ export class SessionSidebar extends LitElement {
     }
 
     .group-header {
-      padding: 8px 16px 4px;
-      font-size: 11px;
-      font-weight: 700;
+      padding: 6px 12px 6px 14px;
+      margin: 4px 8px 2px;
+      font-size: 13px;
+      font-weight: 600;
       color: #94a3b8;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
+      letter-spacing: 0.2px;
       display: flex;
       align-items: center;
       gap: 6px;
       cursor: pointer;
       user-select: none;
-      transition: color 0.15s;
+      border-radius: 6px;
+      transition:
+        background 0.15s,
+        color 0.15s;
     }
 
     .group-header:hover {
+      background: #f1f5f9;
       color: #64748b;
     }
 
@@ -220,27 +224,45 @@ export class SessionSidebar extends LitElement {
       align-items: center;
       justify-content: center;
       transition: transform 0.2s;
+      flex-shrink: 0;
     }
 
     .group-header-arrow.collapsed {
       transform: rotate(-90deg);
     }
 
+    /* 分组内容区：左侧竖线轨道 */
+    .group-items {
+      position: relative;
+      padding-left: 0;
+      margin-bottom: 4px;
+    }
+
+    .group-items::before {
+      content: "";
+      position: absolute;
+      left: 26px;
+      top: 2px;
+      bottom: 2px;
+      width: 1.5px;
+      background: #e2e8f0;
+      border-radius: 1px;
+    }
+
     .session-item {
-      /* 增加左缩进，与 group-header 形成层次 */
-      height: 36px;
+      height: 34px;
       display: flex;
       align-items: center;
-      padding: 0 8px 0 28px;
+      padding: 0 8px 0 48px;
       cursor: pointer;
-      border-radius: 8px;
-      margin: 1px 10px;
-      transition: all 0.2s;
+      border-radius: 7px;
+      margin: 1px 8px;
+      transition: all 0.15s;
       font-size: 13px;
       color: #64748b;
       border: none;
       background: none;
-      width: calc(100% - 20px);
+      width: calc(100% - 16px);
       text-align: left;
       box-sizing: border-box;
     }
@@ -248,7 +270,7 @@ export class SessionSidebar extends LitElement {
     .session-item:hover {
       background: white;
       color: #1e293b;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
     }
 
     .session-item.active {
@@ -257,8 +279,7 @@ export class SessionSidebar extends LitElement {
       font-weight: 600;
       box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
       border-left: 3px solid #3b82f6;
-      /* 激活时左缩进补偿 border-left 占用的 3px */
-      padding-left: 25px;
+      padding-left: 45px;
     }
 
     .session-item.archived {
@@ -936,11 +957,11 @@ export class SessionSidebar extends LitElement {
         </div>
         ${
           this._initiatedExpanded
-            ? this._initiatedSessions.map((s) => this._renderSession(s))
+            ? html`<div class="group-items">${this._initiatedSessions.map((s) => this._renderSession(s))}</div>`
             : nothing
         }
 
-        <div class="group-header" style="margin-top:8px" @click=${() => this._toggleParticipated()}>
+        <div class="group-header" @click=${() => this._toggleParticipated()}>
           <span class="group-header-arrow ${this._participatedExpanded ? "" : "collapsed"}">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="6 9 12 15 18 9"></polyline>
@@ -950,7 +971,7 @@ export class SessionSidebar extends LitElement {
         </div>
         ${
           this._participatedExpanded
-            ? this._participatedSessions.map((s) => this._renderSession(s))
+            ? html`<div class="group-items">${this._participatedSessions.map((s) => this._renderSession(s))}</div>`
             : nothing
         }
       </div>

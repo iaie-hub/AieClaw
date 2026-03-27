@@ -339,8 +339,27 @@ export class MsgAgent extends LitElement {
     const textItems = items.filter((c) => c.type === "text");
     const toolItems = items.filter((c) => c.type === "tool_call" || c.type === "tool_result");
 
-    const thinkingText = thinkingItems.map((c) => c.thinking ?? c.text ?? "").join("\n\n");
+    const rawThinking = thinkingItems.map((c) => c.thinking ?? c.text ?? "").join("\n\n");
     const text = textItems.map((c) => c.text ?? "").join("");
+
+    // Format thinking text to match the real-time view: "Reasoning:\n_line1_\n_line2_"
+    // This mirrors formatReasoningMessage() in pi-embedded-utils.ts which is used
+    // for channel delivery (the source of the real-time stream).
+    const thinkingText = rawThinking
+      ? (() => {
+          const trimmed = rawThinking.trim();
+          // Already formatted (real-time stream path already has "Reasoning:" prefix)
+          if (trimmed.startsWith("Reasoning:")) {
+            return trimmed;
+          }
+          // History path: apply the same formatting
+          const italicLines = trimmed
+            .split("\n")
+            .map((line) => (line ? `_${line}_` : line))
+            .join("\n");
+          return `Reasoning:\n${italicLines}`;
+        })()
+      : "";
 
     return html`
       ${

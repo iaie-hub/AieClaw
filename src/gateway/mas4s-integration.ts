@@ -61,6 +61,13 @@ export interface Mas4sIntegration {
    * This is used by the MAS4S bridge to track user presence across all connections.
    */
   _setActiveClients?: (clients: Set<GatewayWsClient>) => void;
+  /**
+   * Internal: inject the ExecApprovalManager so interceptRequest can record
+   * exec.approval.resolve requests to session_messages for history replay.
+   */
+  _setExecApprovalManager?: (
+    manager: import("./exec-approval-manager.js").ExecApprovalManager,
+  ) => void;
 }
 
 const NOOP_INTEGRATION: Mas4sIntegration = {
@@ -254,6 +261,9 @@ export async function initMas4sIntegration(
       activeClients = c;
     };
 
+    // ExecApprovalManager reference — injected after gateway startup via _setExecApprovalManager.
+    // Used to look up sessionKey when recording exec.approval.resolve requests.
+    let execApprovalManager: import("./exec-approval-manager.js").ExecApprovalManager | null = null;
     // Helper: build connId → MasAuthContext map from current activeClients
     const buildConnectedUsers = () => {
       const map = new Map<
@@ -355,7 +365,42 @@ export async function initMas4sIntegration(
         const masAuth = client
           ? (contextMod.getMasAuth(client) ?? contextMod.NULL_MAS_AUTH)
           : contextMod.NULL_MAS_AUTH;
-        return plugin.bridge.interceptMethod(method, params, masAuth);
+        const result = plugin.bridge.interceptMethod(method, params, masAuth);
+
+        // ── Record exec.approval.resolve user request for history replay ──────
+        // Fire-and-forget after RBAC check passes. The approval is still pending
+        // at this point, so getSnapshot() can retrieve the sessionKey.
+        if (result.allowed && method === "exec.approval.resolve" && execApprovalManager) {
+          try {
+            const id = typeof params["id"] === "string" ? params["id"] : "";
+            const decision = typeof params["decision"] === "string" ? params["decision"] : "";
+            if (id && decision) {
+              const snapshot = execApprovalManager.getSnapshot(id);
+              const sessionKey =
+                typeof snapshot?.request?.sessionKey === "string"
+                  ? snapshot.request.sessionKey
+                  : "";
+              if (sessionKey) {
+                let displayName: string | null = masAuth.displayName ?? null;
+                if (!displayName && client) {
+                  displayName = client.connect?.client?.displayName ?? null;
+                }
+                plugin.transcriptStore.recordApprovalEvent({
+                  sessionKey,
+                  type: "user-resolve",
+                  payload: { id, decision, resolvedBy: displayName, ts: Date.now() },
+                  timestamp: Date.now(),
+                });
+              }
+            }
+          } catch (err) {
+            log.warn(
+              `mas4s interceptRequest: approval user-resolve capture failed: ${String(err)}`,
+            );
+          }
+        }
+
+        return result;
       } catch (err) {
         log.warn(`mas4s interceptRequest failed for method=${method}: ${String(err)}`);
         return { allowed: true };
@@ -386,7 +431,9 @@ export async function initMas4sIntegration(
                   phase,
                   args: phase === "start" ? data?.["args"] : undefined,
                   result:
-                    phase === "result" ? (data?.["result"] ?? data?.["partialResult"]) : undefined,
+                    phase === "result"
+                      ? (data?.["result"] ?? data?.["partialResult"] ?? data?.["meta"])
+                      : undefined,
                   timestamp: typeof p["ts"] === "number" ? p["ts"] : Date.now(),
                 });
               }
@@ -397,6 +444,67 @@ export async function initMas4sIntegration(
           // recordAssistantFinal is intentionally not called here to avoid double-writing,
           // since handleUpdate already captures the full assistant message (including
           // thinking + toolCall blocks) from the JSONL transcript event.
+        }
+
+        // 3. Approval events → persist to session_messages for history replay
+        if (event === "exec.approval.requested") {
+          const reqPayload = p as {
+            id?: string;
+            request?: Record<string, unknown>;
+            createdAtMs?: number;
+            expiresAtMs?: number;
+          };
+          const approvalSessionKey =
+            typeof reqPayload.request?.["sessionKey"] === "string"
+              ? reqPayload.request["sessionKey"]
+              : "";
+          if (approvalSessionKey && reqPayload.id) {
+            plugin.transcriptStore.recordApprovalEvent({
+              sessionKey: approvalSessionKey,
+              type: "requested",
+              payload: {
+                id: reqPayload.id,
+                command: reqPayload.request?.["command"],
+                commandPreview: reqPayload.request?.["commandPreview"],
+                cwd: reqPayload.request?.["cwd"],
+                resolvedPath: reqPayload.request?.["resolvedPath"],
+                host: reqPayload.request?.["host"],
+                agentId: reqPayload.request?.["agentId"],
+                security: reqPayload.request?.["security"],
+                sessionKey: approvalSessionKey,
+                createdAtMs: reqPayload.createdAtMs,
+                expiresAtMs: reqPayload.expiresAtMs,
+              },
+              timestamp: reqPayload.createdAtMs ?? Date.now(),
+            });
+          }
+        }
+
+        if (event === "exec.approval.resolved") {
+          const resPayload = p as {
+            id?: string;
+            decision?: string;
+            resolvedBy?: string | null;
+            ts?: number;
+            request?: Record<string, unknown>;
+          };
+          const approvalSessionKey =
+            typeof resPayload.request?.["sessionKey"] === "string"
+              ? resPayload.request["sessionKey"]
+              : "";
+          if (approvalSessionKey && resPayload.id) {
+            plugin.transcriptStore.recordApprovalEvent({
+              sessionKey: approvalSessionKey,
+              type: "resolved",
+              payload: {
+                id: resPayload.id,
+                decision: resPayload.decision,
+                resolvedBy: resPayload.resolvedBy,
+                ts: resPayload.ts,
+              },
+              timestamp: resPayload.ts ?? Date.now(),
+            });
+          }
         }
       } catch (err) {
         log.warn(`mas4s filterBroadcast capture failed for event=${event}: ${String(err)}`);
@@ -956,6 +1064,10 @@ export async function initMas4sIntegration(
       filterSessionsList,
       /** Internal: allows server.impl.ts to keep the clients reference up to date */
       _setActiveClients: setActiveClients,
+      /** Internal: inject ExecApprovalManager so interceptRequest can record user resolve requests */
+      _setExecApprovalManager: (manager) => {
+        execApprovalManager = manager;
+      },
     };
   } catch (err) {
     log.info(`mas4s plugin not available, skipping: ${String(err)}`);

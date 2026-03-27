@@ -1248,6 +1248,11 @@ export async function startGatewayServer(
       mas4sIntegration._setActiveClients(clients);
     }
 
+    // Inject ExecApprovalManager so mas4s can record exec.approval.resolve user requests
+    if ("_setExecApprovalManager" in mas4sIntegration && mas4sIntegration._setExecApprovalManager) {
+      mas4sIntegration._setExecApprovalManager(execApprovalManager);
+    }
+
     logGatewayStartup({
       cfg: cfgAtStart,
       bindHost,
