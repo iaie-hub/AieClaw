@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { requireNodeSqlite } from "../../../src/memory/sqlite.js";
+import { requireNodeSqlite } from "../../../src/plugins/memory-host/sqlite.js";
 
 /**
  * Default database path: ~/.openclaw/aiemas/mas4s.db
