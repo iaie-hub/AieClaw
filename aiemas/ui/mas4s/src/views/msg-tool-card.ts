@@ -258,19 +258,15 @@ export class MsgToolCard extends LitElement {
           <span class="tool-kind-tag">${kindLabel}</span>
           <span class="toggle-icon">${this._expanded ? "▲" : "▼"}</span>
         </div>
-        ${
-          this._expanded && hasBody
-            ? html`
+        ${this._expanded && hasBody
+          ? html`
               <div class="tool-body">
-                ${
-                  isCall
-                    ? html`<pre>${bodyText}</pre>`
-                    : html`<div class="tool-result-body">${markdownMath(bodyText)}</div>`
-                }
+                ${isCall
+                  ? html`<pre>${bodyText}</pre>`
+                  : html`<div class="tool-result-body">${markdownMath(bodyText)}</div>`}
               </div>
             `
-            : nothing
-        }
+          : nothing}
       </div>
     `;
   }

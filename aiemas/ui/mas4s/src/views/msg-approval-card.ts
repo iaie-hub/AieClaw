@@ -357,13 +357,7 @@ export class MsgApprovalCard extends LitElement {
           </div>
           <div class="approval-card">
             <div class="card-header">
-              ${
-                isResolved
-                  ? nothing
-                  : html`
-                      <span class="blink-dot"></span>
-                    `
-              }
+              ${isResolved ? nothing : html` <span class="blink-dot"></span> `}
               系统防线：需要人工审核
               ${isResolved ? nothing : html`<span class="expire-badge">${remaining}</span>`}
             </div>
@@ -381,30 +375,51 @@ export class MsgApprovalCard extends LitElement {
 
               ${request.ask ? html`<div class="ask-block">${request.ask}</div>` : nothing}
               ${this._error ? html`<div class="error-msg">${this._error}</div>` : nothing}
-
-              ${
-                isResolved
-                  ? html`
+              ${isResolved
+                ? html`
                     <div class="resolved-info">
-                      <span class="resolved-badge ${this.resolved!.decision === "deny" ? "resolved-badge--deny" : "resolved-badge--allow"}">
+                      <span
+                        class="resolved-badge ${this.resolved!.decision === "deny"
+                          ? "resolved-badge--deny"
+                          : "resolved-badge--allow"}"
+                      >
                         ${this._decisionLabel(this.resolved!.decision)}
                       </span>
                       <span class="resolved-meta">
-                        ${this.resolved!.resolvedBy ? html`<span>审批人：${this.resolved!.resolvedBy}</span>` : nothing}
+                        ${this.resolved!.resolvedBy
+                          ? html`<span>审批人：${this.resolved!.resolvedBy}</span>`
+                          : nothing}
                         <span>审批时间：${this._formatTs(this.resolved!.ts)}</span>
                       </span>
                     </div>
                   `
-                  : this.isInitiator
-                    ? html`
+                : this.isInitiator
+                  ? html`
                       <div class="actions">
-                        <button class="btn-deny" ?disabled=${this._busy} @click=${() => this._decide("deny")}>拒绝</button>
-                        <button class="btn-allow-always" ?disabled=${this._busy} @click=${() => this._decide("allow-always")}>始终允许</button>
-                        <button class="btn-allow-once" ?disabled=${this._busy} @click=${() => this._decide("allow-once")}>允许一次</button>
+                        <button
+                          class="btn-deny"
+                          ?disabled=${this._busy}
+                          @click=${() => this._decide("deny")}
+                        >
+                          拒绝
+                        </button>
+                        <button
+                          class="btn-allow-always"
+                          ?disabled=${this._busy}
+                          @click=${() => this._decide("allow-always")}
+                        >
+                          始终允许
+                        </button>
+                        <button
+                          class="btn-allow-once"
+                          ?disabled=${this._busy}
+                          @click=${() => this._decide("allow-once")}
+                        >
+                          允许一次
+                        </button>
                       </div>
                     `
-                    : nothing
-              }
+                  : nothing}
             </div>
           </div>
         </div>

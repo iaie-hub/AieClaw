@@ -754,51 +754,58 @@ export class SessionSidebar extends LitElement {
         <div class="session-item-body">
           <span class="session-label">${isArchived ? html`📦 ${label}` : label}</span>
           ${timeStr ? html`<span class="session-time">${timeStr}</span>` : nothing}
-          ${
-            session.masType === "initiated"
-              ? html`
-          <div class="item-actions">
-            <button
-              class="rename-btn"
-              data-tip="重命名"
-              @click=${(e: Event) => this._onRename(e, session)}
-              aria-label="重命名会话"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-              </svg>
-            </button>
-            <button
-              class="delete-btn"
-              data-tip="删除会话"
-              @click=${(e: Event) => this._onDelete(e, session)}
-              aria-label="删除会话"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="3 6 5 6 21 6"/>
-                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                <path d="M10 11v6"/>
-                <path d="M14 11v6"/>
-                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-              </svg>
-            </button>
-          </div>`
-              : nothing
-          }
+          ${session.masType === "initiated"
+            ? html` <div class="item-actions">
+                <button
+                  class="rename-btn"
+                  data-tip="重命名"
+                  @click=${(e: Event) => this._onRename(e, session)}
+                  aria-label="重命名会话"
+                >
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                  </svg>
+                </button>
+                <button
+                  class="delete-btn"
+                  data-tip="删除会话"
+                  @click=${(e: Event) => this._onDelete(e, session)}
+                  aria-label="删除会话"
+                >
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                    <path d="M10 11v6" />
+                    <path d="M14 11v6" />
+                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                  </svg>
+                </button>
+              </div>`
+            : nothing}
         </div>
-        ${
-          session.hasNotification
-            ? html`
-                <span class="badge-dot"></span>
-              `
-            : nothing
-        }
-        ${
-          !session.hasNotification && session.notificationCount > 0
-            ? html`<span class="badge-count">${session.notificationCount}</span>`
-            : nothing
-        }
+        ${session.hasNotification ? html` <span class="badge-dot"></span> ` : nothing}
+        ${!session.hasNotification && session.notificationCount > 0
+          ? html`<span class="badge-count">${session.notificationCount}</span>`
+          : nothing}
       </div>
     `;
   }
@@ -899,8 +906,30 @@ export class SessionSidebar extends LitElement {
             aria-label="刷新会话列表"
             title="刷新会话列表"
             ?disabled=${this._refreshing}
-          ><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button>
-          <button class="add-btn" @click=${() => this._onCreate()} aria-label="发起新会话" title="发起新会话">
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+              <path d="M21 3v5h-5" />
+              <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+              <path d="M8 16H3v5" />
+            </svg>
+          </button>
+          <button
+            class="add-btn"
+            @click=${() => this._onCreate()}
+            aria-label="发起新会话"
+            title="发起新会话"
+          >
             +
           </button>
           <button
@@ -909,39 +938,37 @@ export class SessionSidebar extends LitElement {
             aria-label=${this._sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"}
             title=${this._sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"}
           >
-            ${
-              this._sidebarCollapsed
-                ? html`
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <polyline points="13 17 18 12 13 7" />
-                      <polyline points="6 17 11 12 6 7" />
-                    </svg>
-                  `
-                : html`
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <polyline points="11 17 6 12 11 7" />
-                      <polyline points="18 17 13 12 18 7" />
-                    </svg>
-                  `
-            }
+            ${this._sidebarCollapsed
+              ? html`
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="13 17 18 12 13 7" />
+                    <polyline points="6 17 11 12 6 7" />
+                  </svg>
+                `
+              : html`
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="11 17 6 12 11 7" />
+                    <polyline points="18 17 13 12 18 7" />
+                  </svg>
+                `}
           </button>
         </div>
       </div>
@@ -949,35 +976,52 @@ export class SessionSidebar extends LitElement {
       <div class="session-list">
         <div class="group-header" @click=${() => this._toggleInitiated()}>
           <span class="group-header-arrow ${this._initiatedExpanded ? "" : "collapsed"}">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="3"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
           </span>
           📁 发起的会话
         </div>
-        ${
-          this._initiatedExpanded
-            ? html`<div class="group-items">${this._initiatedSessions.map((s) => this._renderSession(s))}</div>`
-            : nothing
-        }
+        ${this._initiatedExpanded
+          ? html`<div class="group-items">
+              ${this._initiatedSessions.map((s) => this._renderSession(s))}
+            </div>`
+          : nothing}
 
         <div class="group-header" @click=${() => this._toggleParticipated()}>
           <span class="group-header-arrow ${this._participatedExpanded ? "" : "collapsed"}">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="3"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
           </span>
           🔗 参与的会话
         </div>
-        ${
-          this._participatedExpanded
-            ? html`<div class="group-items">${this._participatedSessions.map((s) => this._renderSession(s))}</div>`
-            : nothing
-        }
+        ${this._participatedExpanded
+          ? html`<div class="group-items">
+              ${this._participatedSessions.map((s) => this._renderSession(s))}
+            </div>`
+          : nothing}
       </div>
 
-      ${this._renderNameDialog()}
-      ${this._renderDeleteConfirm()}
+      ${this._renderNameDialog()} ${this._renderDeleteConfirm()}
     `;
   }
 }

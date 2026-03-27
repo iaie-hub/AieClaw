@@ -312,8 +312,7 @@ export class ExecApprovalOverlay extends LitElement {
             <div class="command-block">${req.commandPreview ?? req.command}</div>
 
             <div class="meta-table">
-              ${this._renderMetaRow("主机", req.host)}
-              ${this._renderMetaRow("Agent", req.agentId)}
+              ${this._renderMetaRow("主机", req.host)} ${this._renderMetaRow("Agent", req.agentId)}
               ${this._renderMetaRow("会话", req.sessionKey)}
               ${this._renderMetaRow("工作目录", req.cwd)}
               ${this._renderMetaRow("解析路径", req.resolvedPath)}
@@ -324,21 +323,23 @@ export class ExecApprovalOverlay extends LitElement {
             ${this._error ? html`<div class="error-msg">${this._error}</div>` : nothing}
 
             <div class="actions">
-              <button
-                class="btn-deny"
-                ?disabled=${this._busy}
-                @click=${() => this._decide("deny")}
-              >拒绝</button>
+              <button class="btn-deny" ?disabled=${this._busy} @click=${() => this._decide("deny")}>
+                拒绝
+              </button>
               <button
                 class="btn-allow-always"
                 ?disabled=${this._busy}
                 @click=${() => this._decide("allow-always")}
-              >始终允许</button>
+              >
+                始终允许
+              </button>
               <button
                 class="btn-allow-once"
                 ?disabled=${this._busy}
                 @click=${() => this._decide("allow-once")}
-              >允许一次</button>
+              >
+                允许一次
+              </button>
             </div>
           </div>
         </div>

@@ -235,9 +235,8 @@ export class MsgPending extends LitElement {
                   <span class="param-risk">${request.security ?? "未知"}</span>
                 </div>
               </div>
-              ${
-                this.isInitiator
-                  ? html`
+              ${this.isInitiator
+                ? html`
                     <div class="action-row">
                       <button class="btn-deny" @click=${() => this._resolve("deny")}>驳回</button>
                       <button class="btn-modify">修改参数</button>
@@ -246,8 +245,7 @@ export class MsgPending extends LitElement {
                       </button>
                     </div>
                   `
-                  : nothing
-              }
+                : nothing}
             </div>
           </div>
         </div>

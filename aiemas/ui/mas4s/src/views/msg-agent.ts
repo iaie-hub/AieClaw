@@ -362,9 +362,8 @@ export class MsgAgent extends LitElement {
       : "";
 
     return html`
-      ${
-        thinkingText
-          ? html`
+      ${thinkingText
+        ? html`
             <div class="thinking-block">
               <div
                 class="thinking-toggle"
@@ -375,25 +374,20 @@ export class MsgAgent extends LitElement {
                 <span class="thinking-arrow ${this._thinkingExpanded ? "expanded" : ""}">▶</span>
                 <span>思考过程</span>
               </div>
-              ${
-                this._thinkingExpanded
-                  ? html`<div class="thinking-body">${markdownMath(thinkingText)}</div>`
-                  : nothing
-              }
+              ${this._thinkingExpanded
+                ? html`<div class="thinking-body">${markdownMath(thinkingText)}</div>`
+                : nothing}
             </div>
           `
-          : nothing
-      }
+        : nothing}
       ${text.trim() ? html`<div class="message-bubble">${markdownMath(text)}</div>` : nothing}
-      ${
-        toolItems.length > 0
-          ? html`
+      ${toolItems.length > 0
+        ? html`
             <div class="tool-cards">
               ${toolItems.map((item) => html`<msg-tool-card .item=${item}></msg-tool-card>`)}
             </div>
           `
-          : nothing
-      }
+        : nothing}
     `;
   }
 
@@ -417,29 +411,39 @@ export class MsgAgent extends LitElement {
       <div class="message-row">
         <div class="message-avatar">
           <!-- 机器人/AI SVG 图标 -->
-          <svg class="avatar-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="3" y="8" width="18" height="12" rx="3" fill="rgba(255,255,255,0.25)" stroke="white" stroke-width="1.5"/>
-            <circle cx="9" cy="14" r="2" fill="white"/>
-            <circle cx="15" cy="14" r="2" fill="white"/>
-            <path d="M9 8V6" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
-            <path d="M15 8V6" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
-            <circle cx="9" cy="5" r="1" fill="white"/>
-            <circle cx="15" cy="5" r="1" fill="white"/>
-            <path d="M12 6V4" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
-            <circle cx="12" cy="3" r="1.2" fill="white"/>
-            <path d="M7 20v1M17 20v1" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+          <svg
+            class="avatar-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <rect
+              x="3"
+              y="8"
+              width="18"
+              height="12"
+              rx="3"
+              fill="rgba(255,255,255,0.25)"
+              stroke="white"
+              stroke-width="1.5"
+            />
+            <circle cx="9" cy="14" r="2" fill="white" />
+            <circle cx="15" cy="14" r="2" fill="white" />
+            <path d="M9 8V6" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+            <path d="M15 8V6" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+            <circle cx="9" cy="5" r="1" fill="white" />
+            <circle cx="15" cy="5" r="1" fill="white" />
+            <path d="M12 6V4" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+            <circle cx="12" cy="3" r="1.2" fill="white" />
+            <path d="M7 20v1M17 20v1" stroke="white" stroke-width="1.5" stroke-linecap="round" />
           </svg>
         </div>
         <div class="message-content">
           <div class="message-name">
             ${name}
-            ${
-              hasTool
-                ? html`
-                    <span class="tool-tag"> <span class="tool-tag-icon">⚡</span>Tool </span>
-                  `
-                : nothing
-            }
+            ${hasTool
+              ? html` <span class="tool-tag"> <span class="tool-tag-icon">⚡</span>Tool </span> `
+              : nothing}
             ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
           </div>
           ${this._renderContent(this.message.content)}

@@ -74,9 +74,8 @@ export function renderMain(
       @logout=${h.onLogout}
     ></primary-sidebar>
 
-    ${
-      activeNav === "workspace"
-        ? html`
+    ${activeNav === "workspace"
+      ? html`
           <session-sidebar
             .sessions=${store.sessions}
             .activeSessionKey=${store.activeSessionId ?? ""}
@@ -87,37 +86,27 @@ export function renderMain(
             @session-refresh=${h.onSessionRefresh}
           ></session-sidebar>
         `
-        : ""
-    }
+      : ""}
 
     <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
       <!-- 内容区 -->
-      ${
-        activeNav === "users"
-          ? html`
-              <user-list-view style="flex: 1; overflow: hidden"></user-list-view>
-            `
-          : html`
+      ${activeNav === "users"
+        ? html` <user-list-view style="flex: 1; overflow: hidden"></user-list-view> `
+        : html`
             <main-workspace
               .activeNav=${activeNav}
               .session=${store.activeSession ?? null}
-              .messages=${
-                store.activeSessionId
-                  ? (store.messagesBySession.get(store.activeSessionId) ?? [])
-                  : []
-              }
+              .messages=${store.activeSessionId
+                ? (store.messagesBySession.get(store.activeSessionId) ?? [])
+                : []}
               .pendingApprovals=${store.pendingApprovals}
               .resolvedApprovals=${store.resolvedApprovals}
-              .hasSummary=${
-                store.activeSessionId
-                  ? store.getHistoryMeta(store.activeSessionId).hasSummary
-                  : false
-              }
-              .truncated=${
-                store.activeSessionId
-                  ? store.getHistoryMeta(store.activeSessionId).truncated
-                  : false
-              }
+              .hasSummary=${store.activeSessionId
+                ? store.getHistoryMeta(store.activeSessionId).hasSummary
+                : false}
+              .truncated=${store.activeSessionId
+                ? store.getHistoryMeta(store.activeSessionId).truncated
+                : false}
               .hasMoreHistory=${(() => {
                 if (!store.activeSessionId) {
                   return false;
@@ -136,14 +125,12 @@ export function renderMain(
               @session-unarchive=${h.onSessionUnarchive}
               @load-more-history=${h.onLoadMoreHistory}
             ></main-workspace>
-          `
-      }
+          `}
     </div>
 
     <!-- 弹窗 -->
-    ${
-      dialog === "invite" && store.activeSession
-        ? html`
+    ${dialog === "invite" && store.activeSession
+      ? html`
           <invite-dialog
             .session=${store.activeSession}
             @close=${h.onDialogClose}
@@ -152,7 +139,6 @@ export function renderMain(
             @member-remove=${h.onMemberRemove}
           ></invite-dialog>
         `
-        : ""
-    }
+      : ""}
   `;
 }

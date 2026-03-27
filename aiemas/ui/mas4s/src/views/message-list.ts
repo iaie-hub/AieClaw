@@ -86,11 +86,18 @@ export class MessageList extends LitElement {
       // 先查 pending 队列，再查 resolved 缓存
       const pending = this.pendingApprovals.find((a) => a.id === msg.id);
       if (pending) {
-        return html`<msg-approval-card .approval=${pending} .isInitiator=${this.isInitiator}></msg-approval-card>`;
+        return html`<msg-approval-card
+          .approval=${pending}
+          .isInitiator=${this.isInitiator}
+        ></msg-approval-card>`;
       }
       const resolved = this.resolvedApprovals.get(msg.id!);
       if (resolved) {
-        return html`<msg-approval-card .approval=${resolved.approval} .resolved=${resolved.resolved} .isInitiator=${this.isInitiator}></msg-approval-card>`;
+        return html`<msg-approval-card
+          .approval=${resolved.approval}
+          .resolved=${resolved.resolved}
+          .isInitiator=${this.isInitiator}
+        ></msg-approval-card>`;
       }
       return html``;
     }
@@ -129,7 +136,11 @@ export class MessageList extends LitElement {
         // Also check real-time resolved cache
         const resolvedFromRealtime = this.resolvedApprovals.get(approvalId);
         const resolved = resolvedFromRealtime?.resolved ?? resolvedFromHistory;
-        return html`<msg-approval-card .approval=${approval} .resolved=${resolved} .isInitiator=${false}></msg-approval-card>`;
+        return html`<msg-approval-card
+          .approval=${approval}
+          .resolved=${resolved}
+          .isInitiator=${false}
+        ></msg-approval-card>`;
       }
       // approval_resolved messages without a matching requested:
       // render as a user action bubble only for [approval:user-resolve] records

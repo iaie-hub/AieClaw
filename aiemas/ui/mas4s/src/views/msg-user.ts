@@ -152,8 +152,7 @@ export class MsgUser extends LitElement {
       <div class="message-row">
         <div class="message-content">
           <div class="message-name">
-            ${name}
-            ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
+            ${name} ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
           </div>
           ${text.trim() ? html`<div class="message-bubble">${markdownMath(text)}</div>` : nothing}
         </div>

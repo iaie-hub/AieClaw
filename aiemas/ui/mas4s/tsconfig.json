@@ -14,10 +14,11 @@
     "emitDecoratorMetadata": false,
     "skipLibCheck": true,
     "outDir": "dist",
+    "rootDir": ".",
     "paths": {
       "@vendor/*": ["../../../../vendor/*"]
     }
   },
-  "include": ["src/**/*.ts", "vite.config.ts", "../../../../vendor/**/*.ts"],
+  "include": ["src/**/*.ts", "vite.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

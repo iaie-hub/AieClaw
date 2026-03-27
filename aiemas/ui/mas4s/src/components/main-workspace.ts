@@ -89,9 +89,8 @@ export class MainWorkspace extends LitElement {
       ></main-header>
 
       <div class="workspace-content">
-        ${
-          this.activeNav === "workspace"
-            ? html`
+        ${this.activeNav === "workspace"
+          ? html`
               <chat-view
                 .messages=${this.messages}
                 .session=${this.session}
@@ -105,10 +104,7 @@ export class MainWorkspace extends LitElement {
                 @load-more-history=${this._onLoadMoreHistory}
               ></chat-view>
             `
-            : html`
-                <div class="placeholder">该视图正在开发中…</div>
-              `
-        }
+          : html` <div class="placeholder">该视图正在开发中…</div> `}
       </div>
     `;
   }

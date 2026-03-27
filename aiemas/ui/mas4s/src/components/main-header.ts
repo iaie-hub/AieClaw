@@ -423,16 +423,14 @@ export class MainHeader extends LitElement {
       <div class="notif-panel" role="dialog" aria-label="通知列表">
         <div class="notif-panel-header">
           <span>待审批通知 ${approvals.length > 0 ? `(${approvals.length})` : ""}</span>
-          <button class="notif-close-btn" @click=${this._onNotifClose} aria-label="关闭通知面板">✕</button>
+          <button class="notif-close-btn" @click=${this._onNotifClose} aria-label="关闭通知面板">
+            ✕
+          </button>
         </div>
         <div class="notif-list">
-          ${
-            approvals.length === 0
-              ? html`
-                  <div class="notif-empty">暂无待审批通知</div>
-                `
-              : approvals.map((a) => this._renderNotifItem(a))
-          }
+          ${approvals.length === 0
+            ? html` <div class="notif-empty">暂无待审批通知</div> `
+            : approvals.map((a) => this._renderNotifItem(a))}
         </div>
       </div>
     `;
@@ -455,7 +453,9 @@ export class MainHeader extends LitElement {
         ${a.request.ask ? html`<div class="notif-ask">${a.request.ask}</div>` : nothing}
         <div class="notif-actions">
           <button class="notif-btn deny" @click=${() => this._onResolve(a.id, "deny")}>拒绝</button>
-          <button class="notif-btn allow" @click=${() => this._onResolve(a.id, "allow-once")}>批准</button>
+          <button class="notif-btn allow" @click=${() => this._onResolve(a.id, "allow-once")}>
+            批准
+          </button>
         </div>
       </div>
     `;
@@ -470,11 +470,9 @@ export class MainHeader extends LitElement {
     return html`
       <confirm-dialog
         .title=${isArchive ? "归档会话" : "取消归档"}
-        .message=${
-          isArchive
-            ? "归档后会话将冻结，成员无法继续发送消息，同时生成摘要。如需恢复可取消归档"
-            : "取消归档后将恢复会话，成员可继续发送消息"
-        }
+        .message=${isArchive
+          ? "归档后会话将冻结，成员无法继续发送消息，同时生成摘要。如需恢复可取消归档"
+          : "取消归档后将恢复会话，成员可继续发送消息"}
         .confirmText=${isArchive ? "归档" : "恢复"}
         .confirmVariant=${isArchive ? "primary" : "primary"}
         @confirm=${this._onConfirmAction}
@@ -489,53 +487,122 @@ export class MainHeader extends LitElement {
 
     return html`
       <div class="left">
-        ${
-          this.title
-            ? html`
+        ${this.title
+          ? html`
               <span>${this.title}</span>
-              ${
-                this.showInvite
-                  ? html`
+              ${this.showInvite
+                ? html`
                     <button class="invite-btn" @click=${this._onInviteClick} title="邀请协作者">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="19" y1="8" x2="19" y2="14"></line><line x1="22" y1="11" x2="16" y2="11"></line></svg>
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="9" cy="7" r="4"></circle>
+                        <line x1="19" y1="8" x2="19" y2="14"></line>
+                        <line x1="22" y1="11" x2="16" y2="11"></line>
+                      </svg>
                       邀请
                     </button>
                   `
-                  : nothing
-              }
-              ${
-                isInitiator
-                  ? isArchived
-                    ? html`
-                      <button class="archive-btn unarchive" @click=${this._onUnarchive} title="取消归档"
-                        data-tip="取消归档后将恢复会话，&#10;成员可继续发送消息">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10h18"></path><path d="M8 14h8"></path><path d="M7 6v1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1z"></path><path d="M21 5h-2a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1z"></path><path d="M12 2v3"></path></svg>
+                : nothing}
+              ${isInitiator
+                ? isArchived
+                  ? html`
+                      <button
+                        class="archive-btn unarchive"
+                        @click=${this._onUnarchive}
+                        title="取消归档"
+                        data-tip="取消归档后将恢复会话，&#10;成员可继续发送消息"
+                      >
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path d="M3 10h18"></path>
+                          <path d="M8 14h8"></path>
+                          <path
+                            d="M7 6v1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1z"
+                          ></path>
+                          <path
+                            d="M21 5h-2a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1z"
+                          ></path>
+                          <path d="M12 2v3"></path>
+                        </svg>
                         取消归档
                       </button>
                     `
-                    : html`
-                      <button class="archive-btn" @click=${this._onArchive} title="归档会话"
-                        data-tip="归档后会话将冻结，同时生成摘要，&#10;成员无法继续发送消息。如需恢复可取消归档">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>
+                  : html`
+                      <button
+                        class="archive-btn"
+                        @click=${this._onArchive}
+                        title="归档会话"
+                        data-tip="归档后会话将冻结，同时生成摘要，&#10;成员无法继续发送消息。如需恢复可取消归档"
+                      >
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <polyline points="21 8 21 21 3 21 3 8"></polyline>
+                          <rect x="1" y="3" width="22" height="5"></rect>
+                          <line x1="10" y1="12" x2="14" y2="12"></line>
+                        </svg>
                         归档
                       </button>
                     `
-                  : nothing
-              }
+                : nothing}
               ${
                 // 摘要按钮：未归档时所有成员可见；已归档时仅 owner 可见（需求 4.10）
                 !isArchived || isInitiator
                   ? html`
-                    <button class="summary-btn" @click=${this._onSummaryClick} title="查看/生成摘要">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                      摘要
-                    </button>
-                  `
+                      <button
+                        class="summary-btn"
+                        @click=${this._onSummaryClick}
+                        title="查看/生成摘要"
+                      >
+                        <svg
+                          width="15"
+                          height="15"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path
+                            d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                          ></path>
+                          <polyline points="14 2 14 8 20 8"></polyline>
+                          <line x1="16" y1="13" x2="8" y2="13"></line>
+                          <line x1="16" y1="17" x2="8" y2="17"></line>
+                          <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                        摘要
+                      </button>
+                    `
                   : nothing
               }
             `
-            : nothing
-        }
+          : nothing}
       </div>
 
       <div class="right">
@@ -544,7 +611,9 @@ export class MainHeader extends LitElement {
           ${this._renderNotifPanel()}
         </div>
         <div class="user-info">
-          <div class="user-avatar">${this._ctrl.store.currentUser?.displayName?.charAt(0).toUpperCase() || "U"}</div>
+          <div class="user-avatar">
+            ${this._ctrl.store.currentUser?.displayName?.charAt(0).toUpperCase() || "U"}
+          </div>
           <span class="user-name">${this._ctrl.store.currentUser?.displayName || "User"}</span>
         </div>
       </div>

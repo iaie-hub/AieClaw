@@ -484,23 +484,25 @@ export class UserListView extends LitElement {
         @click=${() => this._selectUser(user)}
         role="button"
         tabindex="0"
-        @keydown=${(e: KeyboardEvent) => e.key === "Enter" && !e.isComposing && this._selectUser(user)}
+        @keydown=${(e: KeyboardEvent) =>
+          e.key === "Enter" && !e.isComposing && this._selectUser(user)}
         aria-label="查看用户 ${user.displayName}"
       >
         <div class="avatar ${user.role}">${this._avatarLetter(user)}</div>
         <div class="user-info">
           <div class="user-name">${user.displayName}</div>
           <div class="user-meta">
-            <span class="presence-dot ${isOnline ? "online" : "offline"}" title="${isOnline ? "在线" : "离线"}"></span>
+            <span
+              class="presence-dot ${isOnline ? "online" : "offline"}"
+              title="${isOnline ? "在线" : "离线"}"
+            ></span>
             <span class="role-badge ${user.role}">${this._roleLabel(user.role)}</span>
-            ${
-              isAdmin && user.status
-                ? html`
+            ${isAdmin && user.status
+              ? html`
                   <span class="status-dot ${user.status}"></span>
                   <span class="status-label">${this._statusLabel(user.status)}</span>
                 `
-                : ""
-            }
+              : ""}
           </div>
         </div>
       </div>
@@ -510,9 +512,7 @@ export class UserListView extends LitElement {
   private _renderDetail() {
     const user = this._selectedUser;
     if (!user) {
-      return html`
-        <div class="detail-empty">点击左侧用户查看详情</div>
-      `;
+      return html` <div class="detail-empty">点击左侧用户查看详情</div> `;
     }
 
     const isAdmin = this._ctrl.store.currentUser?.role === "admin";
@@ -541,9 +541,8 @@ export class UserListView extends LitElement {
               ${isOnline ? "在线" : "离线"}
             </span>
           </div>
-          ${
-            isAdmin && user.status
-              ? html`
+          ${isAdmin && user.status
+            ? html`
                 <div class="field-row">
                   <span class="field-label">审核状态</span>
                   <span class="status-chip ${user.status}">
@@ -552,41 +551,41 @@ export class UserListView extends LitElement {
                   </span>
                 </div>
               `
-              : ""
-          }
-          ${
-            user.lastLoginAt
-              ? html`
+            : ""}
+          ${user.lastLoginAt
+            ? html`
                 <div class="field-row">
                   <span class="field-label">上次登录</span>
-                  <span class="field-value">${new Date(user.lastLoginAt).toLocaleString("zh-CN")}</span>
+                  <span class="field-value"
+                    >${new Date(user.lastLoginAt).toLocaleString("zh-CN")}</span
+                  >
                 </div>
               `
-              : ""
-          }
-          ${
-            !isOnline && user.lastOfflineAt
-              ? html`
+            : ""}
+          ${!isOnline && user.lastOfflineAt
+            ? html`
                 <div class="field-row">
                   <span class="field-label">上次离线</span>
-                  <span class="field-value">${new Date(user.lastOfflineAt).toLocaleString("zh-CN")}</span>
+                  <span class="field-value"
+                    >${new Date(user.lastOfflineAt).toLocaleString("zh-CN")}</span
+                  >
                 </div>
               `
-              : ""
-          }
+            : ""}
           <div class="field-row">
             <span class="field-label">注册时间</span>
             <span class="field-value">${new Date(user.createdAt).toLocaleString("zh-CN")}</span>
           </div>
           <div class="field-row">
             <span class="field-label">用户 ID</span>
-            <span class="field-value" style="font-family:monospace;font-size:11px;color:#94a3b8">${user.userId}</span>
+            <span class="field-value" style="font-family:monospace;font-size:11px;color:#94a3b8"
+              >${user.userId}</span
+            >
           </div>
         </div>
 
-        ${
-          isAdmin && isPending
-            ? html`
+        ${isAdmin && isPending
+          ? html`
               <div class="approval-section">
                 <div class="approval-title">⏳ 该用户正在等待注册审批</div>
                 <div class="approval-actions">
@@ -594,39 +593,42 @@ export class UserListView extends LitElement {
                     class="btn btn-approve"
                     ?disabled=${isApproving || isRejecting}
                     @click=${() => this._approve(user.userId)}
-                  >${isApproving ? "处理中…" : "✓ 通过"}</button>
+                  >
+                    ${isApproving ? "处理中…" : "✓ 通过"}
+                  </button>
                   <button
                     class="btn btn-reject"
                     ?disabled=${isApproving || isRejecting}
                     @click=${() => this._reject(user.userId)}
-                  >${isRejecting ? "处理中…" : "✗ 拒绝"}</button>
+                  >
+                    ${isRejecting ? "处理中…" : "✗ 拒绝"}
+                  </button>
                 </div>
               </div>
             `
-            : ""
-        }
+          : ""}
       </div>
     `;
   }
 
   render() {
     if (this._loading) {
-      return html`
-        <div class="loading-wrap">加载用户列表中…</div>
-      `;
+      return html` <div class="loading-wrap">加载用户列表中…</div> `;
     }
     if (this._error) {
       return html`
         <div class="error-wrap">
           加载失败：${this._error}
-          <button class="refresh-btn" style="margin-left:12px" @click=${() => this._loadUsers()}>重试</button>
+          <button class="refresh-btn" style="margin-left:12px" @click=${() => this._loadUsers()}>
+            重试
+          </button>
         </div>
       `;
     }
 
     return html`
-      <main-header 
-        title="用户管理" 
+      <main-header
+        title="用户管理"
         .approvalCount=${this._ctrl.store.pendingApprovals.length}
       ></main-header>
       <div class="container">
@@ -639,9 +641,7 @@ export class UserListView extends LitElement {
             ${this._users.map((u) => this._renderUserItem(u))}
           </div>
         </div>
-        <div class="detail-panel">
-          ${this._renderDetail()}
-        </div>
+        <div class="detail-panel">${this._renderDetail()}</div>
       </div>
     `;
   }
