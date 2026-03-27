@@ -798,6 +798,7 @@ export async function runEmbeddedAttempt(
         settingsManager,
         resourceLoader,
       }));
+
       applySystemPromptOverrideToSession(session, systemPromptText);
       if (!session) {
         throw new Error("Embedded agent session missing");
@@ -874,7 +875,17 @@ export async function runEmbeddedAttempt(
         activeSession.agent.streamFn = createAnthropicVertexStreamFnForModel(params.model);
       } else {
         // Force a stable streamFn reference so vitest can reliably mock @mariozechner/pi-ai.
-        activeSession.agent.streamFn = streamSimple;
+        // For providers that store their key in authStorage (e.g. vllm, custom providers),
+        // wrap streamSimple to inject the apiKey from authStorage so it isn't lost.
+        const runtimeApiKey = await params.authStorage.getApiKey(params.provider);
+        if (runtimeApiKey) {
+          const capturedApiKey = runtimeApiKey;
+          const innerStreamSimple = streamSimple;
+          activeSession.agent.streamFn = (model, context, options) =>
+            innerStreamSimple(model, context, { ...options, apiKey: capturedApiKey });
+        } else {
+          activeSession.agent.streamFn = streamSimple;
+        }
       }
 
       // Ollama with OpenAI-compatible API needs num_ctx in payload.options.
