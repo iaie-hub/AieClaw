@@ -195,3 +195,105 @@ describe("setActiveSession", () => {
     expect(store.activeSession).toEqual(session);
   });
 });
+
+describe("Skills 状态管理（需求 6）", () => {
+  beforeEach(resetSingleton);
+
+  it("初始状态：skillsReport 为 null", () => {
+    const store = AppStore.instance;
+    expect(store.skillsReport).toBeNull();
+  });
+
+  it("初始状态：skillsLoading 为 false", () => {
+    const store = AppStore.instance;
+    expect(store.skillsLoading).toBe(false);
+  });
+
+  it("初始状态：skillsError 为 null", () => {
+    const store = AppStore.instance;
+    expect(store.skillsError).toBeNull();
+  });
+
+  it("setSkillsReport 更新 skillsReport 并清除 error（需求 6.1, 6.4）", () => {
+    const store = AppStore.instance;
+    store.skillsError = "previous error";
+
+    const report = {
+      workspaceDir: "/workspace",
+      managedSkillsDir: "/skills",
+      skills: [],
+    };
+
+    store.setSkillsReport(report);
+    expect(store.skillsReport).toBe(report);
+    expect(store.skillsError).toBeNull();
+  });
+
+  it("setSkillsLoading 更新 skillsLoading（需求 6.2, 6.5）", () => {
+    const store = AppStore.instance;
+    expect(store.skillsLoading).toBe(false);
+
+    store.setSkillsLoading(true);
+    expect(store.skillsLoading).toBe(true);
+
+    store.setSkillsLoading(false);
+    expect(store.skillsLoading).toBe(false);
+  });
+
+  it("setSkillsError 更新 skillsError 并设置 loading 为 false（需求 6.3, 6.6）", () => {
+    const store = AppStore.instance;
+    store.skillsLoading = true;
+
+    store.setSkillsError("test error");
+    expect(store.skillsError).toBe("test error");
+    expect(store.skillsLoading).toBe(false);
+  });
+
+  it("setSkillsReport 调用 notify()（需求 6.7）", () => {
+    const store = AppStore.instance;
+    const host = {
+      requestUpdate: vi.fn(),
+      addController: vi.fn(),
+      removeController: vi.fn(),
+      updateComplete: Promise.resolve(true),
+    };
+    store.addHost(host);
+
+    const report = {
+      workspaceDir: "/workspace",
+      managedSkillsDir: "/skills",
+      skills: [],
+    };
+
+    store.setSkillsReport(report);
+    expect(host.requestUpdate).toHaveBeenCalled();
+  });
+
+  it("setSkillsLoading 调用 notify()（需求 6.7）", () => {
+    const store = AppStore.instance;
+    const host = {
+      requestUpdate: vi.fn(),
+      addController: vi.fn(),
+      removeController: vi.fn(),
+      updateComplete: Promise.resolve(true),
+    };
+    store.addHost(host);
+
+    store.setSkillsLoading(true);
+    expect(host.requestUpdate).toHaveBeenCalled();
+  });
+
+  it("setSkillsError 调用 notify()（需求 6.7）", () => {
+    const store = AppStore.instance;
+    const host = {
+      requestUpdate: vi.fn(),
+      addController: vi.fn(),
+      removeController: vi.fn(),
+      updateComplete: Promise.resolve(true),
+    };
+    store.addHost(host);
+
+    store.setSkillsError("error");
+    expect(host.requestUpdate).toHaveBeenCalled();
+  });
+});

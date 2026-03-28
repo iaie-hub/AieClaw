@@ -2,6 +2,7 @@ import type { ReactiveController, ReactiveControllerHost } from "lit";
 import type { ApprovalRequest, ApprovalResolved } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
 import type { MasSession, MasParticipant } from "../types/session-types.js";
+import type { SkillStatusReport } from "../types/skills-types.js";
 
 export type GlobalRole = "admin" | "member" | "viewer";
 
@@ -135,6 +136,28 @@ export class AppStore {
 
   updateUserPresence(userId: string, isOnline: boolean): void {
     this.userPresenceOverrides.set(userId, isOnline);
+    this.notify();
+  }
+
+  // ── Skills 状态管理 ───────────────────────────────
+  skillsReport: SkillStatusReport | null = null;
+  skillsLoading: boolean = false;
+  skillsError: string | null = null;
+
+  setSkillsReport(report: SkillStatusReport): void {
+    this.skillsReport = report;
+    this.skillsError = null;
+    this.notify();
+  }
+
+  setSkillsLoading(loading: boolean): void {
+    this.skillsLoading = loading;
+    this.notify();
+  }
+
+  setSkillsError(error: string): void {
+    this.skillsError = error;
+    this.skillsLoading = false;
     this.notify();
   }
 

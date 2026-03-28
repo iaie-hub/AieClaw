@@ -73,24 +73,27 @@ export class MainWorkspace extends LitElement {
     const hasSession = !!this.session;
     const isInitiator = this.session?.masType === "initiated";
 
-    return html`
-      <main-header
-        .title=${hasSession ? `会话：${this.session!.label ?? this.session!.key}` : ""}
-        .status=${this.session?.status}
-        .approvalCount=${this.pendingApprovals.length}
-        .pendingApprovals=${this.pendingApprovals}
-        .showInvite=${hasSession}
-        .session=${this.session}
-        @invite-click=${this._onInviteClick}
-        @summary-click=${this._onSummaryClick}
-        @resolve-approval=${this._onResolve}
-        @session-archive=${this._onSessionArchive}
-        @session-unarchive=${this._onSessionUnarchive}
-      ></main-header>
+    if (this.activeNav === "skills") {
+      return html`<skills-manager></skills-manager>`;
+    }
 
-      <div class="workspace-content">
-        ${this.activeNav === "workspace"
-          ? html`
+    return html`
+      ${this.activeNav === "workspace"
+        ? html`
+            <main-header
+              .title=${hasSession ? `会话：${this.session!.label ?? this.session!.key}` : ""}
+              .status=${this.session?.status}
+              .approvalCount=${this.pendingApprovals.length}
+              .pendingApprovals=${this.pendingApprovals}
+              .showInvite=${hasSession}
+              .session=${this.session}
+              @invite-click=${this._onInviteClick}
+              @summary-click=${this._onSummaryClick}
+              @resolve-approval=${this._onResolve}
+              @session-archive=${this._onSessionArchive}
+              @session-unarchive=${this._onSessionUnarchive}
+            ></main-header>
+            <div class="workspace-content">
               <chat-view
                 .messages=${this.messages}
                 .session=${this.session}
@@ -103,9 +106,13 @@ export class MainWorkspace extends LitElement {
                 @resolve=${this._onResolve}
                 @load-more-history=${this._onLoadMoreHistory}
               ></chat-view>
-            `
-          : html` <div class="placeholder">该视图正在开发中…</div> `}
-      </div>
+            </div>
+          `
+        : html`
+            <div class="workspace-content">
+              <div class="placeholder">该视图正在开发中…</div>
+            </div>
+          `}
     `;
   }
 

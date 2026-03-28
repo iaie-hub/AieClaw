@@ -19,6 +19,7 @@ import "./components/main-workspace.js";
 import "./components/invite-dialog.js";
 import "./views/login-view.js";
 import "./views/user-list-view.js";
+import "./views/skills-manager.js";
 
 /**
  * mas4s 根组件。三栏布局：primary-sidebar + session-sidebar + main-workspace。
