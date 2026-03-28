@@ -184,27 +184,65 @@ export function ensureMessageSchema(db: DatabaseSync): void {
     ON session_messages(sessionId, seq);
   `);
 
-  // session_msg_statistic: one row per sessionKey, updated atomically with
+  // session_msg_statistic: one row per (sessionKey, sessionId), updated atomically with
   // every session_messages INSERT inside persistBatch's transaction.
+  const statCols = db.prepare("PRAGMA table_info(session_msg_statistic)").all() as Array<{
+    name: string;
+  }>;
+  if (statCols.length > 0 && !statCols.some((c) => c.name === "sessionId")) {
+    db.exec("DROP TABLE session_msg_statistic");
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS session_msg_statistic (
-      sessionKey    TEXT    PRIMARY KEY,
+      sessionKey    TEXT    NOT NULL,
+      sessionId     TEXT    NOT NULL,
       firstMsgAt    INTEGER NOT NULL,
       lastMsgAt     INTEGER NOT NULL,
       msgCount      INTEGER NOT NULL DEFAULT 0,
-      lastSeq       INTEGER NOT NULL DEFAULT 0
+      lastSeq       INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (sessionKey, sessionId)
     );
   `);
 
-  // session_summaries: one row per sessionKey, upserted on each summary generation.
+  // session_summaries: one row per (sessionKey, sessionId), upserted on each summary generation.
   // Stored in mas4s.message.db (alongside messages) for performance isolation from mas4s.db.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS session_summaries (
-      sessionKey   TEXT    PRIMARY KEY,
-      textSummary  TEXT    NULL,
-      toolSummary  TEXT    NULL,
-      generatedAt  INTEGER NOT NULL,
-      generatedBy  TEXT    NOT NULL
-    );
-  `);
+  const summaryCols = db.prepare("PRAGMA table_info(session_summaries)").all() as Array<{
+    name: string;
+  }>;
+  if (summaryCols.length > 0 && !summaryCols.some((c) => c.name === "sessionId")) {
+    db.exec("ALTER TABLE session_summaries RENAME TO session_summaries_old");
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS session_summaries (
+        sessionKey   TEXT    NOT NULL,
+        sessionId    TEXT    NOT NULL,
+        textSummary  TEXT    NULL,
+        toolSummary  TEXT    NULL,
+        generatedAt  INTEGER NOT NULL,
+        generatedBy  TEXT    NOT NULL,
+        PRIMARY KEY (sessionKey, sessionId)
+      );
+    `);
+    // Backfill: use sessionId from the latest message of that sessionKey
+    db.exec(`
+      INSERT INTO session_summaries (sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy)
+      SELECT old.sessionKey, COALESCE(
+        (SELECT sessionId FROM session_messages WHERE sessionKey = old.sessionKey ORDER BY timestamp DESC LIMIT 1),
+        old.sessionKey
+      ), old.textSummary, old.toolSummary, old.generatedAt, old.generatedBy
+      FROM session_summaries_old old
+    `);
+    db.exec("DROP TABLE session_summaries_old");
+  } else {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS session_summaries (
+        sessionKey   TEXT    NOT NULL,
+        sessionId    TEXT    NOT NULL,
+        textSummary  TEXT    NULL,
+        toolSummary  TEXT    NULL,
+        generatedAt  INTEGER NOT NULL,
+        generatedBy  TEXT    NOT NULL,
+        PRIMARY KEY (sessionKey, sessionId)
+      );
+    `);
+  }
 }

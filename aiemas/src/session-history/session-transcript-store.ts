@@ -45,6 +45,8 @@ export interface SessionTranscriptStoreOptions {
  */
 interface SessionState {
   sender: SenderContext;
+  sessionKey: string;
+  sessionId: string;
   lastSeq: number;
   firstMsgAt: number;
   lastMsgAt: number;
@@ -200,9 +202,11 @@ function formatToolResult(value: unknown): string {
 }
 
 /** Return a default (empty) SessionState for a session not yet seen. */
-function defaultSessionState(): SessionState {
+function defaultSessionState(sessionKey: string, sessionId: string): SessionState {
   return {
     sender: { userId: null, tenantId: null },
+    sessionKey,
+    sessionId,
     lastSeq: 0,
     firstMsgAt: 0,
     lastMsgAt: 0,
@@ -219,11 +223,17 @@ export class SessionTranscriptStore {
 
   /**
    * Central per-session state store.
-   * Keyed by sessionKey (== sessionId in this codebase).
-   * Loaded from session_msg_statistic on construction; kept in sync after every
-   * persistBatch commit so callers never need to query the DB for seq or stats.
+   * Keyed by sessionId (effectively unique per reset instance).
+   * Loaded from session_msg_statistic on construction.
    */
   private readonly sessionStates = new Map<string, SessionState>();
+
+  /**
+   * Mapping of sessionKey -> latest sessionId.
+   * Used to resolve the active sessionId for events that only carry sessionKey
+   * (e.g. tool calls, approvals). Updated by handleUpdate and recordSenderContext.
+   */
+  private readonly activeSessionIds = new Map<string, string>();
 
   /** In-memory write buffer; drained on each flush. */
   private readonly buffer: StoredMessage[] = [];
@@ -265,23 +275,32 @@ export class SessionTranscriptStore {
     try {
       const rows = this.db
         .prepare(
-          "SELECT sessionKey, firstMsgAt, lastMsgAt, msgCount, lastSeq FROM session_msg_statistic",
+          "SELECT sessionKey, sessionId, firstMsgAt, lastMsgAt, msgCount, lastSeq FROM session_msg_statistic",
         )
         .all() as Array<{
         sessionKey: string;
+        sessionId: string;
         firstMsgAt: number;
         lastMsgAt: number;
         msgCount: number;
         lastSeq: number;
       }>;
       for (const row of rows) {
-        this.sessionStates.set(row.sessionKey, {
+        this.sessionStates.set(row.sessionId, {
           sender: { userId: null, tenantId: null },
+          sessionKey: row.sessionKey,
+          sessionId: row.sessionId,
           lastSeq: row.lastSeq,
           firstMsgAt: row.firstMsgAt,
           lastMsgAt: row.lastMsgAt,
           msgCount: row.msgCount,
         });
+        // Track the "latest" sessionId per sessionKey by picking the one with the highest sequence/timestamp.
+        // This is a heuristic for startup; subsequent updates will keep this map current.
+        const current = this.activeSessionIds.get(row.sessionKey);
+        if (!current || row.lastMsgAt > (this.sessionStates.get(current)?.lastMsgAt ?? 0)) {
+          this.activeSessionIds.set(row.sessionKey, row.sessionId);
+        }
       }
     } catch {
       // Table may not exist yet during first init — safe to ignore.
@@ -290,21 +309,23 @@ export class SessionTranscriptStore {
 
   // ── getOrInitState (private) ───────────────────────────────────────────────
 
-  /** Return the SessionState for a key, creating a default entry if absent. */
-  private getOrInitState(sessionKey: string): SessionState {
-    let state = this.sessionStates.get(sessionKey);
+  /** Return the SessionState for a key pair, creating a default entry if absent. */
+  private getOrInitState(sessionKey: string, sessionId: string): SessionState {
+    let state = this.sessionStates.get(sessionId);
     if (!state) {
-      state = defaultSessionState();
-      this.sessionStates.set(sessionKey, state);
+      state = defaultSessionState(sessionKey, sessionId);
+      this.sessionStates.set(sessionId, state);
     }
+    // Update active mapping whenever we touch a session
+    this.activeSessionIds.set(sessionKey, sessionId);
     return state;
   }
 
   // ── recordSenderContext ────────────────────────────────────────────────────
 
-  /** Called by the chat.send extraHandler to associate a sessionKey with a user. */
-  recordSenderContext(sessionKey: string, ctx: SenderContext): void {
-    this.getOrInitState(sessionKey).sender = ctx;
+  /** Called by the chat.send extraHandler to associate a session with a user. */
+  recordSenderContext(sessionKey: string, sessionId: string, ctx: SenderContext): void {
+    this.getOrInitState(sessionKey, sessionId).sender = ctx;
   }
 
   // ── start ──────────────────────────────────────────────────────────────────
@@ -437,13 +458,16 @@ export class SessionTranscriptStore {
    */
   persistSummary(params: {
     sessionKey: string;
+    sessionId: string;
     textSummary: string | null;
     toolSummary: string | null;
     generatedAt: number;
     generatedBy: string;
   }): void {
     upsertSummary(this.db, params);
-    console.log(`[mas4s:transcript-store] persisted summary for sessionKey=${params.sessionKey}`);
+    console.log(
+      `[mas4s:transcript-store] persisted summary for sessionKey=${params.sessionKey} sessionId=${params.sessionId}`,
+    );
   }
 
   /**
@@ -480,14 +504,20 @@ export class SessionTranscriptStore {
 
   private pushToBuffer(params: {
     sessionKey: string;
+    sessionId?: string;
     role: StoredMessage["role"];
     content: string;
     timestamp: number;
   }): void {
     const { sessionKey, role, content, timestamp } = params;
-    // sessionId == sessionKey in this codebase.
-    const sessionId = sessionKey;
-    const state = this.getOrInitState(sessionKey);
+    let { sessionId } = params;
+
+    // Resolve sessionId if missing via the active mapping
+    if (!sessionId) {
+      sessionId = this.activeSessionIds.get(sessionKey) ?? sessionKey;
+    }
+
+    const state = this.getOrInitState(sessionKey, sessionId);
     const seq = state.lastSeq + 1;
     // Eagerly advance lastSeq so subsequent pushes in the same flush cycle get
     // monotonically increasing seq values without waiting for a DB round-trip.
@@ -546,7 +576,7 @@ export class SessionTranscriptStore {
         return;
       }
 
-      const state = this.getOrInitState(sessionKey);
+      const state = this.getOrInitState(sessionKey, sessionId);
       const seq = state.lastSeq + 1;
       state.lastSeq = seq;
 
@@ -694,9 +724,9 @@ export class SessionTranscriptStore {
     // update lastMsgAt/msgCount/lastSeq and narrow firstMsgAt if a back-dated
     // message arrives (e.g. from a replay).
     const upsertStatStmt = this.db.prepare(
-      `INSERT INTO session_msg_statistic (sessionKey, firstMsgAt, lastMsgAt, msgCount, lastSeq)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(sessionKey) DO UPDATE SET
+      `INSERT INTO session_msg_statistic (sessionKey, sessionId, firstMsgAt, lastMsgAt, msgCount, lastSeq)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(sessionKey, sessionId) DO UPDATE SET
          firstMsgAt = MIN(firstMsgAt, excluded.firstMsgAt),
          lastMsgAt  = MAX(lastMsgAt,  excluded.lastMsgAt),
          msgCount   = msgCount + excluded.msgCount,
@@ -743,8 +773,20 @@ export class SessionTranscriptStore {
         );
       }
 
-      // Upsert session_msg_statistic once per sessionKey.
-      for (const [sessionKey, group] of byKey) {
+      // Group by sessionId for stats updates to match composite PK.
+      const bySessionId = new Map<string, StoredMessage[]>();
+      for (const m of msgs) {
+        let group = bySessionId.get(m.sessionId);
+        if (!group) {
+          group = [];
+          bySessionId.set(m.sessionId, group);
+        }
+        group.push(m);
+      }
+
+      // Upsert session_msg_statistic once per sessionId.
+      for (const [sessionId, group] of bySessionId) {
+        const sessionKey = group[0].sessionKey;
         const batchMinTs = group.reduce(
           (min, m) => (m.timestamp < min ? m.timestamp : min),
           group[0].timestamp,
@@ -754,7 +796,14 @@ export class SessionTranscriptStore {
           group[0].timestamp,
         );
         const batchMaxSeq = group.reduce((max, m) => (m.seq > max ? m.seq : max), group[0].seq);
-        upsertStatStmt.run(sessionKey, batchMinTs, batchMaxTs, group.length, batchMaxSeq);
+        upsertStatStmt.run(
+          sessionKey,
+          sessionId,
+          batchMinTs,
+          batchMaxTs,
+          group.length,
+          batchMaxSeq,
+        );
       }
 
       this.db.exec("COMMIT");
@@ -772,22 +821,13 @@ export class SessionTranscriptStore {
     }
 
     // Commit succeeded: update in-memory statistic counters to mirror the DB.
-    for (const [sessionKey, group] of byKey) {
-      const state = this.getOrInitState(sessionKey);
-      const batchMinTs = group.reduce(
-        (min, m) => (m.timestamp < min ? m.timestamp : min),
-        group[0].timestamp,
-      );
-      const batchMaxTs = group.reduce(
-        (max, m) => (m.timestamp > max ? m.timestamp : max),
-        group[0].timestamp,
-      );
+    for (const m of msgs) {
+      const state = this.getOrInitState(m.sessionKey, m.sessionId);
       state.firstMsgAt =
-        state.firstMsgAt === 0 ? batchMinTs : Math.min(state.firstMsgAt, batchMinTs);
-      state.lastMsgAt = Math.max(state.lastMsgAt, batchMaxTs);
-      state.msgCount += group.length;
-      // lastSeq was already advanced eagerly in pushToBuffer/handleUpdate;
-      // no further update needed here.
+        state.firstMsgAt === 0 ? m.timestamp : Math.min(state.firstMsgAt, m.timestamp);
+      state.lastMsgAt = Math.max(state.lastMsgAt, m.timestamp);
+      state.msgCount += 1; // Simplified batch update
+      // lastSeq logic remains eagerly advanced.
     }
   }
 

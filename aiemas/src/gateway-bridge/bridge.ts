@@ -15,12 +15,22 @@ import { extractContentFromStoredMessages, generateSummaryWithLLM } from "./summ
 import type { StoredMessageForSummary } from "./summary-llm.js";
 
 export class GatewayAuthBridge {
+  private loadSessionRow?: (sessionKey: string) => { sessionId?: string } | null;
+
   constructor(
     private readonly tenantService: TenantService,
     private readonly db: DatabaseSync,
     public llmConfig?: { baseUrl: string; apiKey: string; model: string },
     private readonly transcriptStore?: SessionTranscriptStore,
   ) {}
+
+  /**
+   * Set the loadSessionRow callback for resolving sessionId from sessionKey.
+   * This is called by the integration layer after plugin creation.
+   */
+  setLoadSessionRow(fn: (sessionKey: string) => { sessionId?: string } | null): void {
+    this.loadSessionRow = fn;
+  }
 
   /**
    * Authenticate a WS connect request.
@@ -481,8 +491,12 @@ export class GatewayAuthBridge {
       );
 
       if (isArchived) {
+        // For archived sessions, sessionId must be resolved from the gateway session entry
+        // because sessions.reset generates a new sessionId while keeping the same sessionKey.
+        const sessionId = this._resolveSessionId(sessionKey);
         this.transcriptStore?.persistSummary({
           sessionKey,
+          sessionId,
           textSummary: llmResult.textSummary,
           toolSummary: llmResult.toolSummary,
           generatedAt: llmResult.generatedAt,
@@ -498,8 +512,10 @@ export class GatewayAuthBridge {
       }
 
       // Not archived: return without persisting
+      const sessionId = this._resolveSessionId(sessionKey);
       this.transcriptStore?.persistSummary({
         sessionKey,
+        sessionId,
         textSummary: llmResult.textSummary,
         toolSummary: llmResult.toolSummary,
         generatedAt: llmResult.generatedAt,
@@ -631,6 +647,22 @@ export class GatewayAuthBridge {
       return null;
     }
     return row.role as "owner" | "participant";
+  }
+
+  /**
+   * Resolve sessionId from sessionKey via the gateway session store.
+   * Falls back to sessionKey if loadSessionRow callback is not available or returns null.
+   * This is critical for sessions.reset, which generates a new sessionId while keeping
+   * the same sessionKey.
+   */
+  private _resolveSessionId(sessionKey: string): string {
+    if (this.loadSessionRow) {
+      const row = this.loadSessionRow(sessionKey);
+      if (row?.sessionId) {
+        return row.sessionId;
+      }
+    }
+    return sessionKey;
   }
 }
 

@@ -650,7 +650,10 @@ export const sessionsHandlers: GatewayRequestHandlers = {
 
     respond(true, { ts: Date.now(), previews } satisfies SessionsPreviewResult, undefined);
   },
-  "sessions.resolve": async ({ params, respond }) => {
+  "sessions.resolve": async ({ params, respond, client }) => {
+    console.log(
+      `[sessions.resolve] request from connId=${client?.connId || "unknown"}, params=${JSON.stringify(params)}`,
+    );
     if (!assertValidParams(params, validateSessionsResolveParams, "sessions.resolve", respond)) {
       return;
     }

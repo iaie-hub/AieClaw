@@ -235,6 +235,13 @@ export async function initMas4sIntegration(
     const plugin = await createMas4sGatewayPlugin({ llm });
     log.info("mas4s multi-tenant plugin loaded");
 
+    // Set the loadSessionRow callback so bridge can resolve sessionId from sessionKey.
+    // This is critical for sessions.reset, which generates a new sessionId while keeping
+    // the same sessionKey.
+    plugin.bridge.setLoadSessionRow((sessionKey: string) => {
+      return loadGatewaySessionRow(sessionKey);
+    });
+
     // Helper: send an event frame to a specific WS client by connId
     const sendToConnId = (
       connId: string,
@@ -894,7 +901,9 @@ export async function initMas4sIntegration(
 
         // Record sender context for message capture before core handler runs
         if (sessionKey) {
-          plugin.transcriptStore.recordSenderContext(sessionKey, {
+          const sessionRow = loadGatewaySessionRow(sessionKey);
+          const sessionId = sessionRow?.sessionId ?? sessionKey;
+          plugin.transcriptStore.recordSenderContext(sessionKey, sessionId, {
             userId: masAuth.userId ?? null,
             tenantId: masAuth.tenantId ?? null,
           });
