@@ -1,16 +1,11 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import { streamSimple } from "@mariozechner/pi-ai";
 import {
   createAgentSession,
   DefaultResourceLoader,
   SessionManager,
 } from "@mariozechner/pi-coding-agent";
-import {
-  resolveTelegramInlineButtonsScope,
-  resolveTelegramReactionLevel,
-} from "../../../../extensions/telegram/api.js";
 import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
 import { resolveChannelCapabilities } from "../../../config/channel-capabilities.js";
 import { getMachineDisplayName } from "../../../infra/machine-name.js";
@@ -26,7 +21,12 @@ import {
   wrapOllamaCompatNumCtx,
 } from "../../../plugin-sdk/ollama.js";
 import { resolveSignalReactionLevel } from "../../../plugin-sdk/signal.js";
+import {
+  resolveTelegramInlineButtonsScope,
+  resolveTelegramReactionLevel,
+} from "../../../plugin-sdk/telegram-runtime.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
+import { resolveToolCallArgumentsEncoding } from "../../../plugins/provider-model-compat.js";
 import { isSubagentSessionKey } from "../../../routing/session-key.js";
 import { buildTtsSystemPromptHint } from "../../../tts/tts.js";
 import { resolveUserPath } from "../../../utils.js";
@@ -55,7 +55,6 @@ import { isTimeoutError } from "../../failover-error.js";
 import { resolveImageSanitizationLimits } from "../../image-sanitization.js";
 import { buildModelAliasLines } from "../../model-alias-lines.js";
 import { resolveModelAuthMode } from "../../model-auth.js";
-import { resolveToolCallArgumentsEncoding } from "../../model-compat.js";
 import { resolveDefaultModelForAgent } from "../../model-selection.js";
 import { supportsModelTools } from "../../model-tool-support.js";
 import { createOpenAIWebSocketStreamFn, releaseWsSession } from "../../openai-ws-stream.js";
@@ -845,6 +844,7 @@ export async function runEmbeddedAttempt(
         workspaceDir: params.workspaceDir,
       });
 
+      const defaultSessionStreamFn = activeSession.agent.streamFn;
       const providerStreamFn = registerProviderStreamForModel({
         model: params.model,
         cfg: params.config,
@@ -866,7 +866,7 @@ export async function runEmbeddedAttempt(
           });
         } else {
           log.warn(`[ws-stream] no API key for provider=${params.provider}; using HTTP transport`);
-          activeSession.agent.streamFn = streamSimple;
+          activeSession.agent.streamFn = defaultSessionStreamFn;
         }
       } else if (params.model.provider === "anthropic-vertex") {
         // Anthropic Vertex AI: inject AnthropicVertex client into pi-ai's
@@ -879,11 +879,11 @@ export async function runEmbeddedAttempt(
         const runtimeApiKey = await params.authStorage.getApiKey(params.provider);
         if (runtimeApiKey) {
           const capturedApiKey = runtimeApiKey;
-          const innerStreamSimple = streamSimple;
+          const innerStreamSimple = defaultSessionStreamFn;
           activeSession.agent.streamFn = (model, context, options) =>
             innerStreamSimple(model, context, { ...options, apiKey: capturedApiKey });
         } else {
-          activeSession.agent.streamFn = streamSimple;
+          activeSession.agent.streamFn = defaultSessionStreamFn;
         }
       }
 
@@ -1342,6 +1342,7 @@ export async function runEmbeddedAttempt(
           },
         );
         const hookCtx = {
+          runId: params.runId,
           agentId: hookAgentId,
           sessionKey: params.sessionKey,
           sessionId: params.sessionId,
@@ -1474,6 +1475,7 @@ export async function runEmbeddedAttempt(
                   imagesCount: imageResult.images.length,
                 },
                 {
+                  runId: params.runId,
                   agentId: hookAgentId,
                   sessionKey: params.sessionKey,
                   sessionId: params.sessionId,
@@ -1704,6 +1706,7 @@ export async function runEmbeddedAttempt(
                 durationMs: Date.now() - promptStartedAt,
               },
               {
+                runId: params.runId,
                 agentId: hookAgentId,
                 sessionKey: params.sessionKey,
                 sessionId: params.sessionId,
@@ -1766,6 +1769,7 @@ export async function runEmbeddedAttempt(
               usage: getUsageTotals(),
             },
             {
+              runId: params.runId,
               agentId: hookAgentId,
               sessionKey: params.sessionKey,
               sessionId: params.sessionId,

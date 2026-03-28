@@ -690,7 +690,8 @@ export class OpenClawApp extends LitElement {
     this.execApprovalBusy = true;
     this.execApprovalError = null;
     try {
-      await this.client.request("exec.approval.resolve", {
+      const method = active.kind === "plugin" ? "plugin.approval.resolve" : "exec.approval.resolve";
+      await this.client.request(method, {
         id: active.id,
         decision,
       });
@@ -718,7 +719,7 @@ export class OpenClawApp extends LitElement {
         },
       ];
     } catch (err) {
-      this.execApprovalError = `Exec approval failed: ${String(err)}`;
+      this.execApprovalError = `Approval failed: ${String(err)}`;
     } finally {
       this.execApprovalBusy = false;
     }
