@@ -98,3 +98,9 @@ aiemas/
 
 - **无缝回退机制（兼容模式）**：当 WebSocket 客户端发起未携带 `auth.masToken` 的连接时，桥接层必须自动回退至平台原有的 token/password 流程。该连接的对应上下文中 `userId` 必须置为 `null`。
 - **回退行为兜底**：处于兼容模式（`userId` 为 `null`）时，系统必须跳过各种会话归属和权限层面的校验逻辑，保持该客户端下原有行为全部通过（所有会话可见、所有作用域事件全量广播、不拦截消息等）。
+
+## 5. API 接口约束 (API Interface Constraints)
+
+- **记录新增API ** : 记录新增的API到 `docs/openclaw/websocket_api.md` 中。
+- **记录新增事件 ** : 记录新增的事件到 `docs/openclaw/websocket_api.md` 中。
+- **记录新增消息格式 ** : 记录新增的消息格式到 `docs/openclaw/websocket_api.md` 中。

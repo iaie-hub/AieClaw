@@ -56,6 +56,8 @@ export type ProcessGatewayAllowlistParams = {
   strictInlineEval?: boolean;
   agentId?: string;
   sessionKey?: string;
+  /** The agent run ID that triggered this exec, used to detect followup-loop re-runs. */
+  runId?: string;
   turnSourceChannel?: string;
   turnSourceTo?: string;
   turnSourceAccountId?: string;
@@ -77,6 +79,18 @@ export type ProcessGatewayAllowlistResult = {
 export async function processGatewayAllowlist(
   params: ProcessGatewayAllowlistParams,
 ): Promise<ProcessGatewayAllowlistResult> {
+  // Hard guard: exec-approval-followup turns must never trigger new exec commands.
+  // The followup is a summary-only notification; if the agent calls exec anyway,
+  // deny it immediately to break the approval loop.
+  if (params.runId?.startsWith("exec-approval-followup:")) {
+    console.warn(
+      `[exec-host-gateway] BLOCKED exec in followup turn: runId=${params.runId}, command=${params.command}`,
+    );
+    throw new Error(
+      "exec denied: tool calls are not allowed in exec-approval followup turns (summary-only).",
+    );
+  }
+
   const { approvals, hostSecurity, hostAsk, askFallback } = resolveExecHostApprovalContext({
     agentId: params.agentId,
     security: params.security,
@@ -219,6 +233,14 @@ export async function processGatewayAllowlist(
       turnSourceThreadId: params.turnSourceThreadId,
     });
 
+    console.log(
+      `[exec-host-gateway] approval registered: id=${approvalId}, command=${params.command}, sessionKey=${params.notifySessionKey}, channel=${params.turnSourceChannel}, to=${params.turnSourceTo}`,
+    );
+    // Diagnostic: log call stack to trace which agent turn triggered this approval
+    const stack = new Error().stack ?? "";
+    const stackLines = stack.split("\n").slice(2, 6).join(" | ");
+    console.log(`[exec-host-gateway] approval registered stack (id=${approvalId}): ${stackLines}`);
+
     void (async () => {
       const decision = await resolveApprovalDecisionOrUndefined({
         approvalId,
@@ -229,7 +251,11 @@ export async function processGatewayAllowlist(
             `Exec denied (gateway id=${approvalId}, approval-request-failed): ${params.command}`,
           ),
       });
+      console.log(
+        `[exec-host-gateway] approval decision resolved: id=${approvalId}, decision=${decision}`,
+      );
       if (decision === undefined) {
+        console.log(`[exec-host-gateway] approval decision is undefined, returning`);
         return;
       }
 
@@ -321,6 +347,9 @@ export async function processGatewayAllowlist(
       const summary = output
         ? `Exec finished (gateway id=${approvalId}, session=${run.session.id}, ${exitLabel})\n${output}`
         : `Exec finished (gateway id=${approvalId}, session=${run.session.id}, ${exitLabel})`;
+      console.log(
+        `[exec-host-gateway] exec completed, sending followup: id=${approvalId}, sessionKey=${followupTarget.sessionKey}, channel=${followupTarget.turnSourceChannel}`,
+      );
       await sendExecApprovalFollowupResult(followupTarget, summary);
     })();
 

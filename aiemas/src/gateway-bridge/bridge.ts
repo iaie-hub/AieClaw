@@ -282,7 +282,17 @@ export class GatewayAuthBridge {
       typeof payload === "object" && payload !== null
         ? (payload as Record<string, unknown>)
         : undefined;
-    const sessionKey = payloadObj?.["sessionKey"] as string | undefined;
+
+    // exec.approval.* events carry sessionKey inside request.sessionKey, not at top level
+    const sessionKey =
+      (payloadObj?.["sessionKey"] as string | undefined) ??
+      ((payloadObj?.["request"] as Record<string, unknown> | undefined)?.["sessionKey"] as
+        | string
+        | undefined);
+
+    console.log(
+      `[bridge.filterBroadcastTargets] event=${event} sessionKey=${sessionKey ?? "(none)"} connectedUsers=${_connectedUsers.size}`,
+    );
 
     if (!sessionKey) {
       return null;
@@ -292,6 +302,9 @@ export class GatewayAuthBridge {
     // skip filtering to ensure they receive essential system events.
     for (const context of _connectedUsers.values()) {
       if (context.userId === null) {
+        console.log(
+          `[bridge.filterBroadcastTargets] event=${event} compat-mode: unauthenticated client present, skipping filter`,
+        );
         return null;
       }
     }
@@ -313,6 +326,10 @@ export class GatewayAuthBridge {
         }
       }
     }
+
+    console.log(
+      `[bridge.filterBroadcastTargets] event=${event} sessionKey=${sessionKey} targetUserIds=[${targetUserIds.join(",")}]`,
+    );
 
     return new Set(targetUserIds);
   }

@@ -176,6 +176,46 @@ export class ExecApprovalManager {
     return entry?.promise ?? null;
   }
 
+  /** Returns the number of currently pending (unresolved) approvals. */
+  get pendingCount(): number {
+    let count = 0;
+    for (const entry of this.pending.values()) {
+      if (entry.record.resolvedAtMs === undefined) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Returns a snapshot of pending (unresolved) approval commands for diagnostics.
+   * Each entry is { id, command, sessionKey, createdAtMs }.
+   */
+  listPendingCommands(): Array<{
+    id: string;
+    command: string;
+    sessionKey: string | null;
+    createdAtMs: number;
+  }> {
+    const result: Array<{
+      id: string;
+      command: string;
+      sessionKey: string | null;
+      createdAtMs: number;
+    }> = [];
+    for (const [id, entry] of this.pending.entries()) {
+      if (entry.record.resolvedAtMs === undefined) {
+        result.push({
+          id,
+          command: entry.record.request.command,
+          sessionKey: entry.record.request.sessionKey ?? null,
+          createdAtMs: entry.record.createdAtMs,
+        });
+      }
+    }
+    return result;
+  }
+
   lookupPendingId(input: string): ExecApprovalIdLookupResult {
     const normalized = input.trim();
     if (!normalized) {

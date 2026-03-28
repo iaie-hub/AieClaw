@@ -158,6 +158,22 @@ export function createExecApprovalHandlers(
       record.requestedByConnId = client?.connId ?? null;
       record.requestedByDeviceId = client?.connect?.device?.id ?? null;
       record.requestedByClientId = client?.connect?.client?.id ?? null;
+
+      // Log every incoming approval request for duplicate/loop diagnosis
+      const pendingCount = manager.pendingCount;
+      const pendingCommands = manager.listPendingCommands();
+      const duplicates = pendingCommands.filter(
+        (p) => p.command === request.command && p.sessionKey === request.sessionKey,
+      );
+      console.log(
+        `[exec.approval.request] id=${record.id} command="${request.command}" sessionKey=${request.sessionKey} agentId=${request.agentId} connId=${record.requestedByConnId} pendingTotal=${pendingCount} duplicatesForSession=${duplicates.length}`,
+      );
+      if (duplicates.length > 0) {
+        console.log(
+          `[exec.approval.request] WARNING: duplicate approval for same command+session: ${JSON.stringify(duplicates.map((d) => ({ id: d.id, createdAtMs: d.createdAtMs })))}`,
+        );
+      }
+
       // Use register() to synchronously add to pending map before sending any response.
       // This ensures the approval ID is valid immediately after the "accepted" response.
       let decisionPromise: Promise<

@@ -317,9 +317,15 @@ export class AppStore {
   // ── 审批操作 ──────────────────────────────────────
 
   addApproval(req: ApprovalRequest): void {
+    // 避免重复添加同一审核请求
+    if (this.pendingApprovals.some((a) => a.id === req.id)) {
+      return;
+    }
     this.pendingApprovals = [...this.pendingApprovals, req];
-    // 向当前活跃 session 插入一条 pending 消息，使审核卡片内联显示在消息流中
-    if (this.activeSessionId) {
+    // 向审核请求所属的 session 插入 pending 消息，而非当前活跃 session
+    // 避免跨 session 污染（审核请求可能来自非当前活跃 session）
+    const targetSessionKey = req.request.sessionKey ?? this.activeSessionId;
+    if (targetSessionKey) {
       const pendingMsg: ChatMessage = {
         id: req.id,
         role: "assistant",
@@ -327,10 +333,10 @@ export class AppStore {
         content: [],
         timestamp: req.createdAtMs,
       };
-      const msgs = this.messagesBySession.get(this.activeSessionId) ?? [];
+      const msgs = this.messagesBySession.get(targetSessionKey) ?? [];
       // 避免重复插入
       if (!msgs.some((m) => m.id === req.id)) {
-        this.messagesBySession.set(this.activeSessionId, [...msgs, pendingMsg]);
+        this.messagesBySession.set(targetSessionKey, [...msgs, pendingMsg]);
       }
     }
     this.notify();

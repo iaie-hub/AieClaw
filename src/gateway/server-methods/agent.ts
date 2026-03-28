@@ -528,6 +528,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       resolvedSessionKey = canonicalSessionKey;
       const agentId = resolveAgentIdFromSessionKey(canonicalSessionKey);
       const mainSessionKey = resolveAgentMainSessionKey({ cfg, agentId });
+      console.log("mainSessionKey: ", mainSessionKey);
       if (storePath) {
         const persisted = await updateSessionStore(storePath, (store) => {
           const { primaryKey } = migrateAndPruneGatewaySessionStoreKey({
@@ -541,7 +542,11 @@ export const agentHandlers: GatewayRequestHandlers = {
         });
         sessionEntry = persisted;
       }
-      if (canonicalSessionKey === mainSessionKey || canonicalSessionKey === "global") {
+      // if (canonicalSessionKey === mainSessionKey || canonicalSessionKey === "global") {
+      if (
+        canonicalSessionKey === "global" ||
+        classifySessionKeyShape(canonicalSessionKey) === "agent"
+      ) {
         context.addChatRun(idem, {
           sessionKey: canonicalSessionKey,
           clientRunId: idem,

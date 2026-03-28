@@ -538,6 +538,11 @@ export async function initMas4sIntegration(
             connIds.add(connId);
           }
         }
+        if (event === "exec.approval.requested" || event === "exec.approval.resolved") {
+          log.info(
+            `filterBroadcast ${event}: targetUserIds=[${[...targetUserIds].join(",")}] connIds=[${[...connIds].join(",")}] totalClients=${clients.size}`,
+          );
+        }
         return connIds;
       } catch (err) {
         log.warn(`mas4s filterBroadcast failed for event=${event}: ${String(err)}`);

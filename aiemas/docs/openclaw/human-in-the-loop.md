@@ -362,52 +362,116 @@ const hostAsk = approvals.agent.ask === "off" ? "off" : maxAsk(params.ask, appro
 
 用户选择 `allow-always` 后，`addAllowlistEntry()` 将命令的实际解析路径写入对应 agent 的 `allowlist`，下次相同命令自动放行，无需再次审核。
 
-## 9. Followup 循环问题（已知风险）
+## 9. Followup 循环问题（已修复）
 
 ### 9.1 问题描述
 
-当 agent 在单次任务中执行多条需要审核的命令时，可能出现以下循环：
+当 agent 在单次任务中执行多条需要审核的命令时，会出现以下循环：
 
 ```
 用户发送任务
   → agent 执行命令 A → 触发审核
-  → 审核通过 → exec-approval-followup 启动新 agent run（idempotencyKey: exec-approval-followup:<id>）
-  → 新 run 重新规划任务，再次执行命令 A、B、C
-  → 每条命令再次触发审核
-  → 每次审核通过又启动新 followup run
-  → gateway lane 队列积压（lane wait exceeded: queueAhead=N↑）
-  → 最终需要手动 SIGINT 终止 gateway
+  → 审核通过 → exec-approval-followup 启动新 agent run
+  → 新 run 收到 followup 消息后，模型忽略约束，重新规划任务
+  → 再次执行命令 A、B、C → 每条命令再次触发审核
+  → 每次审核通过又启动新 followup run → 循环
 ```
 
-诊断特征（gateway 日志）：
+**实测日志时序（复现于 Qwen3-Coder 模型）：**
 
-- `exec-approval-followup:<id>` runId 反复出现
-- `lane wait exceeded: lane=session:agent:default:group:... queueAhead=N` 数字持续增长
-- 相同命令被重复审核多次
+```
+23:53:51  followup sent (ls -la /tmp 结果)
+23:53:53  [tools] allowlist warning  ← agent 开始新 turn
+23:53:54  approval registered: ls -la /private/tmp  ← agent 主动发起新命令
+23:53:57  followup sent (/private/tmp 结果)
+23:53:59  approval registered: ls -la /tmp  ← agent 又发起！
+```
 
 ### 9.2 根本原因
 
-`exec-approval-followup` 机制（`src/agents/bash-tools.exec-approval-followup.ts`）在审核通过、命令执行完成后，通过 `callGatewayTool("agent", ...)` 向 agent 发送一条 followup 消息，让 agent 将结果回复给用户。
+`exec-approval-followup` 通过 `callGatewayTool("agent", ...)` 向 agent session 投递一条新消息。agent 把这条消息当作普通用户消息处理，继续调用 exec 工具。`buildExecApprovalFollowupPrompt` 里的 CRITICAL INSTRUCTIONS 对指令遵循能力弱的模型（本地/开源模型）无效。
 
-followup prompt 为：
+两个具体问题：
 
+1. **followup 消息触发新 agent turn**：agent 收到 followup 后认为有新任务，继续规划和执行命令
+2. **无硬约束**：gateway 层面没有阻止 followup turn 调用 exec 工具的机制
+
+### 9.3 修复方案（已实施）
+
+**修复一：`extraSystemPrompt` 软约束**（`src/agents/bash-tools.exec-approval-followup.ts`）
+
+followup 调用 `agent` method 时加入 `extraSystemPrompt`，在系统提示层面明确禁止工具调用：
+
+```typescript
+await callGatewayTool(
+  "agent",
+  { timeoutMs: 60_000 },
+  {
+    sessionKey,
+    message: buildExecApprovalFollowupPrompt(resultText),
+    ...deliverPayload,
+    idempotencyKey: `exec-approval-followup:${params.approvalId}`,
+    // 新增：系统提示层面禁止工具调用
+    extraSystemPrompt: [
+      "RUNTIME CONSTRAINT: This turn is a completion notification for an async exec command.",
+      "You MUST NOT call any tools (exec, bash, or otherwise) in this turn.",
+      "You MUST NOT re-run the command or start new tasks.",
+      "Only summarize the result already provided and reply to the user.",
+    ].join(" "),
+  },
+  { expectFinal: true },
+);
 ```
-An async command the user already approved has completed.
-Do not run the command again.
 
-Exact completion details:
-<result>
+**修复二：`runId` 硬约束**（`src/agents/bash-tools.exec-host-gateway.ts`）
 
-Reply to the user in a helpful way.
+在 `processGatewayAllowlist` 入口处检测 followup runId，直接拒绝 exec 调用：
+
+```typescript
+export async function processGatewayAllowlist(
+  params: ProcessGatewayAllowlistParams,
+): Promise<ProcessGatewayAllowlistResult> {
+  // 硬约束：followup turn 不允许调用 exec
+  if (params.runId?.startsWith("exec-approval-followup:")) {
+    console.warn(
+      `[exec-host-gateway] BLOCKED exec in followup turn: runId=${params.runId}, command=${params.command}`,
+    );
+    throw new Error(
+      "exec denied: tool calls are not allowed in exec-approval followup turns (summary-only).",
+    );
+  }
+  // ...
+}
 ```
 
-当模型（尤其是本地/开源模型）指令遵循能力不足时，会忽略 "Do not run the command again" 指令，将 followup 当作新任务起点，重新规划并执行整个命令序列。
+`runId` 传递链：`ExecToolDefaults.runId` → `createExecTool` → `processGatewayAllowlist`，在 `createOpenClawCodingTools` 里通过 `runId: options?.runId` 注入。
 
-### 9.3 彻底解决方案
+**修复三：强化 followup prompt**（`src/agents/bash-tools.exec-approval-followup.ts`）
 
-**层次一：配置层（最优先，成本最低）**
+```typescript
+export function buildExecApprovalFollowupPrompt(resultText: string): string {
+  return [
+    "SYSTEM: An async exec command that the user already approved has completed. This is a completion notification only.",
+    "CRITICAL INSTRUCTIONS — you MUST follow all of these:",
+    "1. Do NOT call exec or any other tool.",
+    "2. Do NOT re-run the command.",
+    "3. Do NOT start new tasks or plan new steps.",
+    "4. ONLY summarize the result below and reply to the user.",
+    "",
+    "Completed command result:",
+    resultText.trim(),
+    "",
+    "Reply to the user with the relevant output above.",
+    "If it succeeded, share the key results.",
+    "If it failed, explain what went wrong.",
+    "Do not call any tools. Do not run any commands.",
+  ].join("\n");
+}
+```
 
-将所有只读/统计类命令加入 `safeBins`，使其直接放行，不进入审核流程：
+### 9.4 防御配置（推荐）
+
+将常用只读命令加入 `safeBins`，使其直接放行，不进入审核流程，从源头避免 followup 循环：
 
 ```json
 {
@@ -416,81 +480,24 @@ Reply to the user in a helpful way.
       "host": "gateway",
       "security": "allowlist",
       "ask": "on-miss",
-      "safeBins": [
-        "jq",
-        "cut",
-        "uniq",
-        "head",
-        "tail",
-        "tr",
-        "wc",
-        "git",
-        "find",
-        "du",
-        "ls",
-        "awk",
-        "sed",
-        "sort",
-        "echo",
-        "cat",
-        "grep"
-      ],
+      "safeBins": ["ls", "cat", "grep", "find", "du", "wc", "head", "tail", "git", "jq"],
       "safeBinTrustedDirs": ["/bin", "/usr/bin", "/opt/homebrew/bin", "/usr/local/bin"]
-    },
-    "agents": {
-      "defaults": {
-        "maxSteps": 40
-      }
     }
   }
 }
 ```
 
-`maxSteps` 作为兜底：即使循环发生，agent 也会在达到步数上限后自动终止。
+### 9.5 涉及文件
 
-**层次二：代码层（彻底修复 followup prompt）**
-
-`src/agents/bash-tools.exec-approval-followup.ts` 中的 `buildExecApprovalFollowupPrompt` 需要更强的指令约束，防止模型重新规划任务：
-
-```typescript
-// 原始实现（过于宽松，模型可能忽略约束）
-export function buildExecApprovalFollowupPrompt(resultText: string): string {
-  return [
-    "An async command the user already approved has completed.",
-    "Do not run the command again.",
-    "",
-    "Exact completion details:",
-    resultText.trim(),
-    "",
-    "Reply to the user in a helpful way.",
-    "If it succeeded, share the relevant output.",
-    "If it failed, explain what went wrong.",
-  ].join("\n");
-}
-
-// 改进版（多重约束，适配指令遵循能力弱的模型）
-export function buildExecApprovalFollowupPrompt(resultText: string): string {
-  return [
-    "An async command the user already approved has completed.",
-    "The command has already been executed — do not call exec or any other tool.",
-    "Do not re-run the command. Do not start new tasks.",
-    "",
-    "Exact completion details:",
-    resultText.trim(),
-    "",
-    "Reply to the user with the relevant output above.",
-    "If it succeeded, share the key results.",
-    "If it failed, explain what went wrong.",
-    "Do not call any tools.",
-  ].join("\n");
-}
-```
-
-**层次三：架构层（长期方向）**
-
-理想的 followup 机制应该是"继续当前 run"而非"启动新 run"。当前实现通过 `callGatewayTool("agent", ...)` 启动一个全新的 agent run，新 run 没有原始任务的工具调用上下文，模型只能从 followup prompt 推断意图，容易误判。
-
-长期改进方向：在 followup run 中注入原始任务的 tool call 历史作为上下文，让模型明确知道"我已经执行了哪些步骤，现在只需要汇报结果"。
+| 文件                                              | 修改内容                                                       |
+| ------------------------------------------------- | -------------------------------------------------------------- |
+| `src/agents/bash-tools.exec-approval-followup.ts` | 强化 prompt + 加 `extraSystemPrompt` 硬约束                    |
+| `src/agents/bash-tools.exec-host-gateway.ts`      | `processGatewayAllowlist` 入口检测 followup runId              |
+| `src/agents/bash-tools.exec-types.ts`             | `ExecToolDefaults` 加 `runId` 字段                             |
+| `src/agents/bash-tools.exec.ts`                   | 传递 `runId` 给 `processGatewayAllowlist`                      |
+| `src/agents/pi-tools.ts`                          | `createExecTool` 传入 `runId: options?.runId`                  |
+| `src/gateway/exec-approval-manager.ts`            | 新增 `pendingCount` getter 和 `listPendingCommands()` 诊断方法 |
+| `src/gateway/server-methods/exec-approval.ts`     | 加入重复 approval 检测日志                                     |
 
 ## 10. 完整审核时序图
 
