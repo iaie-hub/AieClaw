@@ -1499,10 +1499,25 @@ export async function runEmbeddedAttempt(
 
           // Only pass images option if there are actually images to pass
           // This avoids potential issues with models that don't expect the images parameter
-          if (imageResult.images.length > 0) {
-            await abortable(activeSession.prompt(effectivePrompt, { images: imageResult.images }));
-          } else {
-            await abortable(activeSession.prompt(effectivePrompt));
+          const originalAppend = sessionManager.appendMessage.bind(sessionManager);
+          if (params.role === "system") {
+            sessionManager.appendMessage = (msg: AgentMessage) => {
+              if (msg.role === "user") {
+                (msg as unknown as { role: string }).role = "system";
+              }
+              return originalAppend(msg as unknown as Parameters<typeof originalAppend>[0]);
+            };
+          }
+          try {
+            if (imageResult.images.length > 0) {
+              await abortable(
+                activeSession.prompt(effectivePrompt, { images: imageResult.images }),
+              );
+            } else {
+              await abortable(activeSession.prompt(effectivePrompt));
+            }
+          } finally {
+            sessionManager.appendMessage = originalAppend;
           }
         } catch (err) {
           // Yield-triggered abort is intentional — treat as clean stop, not error.

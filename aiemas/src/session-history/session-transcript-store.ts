@@ -17,7 +17,7 @@ export interface StoredMessage {
   sessionId: string;
   userId: string | null;
   tenantId: string | null;
-  role: "user" | "assistant" | "tool" | "approval";
+  role: "user" | "assistant" | "tool" | "approval" | "system";
   content: string;
   timestamp: number;
   seq: number;
@@ -135,7 +135,7 @@ function extractContent(raw: unknown): string {
 }
 
 /** Normalise raw role strings to the allowed set. */
-function normaliseRole(raw: unknown): "user" | "assistant" | "tool" | "approval" {
+function normaliseRole(raw: unknown): "user" | "assistant" | "tool" | "approval" | "system" {
   if (raw === "human" || raw === "user") {
     return "user";
   }
@@ -147,6 +147,9 @@ function normaliseRole(raw: unknown): "user" | "assistant" | "tool" | "approval"
   }
   if (raw === "approval") {
     return "approval";
+  }
+  if (raw === "system") {
+    return "system";
   }
   // Unknown roles fall back to "user" to satisfy the DB CHECK constraint.
   return "user";

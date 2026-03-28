@@ -244,6 +244,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       return;
     }
     const request = p as {
+      role?: "user" | "system";
       message: string;
       agentId?: string;
       provider?: string;
@@ -720,6 +721,7 @@ export const agentHandlers: GatewayRequestHandlers = {
 
     dispatchAgentRunFromGateway({
       ingressOpts: {
+        role: request.role,
         message,
         images,
         provider: providerOverride,

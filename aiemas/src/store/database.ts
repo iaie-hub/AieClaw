@@ -161,7 +161,7 @@ export function ensureMessageSchema(db: DatabaseSync): void {
       userId      TEXT    NULL,
       tenantId    TEXT    NULL,
       role        TEXT    NOT NULL
-                  CHECK(role IN ('user','assistant','tool','approval')),
+                  CHECK(role IN ('user','assistant','tool','approval','system')),
       content     TEXT    NOT NULL,
       timestamp   INTEGER NOT NULL,
       seq         INTEGER NOT NULL DEFAULT 0,

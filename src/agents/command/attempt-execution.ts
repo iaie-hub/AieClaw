@@ -176,6 +176,7 @@ export async function persistAcpTurnTranscript(params: {
   sessionAgentId: string;
   threadId?: string | number;
   sessionCwd: string;
+  role?: "user" | "system";
 }): Promise<SessionEntry | undefined> {
   const promptText = params.body;
   const replyText = params.finalText;
@@ -207,10 +208,10 @@ export async function persistAcpTurnTranscript(params: {
 
   if (promptText) {
     sessionManager.appendMessage({
-      role: "user",
+      role: (params.role ?? "user") as unknown as "user",
       content: promptText,
       timestamp: Date.now(),
-    });
+    } as unknown as Parameters<SessionManager["appendMessage"]>[0]);
   }
 
   if (replyText) {
@@ -254,6 +255,7 @@ export function runAgentAttempt(params: {
   agentDir: string;
   onAgentEvent: (evt: { stream: string; data?: Record<string, unknown> }) => void;
   authProfileProvider: string;
+  role?: "user" | "system";
   sessionStore?: Record<string, SessionEntry>;
   storePath?: string;
   allowTransientCooldownProbe?: boolean;
@@ -396,6 +398,7 @@ export function runAgentAttempt(params: {
     extraSystemPrompt: params.opts.extraSystemPrompt,
     inputProvenance: params.opts.inputProvenance,
     streamParams: params.opts.streamParams,
+    role: params.role ?? params.opts.role,
     agentDir: params.agentDir,
     allowTransientCooldownProbe: params.allowTransientCooldownProbe,
     onAgentEvent: params.onAgentEvent,

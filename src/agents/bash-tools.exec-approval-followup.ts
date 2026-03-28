@@ -79,6 +79,7 @@ export async function sendExecApprovalFollowup(
         sessionKey,
         message: buildExecApprovalFollowupPrompt(resultText),
         ...deliverPayload,
+        role: "system",
         idempotencyKey: `exec-approval-followup:${params.approvalId}`,
         // Prevent the agent from calling any tools in this summary-only turn.
         // The followup is a completion notification; the agent must only summarize

@@ -29,6 +29,7 @@ export type EmbeddedRunAttemptParams = EmbeddedRunAttemptBase & {
   authStorage: AuthStorage;
   modelRegistry: ModelRegistry;
   thinkLevel: ThinkLevel;
+  role?: "user" | "system";
   legacyBeforeAgentStartResult?: PluginHookBeforeAgentStartResult;
 };
 
