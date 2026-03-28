@@ -12,6 +12,7 @@ export interface AppShellHandlers {
   onSessionRename: (e: CustomEvent<{ sessionKey: string; label: string }>) => void;
   onSessionDelete: (e: CustomEvent<{ sessionKey: string }>) => void;
   onSessionRefresh: (e: Event) => void;
+  onSessionHistoryRefresh: (e: CustomEvent<{ sessionKey: string }>) => void;
   onSessionArchive: (e: CustomEvent<{ sessionKey: string }>) => void;
   onSessionUnarchive: (e: CustomEvent<{ sessionKey: string }>) => void;
   onSessionMembersFetch: (e: CustomEvent<{ sessionKey: string }>) => void;
@@ -84,6 +85,7 @@ export function renderMain(
             @session-rename=${h.onSessionRename}
             @session-delete=${h.onSessionDelete}
             @session-refresh=${h.onSessionRefresh}
+            @session-history-refresh=${h.onSessionHistoryRefresh}
           ></session-sidebar>
         `
       : ""}

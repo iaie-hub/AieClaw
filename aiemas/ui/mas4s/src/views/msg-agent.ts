@@ -335,60 +335,62 @@ export class MsgAgent extends LitElement {
   `;
 
   private _renderContent(items: MessageContentItem[]) {
-    const thinkingItems = items.filter((c) => c.type === "thinking");
-    const textItems = items.filter((c) => c.type === "text");
-    const toolItems = items.filter((c) => c.type === "tool_call" || c.type === "tool_result");
+    return html`${items.map((item) => {
+      if (item.type === "thinking") {
+        const rawThinking = item.thinking ?? item.text ?? "";
+        if (!rawThinking.trim()) {
+          return nothing;
+        }
 
-    const rawThinking = thinkingItems.map((c) => c.thinking ?? c.text ?? "").join("\n\n");
-    const text = textItems.map((c) => c.text ?? "").join("");
-
-    // Format thinking text to match the real-time view: "Reasoning:\n_line1_\n_line2_"
-    // This mirrors formatReasoningMessage() in pi-embedded-utils.ts which is used
-    // for channel delivery (the source of the real-time stream).
-    const thinkingText = rawThinking
-      ? (() => {
+        // 格式化思考内容：对齐流式输出格式 "Reasoning:\n_line1_\n_line2_"
+        const thinkingText = (() => {
           const trimmed = rawThinking.trim();
-          // Already formatted (real-time stream path already has "Reasoning:" prefix)
           if (trimmed.startsWith("Reasoning:")) {
             return trimmed;
           }
-          // History path: apply the same formatting
           const italicLines = trimmed
             .split("\n")
             .map((line) => (line ? `_${line}_` : line))
             .join("\n");
           return `Reasoning:\n${italicLines}`;
-        })()
-      : "";
+        })();
 
-    return html`
-      ${thinkingText
-        ? html`
-            <div class="thinking-block">
-              <div
-                class="thinking-toggle"
-                @click=${() => {
-                  this._thinkingExpanded = !this._thinkingExpanded;
-                }}
-              >
-                <span class="thinking-arrow ${this._thinkingExpanded ? "expanded" : ""}">▶</span>
-                <span>思考过程</span>
-              </div>
-              ${this._thinkingExpanded
-                ? html`<div class="thinking-body">${markdownMath(thinkingText)}</div>`
-                : nothing}
+        return html`
+          <div class="thinking-block">
+            <div
+              class="thinking-toggle"
+              @click=${() => {
+                this._thinkingExpanded = !this._thinkingExpanded;
+              }}
+            >
+              <span class="thinking-arrow ${this._thinkingExpanded ? "expanded" : ""}">▶</span>
+              <span>思考过程</span>
             </div>
-          `
-        : nothing}
-      ${text.trim() ? html`<div class="message-bubble">${markdownMath(text)}</div>` : nothing}
-      ${toolItems.length > 0
-        ? html`
-            <div class="tool-cards">
-              ${toolItems.map((item) => html`<msg-tool-card .item=${item}></msg-tool-card>`)}
-            </div>
-          `
-        : nothing}
-    `;
+            ${this._thinkingExpanded
+              ? html`<div class="thinking-body">${markdownMath(thinkingText)}</div>`
+              : nothing}
+          </div>
+        `;
+      }
+
+      if (item.type === "text") {
+        const text = item.text ?? "";
+        if (!text.trim()) {
+          return nothing;
+        }
+        return html`<div class="message-bubble">${markdownMath(text)}</div>`;
+      }
+
+      if (item.type === "tool_call" || item.type === "tool_result") {
+        return html`
+          <div class="tool-cards">
+            <msg-tool-card .item=${item}></msg-tool-card>
+          </div>
+        `;
+      }
+
+      return nothing;
+    })}`;
   }
 
   render() {

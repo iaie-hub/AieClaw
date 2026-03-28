@@ -345,35 +345,24 @@ export function updateChatStream(
 ): void {
   const msgs = store.messagesBySession.get(sessionKey) ?? [];
 
-  // 优先按 id + role 全列表查找，支持 pending 卡片等消息插入末尾后仍能原地更新
-  if (msg.id) {
-    const idx = msgs.findIndex((m) => m.id === msg.id && m.role === msg.role);
-    if (idx >= 0) {
-      const existing = msgs[idx];
-      let mergedContent = msg.content;
-      if (isFinal) {
-        // chat final 只携带 text，需保留已有的 thinking 内容
-        const existingThinking = existing.content.filter((c) => c.type === "thinking");
-        const incomingNonThinking = msg.content.filter((c) => c.type !== "thinking");
-        if (existingThinking.length > 0 && incomingNonThinking.length > 0) {
-          mergedContent = [...existingThinking, ...incomingNonThinking];
-        }
+  // 只在最后一条消息 ID 匹配时执行原地更新，避免跨越工具调用或协作消息进行原地覆盖
+  const last = msgs[msgs.length - 1];
+  if (msg.id && last && last.id === msg.id && last.role === msg.role) {
+    let mergedContent = msg.content;
+    if (isFinal) {
+      // chat final 只携带 text，需保留已有的 thinking 内容
+      const existingThinking = last.content.filter((c) => c.type === "thinking");
+      const incomingNonThinking = msg.content.filter((c) => c.type !== "thinking");
+      if (existingThinking.length > 0 && incomingNonThinking.length > 0) {
+        mergedContent = [...existingThinking, ...incomingNonThinking];
       }
-      const updated = [...msgs];
-      updated[idx] = { ...existing, content: mergedContent };
-      store.messagesBySession.set(sessionKey, updated);
-      store.notify();
-      return;
     }
+    store.updateLastMessage(sessionKey, { ...last, content: mergedContent });
+    return;
   }
 
-  // 兜底：末尾匹配（无 id 时）
-  const last = msgs[msgs.length - 1];
-  if (last?.id && last.id === msg.id && last.role === msg.role) {
-    store.updateLastMessage(sessionKey, { ...last, content: msg.content });
-  } else {
-    store.appendMessage(sessionKey, msg);
-  }
+  // 不存在匹配的末尾消息，则追加
+  store.appendMessage(sessionKey, msg);
 }
 
 /**

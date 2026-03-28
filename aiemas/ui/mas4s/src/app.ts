@@ -124,6 +124,8 @@ export class Mas4sApp extends LitElement {
       onSessionRename: (e) => this._session.onSessionRename(e),
       onSessionDelete: (e) => this._session.onSessionDelete(e),
       onSessionRefresh: (e: Event) => void this._session.onSessionRefresh(e),
+      onSessionHistoryRefresh: (e: CustomEvent<{ sessionKey: string }>) =>
+        this._session.onSessionHistoryRefresh(e),
       onSessionArchive: (e: CustomEvent<{ sessionKey: string }>) =>
         this._session.onSessionArchive(e),
       onSessionUnarchive: (e: CustomEvent<{ sessionKey: string }>) =>

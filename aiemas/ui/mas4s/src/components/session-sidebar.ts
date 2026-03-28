@@ -366,7 +366,8 @@ export class SessionSidebar extends LitElement {
     }
 
     .rename-btn,
-    .delete-btn {
+    .delete-btn,
+    .refresh-item-btn {
       background: none;
       border: none;
       cursor: pointer;
@@ -393,9 +394,15 @@ export class SessionSidebar extends LitElement {
       background: #fef2f2;
     }
 
+    .refresh-item-btn:hover {
+      color: #10b981;
+      background: #ecfdf5;
+    }
+
     /* CSS tooltip */
     .rename-btn::after,
-    .delete-btn::after {
+    .delete-btn::after,
+    .refresh-item-btn::after {
       content: attr(data-tip);
       position: absolute;
       bottom: calc(100% + 6px);
@@ -655,6 +662,16 @@ export class SessionSidebar extends LitElement {
     };
   }
 
+  private _onHistoryRefresh(e: Event, session: MasSession) {
+    e.stopPropagation();
+    this.dispatchEvent(
+      new CustomEvent("session-history-refresh", {
+        detail: { sessionKey: session.key },
+        bubbles: true,
+      }),
+    );
+  }
+
   private _onDeleteConfirm() {
     if (!this._deleteConfirm) {
       return;
@@ -756,6 +773,28 @@ export class SessionSidebar extends LitElement {
           ${timeStr ? html`<span class="session-time">${timeStr}</span>` : nothing}
           ${session.masType === "initiated"
             ? html` <div class="item-actions">
+                <button
+                  class="refresh-item-btn"
+                  data-tip="同步历史"
+                  @click=${(e: Event) => this._onHistoryRefresh(e, session)}
+                  aria-label="同步历史"
+                >
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                    <path d="M21 3v5h-5" />
+                    <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                    <path d="M8 16H3v5" />
+                  </svg>
+                </button>
                 <button
                   class="rename-btn"
                   data-tip="重命名"
