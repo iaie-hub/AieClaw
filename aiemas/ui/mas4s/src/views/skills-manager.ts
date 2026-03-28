@@ -492,7 +492,7 @@ export class SkillsManager extends LitElement {
                     ? html`
                         <div class="group-section">
                           ${this._activeTab === "all"
-                            ? html`<div class="group-title">WORKSPACE SKILLS</div>`
+                            ? html`<div class="group-title">工作空间 Skills</div>`
                             : ""}
                           ${this.renderGrid(workspaceSkills)}
                         </div>
@@ -504,7 +504,7 @@ export class SkillsManager extends LitElement {
                     ? html`
                         <div class="group-section">
                           ${this._activeTab === "all"
-                            ? html`<div class="group-title">BUILT-IN SKILLS</div>`
+                            ? html`<div class="group-title">内置 Skills</div>`
                             : ""}
                           ${this.renderGrid(builtinSkills)}
                         </div>

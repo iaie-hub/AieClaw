@@ -160,23 +160,23 @@ export class SkillCard extends LitElement {
   `;
 
   private _getStatusClass(): string {
+    if (!this.skill.eligible) {
+      return "needs-setup";
+    }
     if (this.skill.disabled) {
       return "disabled";
     }
-    if (this.skill.eligible) {
-      return "ready";
-    }
-    return "needs-setup";
+    return "ready";
   }
 
   private _getStatusText(): string {
+    if (!this.skill.eligible) {
+      return "不可用";
+    }
     if (this.skill.disabled) {
       return "已禁用";
     }
-    if (this.skill.eligible) {
-      return "就绪";
-    }
-    return "需要配置";
+    return "就绪";
   }
 
   private _handleClick = () => {

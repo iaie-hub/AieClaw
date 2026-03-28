@@ -25,10 +25,14 @@ describe("skill-card", () => {
       source: "openclaw-workspace",
       skillKey: "test-skill",
       filePath: "/path/to/skill.md",
+      baseDir: "/path/to",
       emoji: "🧪",
       disabled: false,
       eligible: true,
-      missing: { bins: [], env: [], config: [] },
+      always: false,
+      blockedByAllowlist: false,
+      missing: { bins: [], anyBins: [], env: [], config: [], os: [] },
+      configChecks: [],
       install: [],
     };
   });
@@ -76,25 +80,34 @@ describe("skill-card", () => {
     cleanupElement(el);
   });
 
-  it("should show needs-setup status indicator when skill is enabled but not eligible (需求 11.8)", async () => {
-    const needsSetupSkill = { ...mockSkill, eligible: false };
-    const el = createSkillCard(needsSetupSkill);
+  it("should show unavailable status indicator when skill is enabled but not eligible (需求 11.8)", async () => {
+    const unavailableSkill = { ...mockSkill, eligible: false };
+    const el = createSkillCard(unavailableSkill);
     await el.updateComplete;
     const indicator = el.shadowRoot?.querySelector(".skill-status-indicator");
     expect(indicator?.classList.contains("needs-setup")).toBe(true);
     const statusText = el.shadowRoot?.querySelector(".skill-status-text");
-    expect(statusText?.textContent).toBe("需要配置");
+    expect(statusText?.textContent).toBe("不可用");
     cleanupElement(el);
   });
 
   it("should show disabled status indicator when skill is disabled (需求 11.7)", async () => {
-    const disabledSkill = { ...mockSkill, disabled: true };
+    const disabledSkill = { ...mockSkill, disabled: true, eligible: true };
     const el = createSkillCard(disabledSkill);
     await el.updateComplete;
     const indicator = el.shadowRoot?.querySelector(".skill-status-indicator");
     expect(indicator?.classList.contains("disabled")).toBe(true);
     const statusText = el.shadowRoot?.querySelector(".skill-status-text");
     expect(statusText?.textContent).toBe("已禁用");
+    cleanupElement(el);
+  });
+
+  it("should prioritize unavailable status over disabled status when both apply", async () => {
+    const bothSkill = { ...mockSkill, disabled: true, eligible: false };
+    const el = createSkillCard(bothSkill);
+    await el.updateComplete;
+    const statusText = el.shadowRoot?.querySelector(".skill-status-text");
+    expect(statusText?.textContent).toBe("不可用");
     cleanupElement(el);
   });
 

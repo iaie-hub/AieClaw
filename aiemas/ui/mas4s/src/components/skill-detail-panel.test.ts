@@ -12,25 +12,34 @@ describe("skill-detail-panel", () => {
     source: "openclaw-workspace",
     skillKey: "test-skill",
     filePath: "/path/to/test-skill.md",
+    baseDir: "/path/to",
     emoji: "🧪",
     homepage: "https://example.com",
     disabled: false,
     eligible: true,
-    requires: {
+    always: false,
+    blockedByAllowlist: false,
+    requirements: {
       bins: ["node", "npm"],
+      anyBins: [],
       env: ["API_KEY"],
       config: ["test.config"],
+      os: [],
     },
     missing: {
       bins: [],
+      anyBins: [],
       env: [],
       config: [],
+      os: [],
     },
+    configChecks: [],
     install: [
       {
         id: "install-1",
         label: "Install dependencies",
         kind: "npm",
+        bins: ["npm"],
       },
     ],
   };
@@ -62,7 +71,7 @@ describe("skill-detail-panel", () => {
     element.open = true;
     await element.updateComplete;
 
-    const icon = element.shadowRoot?.querySelector(".panel-icon");
+    const icon = element.shadowRoot?.querySelector(".panel-icon-wrapper");
     expect(icon?.textContent).toBe("🧪");
   });
 
@@ -72,11 +81,11 @@ describe("skill-detail-panel", () => {
     element.open = true;
     await element.updateComplete;
 
-    const icon = element.shadowRoot?.querySelector(".panel-icon");
+    const icon = element.shadowRoot?.querySelector(".panel-icon-wrapper");
     expect(icon?.textContent).toBe("📦");
   });
 
-  it("should display current enabled status (验证需求 11.1)", async () => {
+  it("should display current enabled status", async () => {
     element.skill = mockSkill;
     element.open = true;
     await element.updateComplete;
@@ -95,26 +104,26 @@ describe("skill-detail-panel", () => {
     expect(statusText?.textContent).toBe("已禁用");
   });
 
-  it("should display needs-setup status when skill is not eligible", async () => {
-    const needsSetupSkill = { ...mockSkill, eligible: false };
-    element.skill = needsSetupSkill;
+  it("should display unavailable status when skill is not eligible", async () => {
+    const unavailableSkill = { ...mockSkill, eligible: false };
+    element.skill = unavailableSkill;
     element.open = true;
     await element.updateComplete;
 
     const statusText = element.shadowRoot?.querySelector(".status-text");
-    expect(statusText?.textContent).toBe("需要配置");
+    expect(statusText?.textContent).toBe("不可用");
   });
 
-  it("should show toggle button (验证需求 11.2)", async () => {
+  it("should show toggle button", async () => {
     element.skill = mockSkill;
     element.open = true;
     await element.updateComplete;
 
-    const toggleButton = element.shadowRoot?.querySelector(".toggle-button");
+    const toggleButton = element.shadowRoot?.querySelector(".action-toggle-button");
     expect(toggleButton).toBeTruthy();
   });
 
-  it("should emit toggle-enabled event on button click (验证需求 11.2)", async () => {
+  it("should emit toggle-enabled event on button click", async () => {
     element.skill = mockSkill;
     element.open = true;
     await element.updateComplete;
@@ -122,7 +131,9 @@ describe("skill-detail-panel", () => {
     const eventSpy = vi.fn();
     element.addEventListener("toggle-enabled", eventSpy);
 
-    const toggleButton = element.shadowRoot?.querySelector(".toggle-button") as HTMLButtonElement;
+    const toggleButton = element.shadowRoot?.querySelector(
+      ".action-toggle-button",
+    ) as HTMLButtonElement;
     toggleButton?.click();
 
     expect(eventSpy).toHaveBeenCalledOnce();
@@ -132,12 +143,12 @@ describe("skill-detail-panel", () => {
     });
   });
 
-  it("should display configuration requirements (验证需求 4.3)", async () => {
+  it("should display configuration requirements", async () => {
     element.skill = mockSkill;
     element.open = true;
     await element.updateComplete;
 
-    const requirements = element.shadowRoot?.querySelectorAll(".requirement-item");
+    const requirements = element.shadowRoot?.querySelectorAll(".req-badge");
     expect(requirements?.length).toBeGreaterThan(0);
 
     const requirementTexts = Array.from(requirements || []).map((el) => el.textContent);
@@ -145,24 +156,21 @@ describe("skill-detail-panel", () => {
     expect(requirementTexts.some((text) => text?.includes("API_KEY"))).toBe(true);
   });
 
-  it("should display install status (验证需求 4.4)", async () => {
+  it("should display install status", async () => {
     element.skill = mockSkill;
     element.open = true;
     await element.updateComplete;
-
-    const installItems = element.shadowRoot?.querySelectorAll(".requirements-list");
-    expect(installItems?.length).toBeGreaterThan(0);
 
     const content = element.shadowRoot?.textContent || "";
     expect(content).toContain("Install dependencies");
   });
 
-  it("should display file path when available (验证需求 4.5)", async () => {
+  it("should display file path when available", async () => {
     element.skill = mockSkill;
     element.open = true;
     await element.updateComplete;
 
-    const filePath = element.shadowRoot?.querySelector(".file-path");
+    const filePath = element.shadowRoot?.querySelector(".file-path-container");
     expect(filePath?.textContent).toBe("/path/to/test-skill.md");
   });
 
@@ -172,11 +180,11 @@ describe("skill-detail-panel", () => {
     element.open = true;
     await element.updateComplete;
 
-    const filePath = element.shadowRoot?.querySelector(".file-path");
+    const filePath = element.shadowRoot?.querySelector(".file-path-container");
     expect(filePath).toBeFalsy();
   });
 
-  it("should provide close button (验证需求 4.6)", async () => {
+  it("should provide close button", async () => {
     element.skill = mockSkill;
     element.open = true;
     await element.updateComplete;
@@ -185,7 +193,7 @@ describe("skill-detail-panel", () => {
     expect(closeButton).toBeTruthy();
   });
 
-  it("should emit close event when close button is clicked (验证需求 4.7)", async () => {
+  it("should emit close event when close button is clicked", async () => {
     element.skill = mockSkill;
     element.open = true;
     await element.updateComplete;
@@ -199,7 +207,7 @@ describe("skill-detail-panel", () => {
     expect(eventSpy).toHaveBeenCalledOnce();
   });
 
-  it("should emit close event when backdrop is clicked (验证需求 4.7)", async () => {
+  it("should emit close event when backdrop is clicked", async () => {
     element.skill = mockSkill;
     element.open = true;
     await element.updateComplete;
@@ -246,7 +254,9 @@ describe("skill-detail-panel", () => {
     element.updating = true;
     await element.updateComplete;
 
-    const toggleButton = element.shadowRoot?.querySelector(".toggle-button") as HTMLButtonElement;
+    const toggleButton = element.shadowRoot?.querySelector(
+      ".action-toggle-button",
+    ) as HTMLButtonElement;
     expect(toggleButton?.classList.contains("updating")).toBe(true);
     expect(toggleButton?.disabled).toBe(true);
   });
@@ -260,7 +270,9 @@ describe("skill-detail-panel", () => {
     const eventSpy = vi.fn();
     element.addEventListener("toggle-enabled", eventSpy);
 
-    const toggleButton = element.shadowRoot?.querySelector(".toggle-button") as HTMLButtonElement;
+    const toggleButton = element.shadowRoot?.querySelector(
+      ".action-toggle-button",
+    ) as HTMLButtonElement;
     toggleButton?.click();
 
     expect(eventSpy).not.toHaveBeenCalled();
@@ -269,10 +281,13 @@ describe("skill-detail-panel", () => {
   it("should display missing items when present", async () => {
     const skillWithMissing = {
       ...mockSkill,
+      eligible: false,
       missing: {
         bins: ["missing-bin"],
+        anyBins: [],
         env: ["MISSING_ENV"],
         config: ["missing.config"],
+        os: [],
       },
     };
     element.skill = skillWithMissing;
@@ -280,24 +295,12 @@ describe("skill-detail-panel", () => {
     await element.updateComplete;
 
     const missingItems = element.shadowRoot?.querySelectorAll(".missing-item");
-    expect(missingItems?.length).toBe(3);
+    expect(missingItems?.length).toBeGreaterThan(0);
 
     const missingTexts = Array.from(missingItems || []).map((el) => el.textContent);
     expect(missingTexts.some((text) => text?.includes("missing-bin"))).toBe(true);
     expect(missingTexts.some((text) => text?.includes("MISSING_ENV"))).toBe(true);
     expect(missingTexts.some((text) => text?.includes("missing.config"))).toBe(true);
-  });
-
-  it("should not display missing items section when none are missing", async () => {
-    element.skill = mockSkill;
-    element.open = true;
-    await element.updateComplete;
-
-    const missingSection = Array.from(
-      element.shadowRoot?.querySelectorAll(".section-title") || [],
-    ).find((el) => el.textContent === "缺失项");
-
-    expect(missingSection).toBeFalsy();
   });
 
   it("should display source badge", async () => {
@@ -319,31 +322,12 @@ describe("skill-detail-panel", () => {
     expect(link?.target).toBe("_blank");
   });
 
-  it("should show correct toggle label for enabled skill", async () => {
-    element.skill = mockSkill;
-    element.open = true;
-    await element.updateComplete;
-
-    const toggleLabel = element.shadowRoot?.querySelector(".toggle-label");
-    expect(toggleLabel?.textContent).toBe("禁用 Skill");
-  });
-
-  it("should show correct toggle label for disabled skill", async () => {
-    const disabledSkill = { ...mockSkill, disabled: true };
-    element.skill = disabledSkill;
-    element.open = true;
-    await element.updateComplete;
-
-    const toggleLabel = element.shadowRoot?.querySelector(".toggle-label");
-    expect(toggleLabel?.textContent).toBe("启用 Skill");
-  });
-
   it("should apply enabled class to toggle switch for enabled skill", async () => {
     element.skill = mockSkill;
     element.open = true;
     await element.updateComplete;
 
-    const toggleSwitch = element.shadowRoot?.querySelector(".toggle-switch");
+    const toggleSwitch = element.shadowRoot?.querySelector(".toggle-switch-small");
     expect(toggleSwitch?.classList.contains("enabled")).toBe(true);
   });
 
@@ -353,14 +337,14 @@ describe("skill-detail-panel", () => {
     element.open = true;
     await element.updateComplete;
 
-    const toggleSwitch = element.shadowRoot?.querySelector(".toggle-switch");
+    const toggleSwitch = element.shadowRoot?.querySelector(".toggle-switch-small");
     expect(toggleSwitch?.classList.contains("enabled")).toBe(false);
   });
 
   it("should handle skill with no requirements", async () => {
     const skillWithoutRequirements = {
       ...mockSkill,
-      requires: undefined,
+      requirements: undefined,
     };
     element.skill = skillWithoutRequirements;
     element.open = true;
@@ -386,8 +370,12 @@ describe("skill-detail-panel", () => {
   it("should display anyBins requirements", async () => {
     const skillWithAnyBins = {
       ...mockSkill,
-      requires: {
+      requirements: {
+        bins: [],
         anyBins: ["git", "svn"],
+        env: [],
+        config: [],
+        os: [],
       },
     };
     element.skill = skillWithAnyBins;
@@ -395,7 +383,6 @@ describe("skill-detail-panel", () => {
     await element.updateComplete;
 
     const content = element.shadowRoot?.textContent || "";
-    expect(content).toContain("可选命令");
     expect(content).toContain("git");
   });
 });

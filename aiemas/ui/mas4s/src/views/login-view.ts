@@ -20,7 +20,8 @@ export class LoginView extends LitElement {
   // 网关配置字段 — 默认从 localStorage 加载
   @state() private _wsUrl = localStorage.getItem("mas4s_ws_url") || "ws://localhost:18789";
   @state() private _wsToken = localStorage.getItem("mas4s_ws_token") || "";
-  @state() private _gwExpanded = false;
+  @state() private _gwExpanded =
+    !localStorage.getItem("mas4s_ws_url") || !localStorage.getItem("mas4s_ws_token");
   // 用户主动点击折叠时置 true，优先于 connectError 的自动展开
   @state() private _gwUserCollapsed = false;
 
