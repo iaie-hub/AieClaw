@@ -8,6 +8,7 @@ import type { PluginInstallRecord } from "../config/types.plugins.js";
 import type { GatewayRequestHandler } from "../gateway/server-methods/types.js";
 import { openBoundaryFileSync } from "../infra/boundary-file-read.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { setGlobalJitiLoader } from "../plugin-sdk/facade-runtime.js";
 import { resolveUserPath } from "../utils.js";
 import { inspectBundleMcpRuntimeSupport } from "./bundle-mcp.js";
 import { clearPluginCommands } from "./command-registry-state.js";
@@ -301,6 +302,7 @@ function resolvePluginLoadCacheContext(options: PluginLoadOptions = {}) {
     includeSetupOnlyChannelPlugins,
     preferSetupRuntimeForChannelPlugins,
     shouldActivate: options.activate !== false,
+    runtimeSubagentMode: resolveRuntimeSubagentMode(options.runtimeOptions),
     cacheKey,
   };
 }
@@ -768,8 +770,12 @@ function warnAboutUntrackedLoadedPlugins(params: {
   }
 }
 
-function activatePluginRegistry(registry: PluginRegistry, cacheKey: string): void {
-  setActivePluginRegistry(registry, cacheKey);
+function activatePluginRegistry(
+  registry: PluginRegistry,
+  cacheKey: string,
+  runtimeSubagentMode: "default" | "explicit" | "gateway-bindable",
+): void {
+  setActivePluginRegistry(registry, cacheKey, runtimeSubagentMode);
   initializeGlobalHookRunner(registry);
 }
 
@@ -790,6 +796,7 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
     preferSetupRuntimeForChannelPlugins,
     shouldActivate,
     cacheKey,
+    runtimeSubagentMode,
   } = resolvePluginLoadCacheContext(options);
   const logger = options.logger ?? defaultLogger();
   const validateOnly = options.mode === "validate";
@@ -805,7 +812,7 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
         runtime: cached.memoryRuntime,
       });
       if (shouldActivate) {
-        activatePluginRegistry(cached.registry, cacheKey);
+        activatePluginRegistry(cached.registry, cacheKey, runtimeSubagentMode);
       }
       return cached.registry;
     }
@@ -824,7 +831,7 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
   const getJiti = (modulePath: string) => {
     const tryNative = shouldPreferNativeJiti(modulePath);
     // Pass loader's moduleUrl so the openclaw root can always be resolved even when
-    // loading external plugins from outside the installation directory (e.g. ~/.openclaw/extensions/).
+    // loading external plugins from outside the managed install directory.
     const aliasMap = buildPluginLoaderAliasMap(
       modulePath,
       process.argv[1],
@@ -847,6 +854,7 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
       // loading for the canonical built module graph.
       tryNative,
     });
+    setGlobalJitiLoader(loader);
     jitiLoaders.set(cacheKey, loader);
     return loader;
   };
@@ -932,12 +940,17 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
     suppressGlobalCommands: !shouldActivate,
   });
 
+  logger.info("loadOpenClawPlugins: discovering plugins...");
   const discovery = discoverOpenClawPlugins({
     workspaceDir: options.workspaceDir,
     extraPaths: normalized.loadPaths,
     cache: options.cache,
     env,
   });
+  logger.info(
+    `loadOpenClawPlugins: discovery complete (${discovery.candidates.length} candidates)`,
+  );
+  logger.info("loadOpenClawPlugins: loading manifest registry...");
   const manifestRegistry = loadPluginManifestRegistry({
     config: cfg,
     workspaceDir: options.workspaceDir,
@@ -946,6 +959,9 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
     candidates: discovery.candidates,
     diagnostics: discovery.diagnostics,
   });
+  logger.info(
+    `loadOpenClawPlugins: manifest registry loaded (${manifestRegistry.plugins.length} plugins)`,
+  );
   pushDiagnostics(registry.diagnostics, manifestRegistry.diagnostics);
   warnWhenAllowlistIsOpen({
     logger,
@@ -997,6 +1013,7 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
     if (onlyPluginIdSet && !onlyPluginIdSet.has(pluginId)) {
       continue;
     }
+    logger.info(`[plugins] loading plugin: ${pluginId} (origin: ${candidate.origin})`);
     const existingOrigin = seenIds.get(pluginId);
     if (existingOrigin) {
       const record = createPluginRecord({
@@ -1396,8 +1413,9 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
     });
   }
   if (shouldActivate) {
-    activatePluginRegistry(registry, cacheKey);
+    activatePluginRegistry(registry, cacheKey, runtimeSubagentMode);
   }
+  setGlobalJitiLoader(null);
   return registry;
 }
 

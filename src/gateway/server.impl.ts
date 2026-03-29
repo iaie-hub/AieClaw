@@ -50,6 +50,7 @@ import { enqueueSystemEvent } from "../infra/system-events.js";
 import { scheduleGatewayUpdateCheck } from "../infra/update-startup.js";
 import { startDiagnosticHeartbeat, stopDiagnosticHeartbeat } from "../logging/diagnostic.js";
 import { createSubsystemLogger, runtimeForLogger } from "../logging/subsystem.js";
+import { resolveBundledPluginInstallCommandHint } from "../plugins/bundled-sources.js";
 import { resolveConfiguredDeferredChannelPluginIds } from "../plugins/channel-plugin-ids.js";
 import { getGlobalHookRunner, runGlobalGatewayStopSafely } from "../plugins/hook-runner-global.js";
 import { createEmptyPluginRegistry } from "../plugins/registry.js";
@@ -371,6 +372,8 @@ export async function startGatewayServer(
   const minimalTestGateway =
     process.env.VITEST === "1" && process.env.OPENCLAW_TEST_MINIMAL_GATEWAY === "1";
 
+  log.info(`startGatewayServer: starting on port ${port}...`);
+
   // Ensure all default port derivations (browser/canvas) see the actual runtime port.
   process.env.OPENCLAW_GATEWAY_PORT = String(port);
   logAcceptedEnvOption({
@@ -410,6 +413,7 @@ export async function startGatewayServer(
   if (configSnapshot.exists) {
     assertValidGatewayStartupConfigSnapshot(configSnapshot, { includeDoctorHint: true });
   }
+  log.info("startGatewayServer: config loaded and validated");
 
   const autoEnable = applyPluginAutoEnable({ config: configSnapshot.config, env: process.env });
   if (autoEnable.changes.length > 0) {
@@ -503,6 +507,7 @@ export async function startGatewayServer(
     activateRuntimeSecrets,
   });
   cfgAtStart = authBootstrap.cfg;
+  log.info("startGatewayServer: startup auth and secrets prepared");
   if (authBootstrap.generatedToken) {
     if (authBootstrap.persistedGeneratedToken) {
       log.info(
@@ -543,7 +548,10 @@ export async function startGatewayServer(
       issue: matrixInstallPathIssue,
       pluginLabel: "Matrix",
       defaultInstallCommand: "openclaw plugins install @openclaw/matrix",
-      repoInstallCommand: "openclaw plugins install ./extensions/matrix",
+      repoInstallCommand: resolveBundledPluginInstallCommandHint({
+        pluginId: "matrix",
+        workspaceDir: process.cwd(),
+      }),
       formatCommand: formatCliCommand,
     });
     log.warn(
@@ -581,6 +589,7 @@ export async function startGatewayServer(
   } else {
     setActivePluginRegistry(emptyPluginRegistry);
   }
+  log.info("startGatewayServer: plugins loaded");
   const channelLogs = Object.fromEntries(
     listChannelPlugins().map((plugin) => [plugin.id, logChannels.child(plugin.id)]),
   ) as Record<ChannelId, ReturnType<typeof createSubsystemLogger>>;
@@ -739,6 +748,7 @@ export async function startGatewayServer(
     logPlugins,
     getReadiness,
   });
+  log.info("startGatewayServer: runtime state created (HTTP/WS servers ready)");
   let bonjourStop: (() => Promise<void>) | null = null;
   const noopInterval = () => setInterval(() => {}, 1 << 30);
   let tickInterval = noopInterval();

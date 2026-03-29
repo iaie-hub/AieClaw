@@ -7,17 +7,7 @@ export type {
   ProviderDiscoveryContext,
 } from "../plugins/types.js";
 
-export {
-  applyProviderDefaultModel,
-  configureOpenAICompatibleSelfHostedProviderNonInteractive,
-  discoverOpenAICompatibleLocalModels,
-  discoverOpenAICompatibleSelfHostedProvider,
-  promptAndConfigureOpenAICompatibleSelfHostedProvider,
-  promptAndConfigureOpenAICompatibleSelfHostedProviderAuth,
-  SELF_HOSTED_DEFAULT_CONTEXT_WINDOW,
-  SELF_HOSTED_DEFAULT_COST,
-  SELF_HOSTED_DEFAULT_MAX_TOKENS,
-} from "../plugins/provider-self-hosted-setup.js";
+export * from "./provider-self-hosted-setup-core.js";
 export { OLLAMA_DEFAULT_BASE_URL, OLLAMA_DEFAULT_MODEL } from "./ollama-surface.js";
 export {
   buildOllamaProvider,
