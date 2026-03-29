@@ -21,6 +21,8 @@ export type ExecToolDefaults = {
   allowBackground?: boolean;
   scopeKey?: string;
   sessionKey?: string;
+  /** The agent run ID for this exec tool instance, used to detect followup-loop re-runs. */
+  runId?: string;
   messageProvider?: string;
   currentChannelId?: string;
   currentThreadTs?: string;

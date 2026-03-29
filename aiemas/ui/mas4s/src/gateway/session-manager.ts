@@ -9,40 +9,35 @@ import { getSummary } from "./session-archive.js";
 // ── splitHistoryMessage ───────────────────────────────────────────────────────
 
 /**
- * Split a single history message into multiple messages when it contains mixed
- * content types (thinking, tool_call, text). This mirrors the real-time view
- * where each type is rendered as a separate bubble.
- *
- * Preserves the original content order by scanning items sequentially and
- * emitting a new bubble whenever the "group type" changes:
- *   - thinking items group together
+ * Split a single history message into multiple messages when it contains
+ * tool_call items. This mirrors the real-time view where:
+ *   - thinking + text render together in one bubble (msg-agent._renderContent)
  *   - each tool_call (with its immediately following tool_result) is one bubble
- *   - text items group together
  *
- * If the message contains only one type, it is returned as-is.
+ * Strategy: scan items sequentially; emit a new bubble only when a tool_call
+ * is encountered. thinking and text items always stay together.
+ *
+ * If the message contains no tool_call items, it is returned as-is.
  */
 function splitHistoryMessage(msg: ChatMessage): ChatMessage[] {
   const { content } = msg;
 
-  const hasThinking = content.some((c) => c.type === "thinking");
   const hasToolCall = content.some((c) => c.type === "tool_call");
 
-  // Nothing to split — single type content
-  if (!hasThinking && !hasToolCall) {
+  // Nothing to split — no tool calls
+  if (!hasToolCall) {
     return [msg];
   }
 
   const result: ChatMessage[] = [];
-  let currentGroup: MessageContentItem[] = [];
-  // "thinking" | "tool" | "text"
-  let currentType: string | null = null;
+  // Accumulates thinking + text items until a tool_call is encountered
+  let pendingItems: MessageContentItem[] = [];
 
-  const flushGroup = () => {
-    if (currentGroup.length > 0) {
-      result.push({ ...msg, content: [...currentGroup] });
-      currentGroup = [];
+  const flushPending = () => {
+    if (pendingItems.length > 0) {
+      result.push({ ...msg, content: [...pendingItems] });
+      pendingItems = [];
     }
-    currentType = null;
   };
 
   for (let i = 0; i < content.length; i++) {
@@ -51,16 +46,9 @@ function splitHistoryMessage(msg: ChatMessage): ChatMessage[] {
       continue;
     }
 
-    if (item.type === "thinking") {
-      if (currentType !== "thinking") {
-        flushGroup();
-        currentType = "thinking";
-      }
-      currentGroup.push(item);
-    } else if (item.type === "tool_call") {
-      // Each tool_call starts a new bubble
-      flushGroup();
-      currentType = "tool";
+    if (item.type === "tool_call") {
+      // Flush any accumulated thinking/text before this tool call
+      flushPending();
       const toolItems: MessageContentItem[] = [item];
       // Attach immediately following tool_result if present
       const next = content[i + 1];
@@ -69,22 +57,17 @@ function splitHistoryMessage(msg: ChatMessage): ChatMessage[] {
         i++;
       }
       result.push({ ...msg, content: toolItems });
-      currentType = null;
     } else if (item.type === "tool_result") {
       // Orphaned tool_result (no preceding tool_call in this message) — own bubble
-      flushGroup();
+      flushPending();
       result.push({ ...msg, content: [item] });
     } else {
-      // text or other
-      if (currentType !== "text") {
-        flushGroup();
-        currentType = "text";
-      }
-      currentGroup.push(item);
+      // thinking, text, or other — accumulate together
+      pendingItems.push(item);
     }
   }
 
-  flushGroup();
+  flushPending();
 
   return result.length > 0 ? result : [msg];
 }
@@ -211,27 +194,12 @@ function rowToMasSession(row: GatewaySessionRow, persistedLabel?: string | null)
 /**
  * 拉取当前用户有权限的会话列表（按 session_memberships 过滤）。
  * 在连接成功后调用，用于恢复历史会话。
- * 对 label/displayName 均为 null 的会话，fallback 查询 aiemas DB 的持久化 label。
+ * displayName 已由服务端 enrichSessionRow 从 session_labels 表注入，无需前端二次查询。
  */
 export async function fetchSessions(client: GatewayBrowserClient): Promise<MasSession[]> {
   const result = await client.request<{ sessions: GatewaySessionRow[] }>("sessions.list", {});
   const rows = result.sessions ?? [];
-
-  // Batch-fetch persisted labels for rows that have no label/displayName from gateway.
-  // This covers sessions whose label was lost due to reset path issues.
-  const needsLabelFallback = rows.filter((r) => !r.label && !r.displayName);
-  const labelMap = new Map<string, string | null>();
-  if (needsLabelFallback.length > 0) {
-    await Promise.all(
-      needsLabelFallback.map(async (row) => {
-        const entry = await fetchSessionLabel(client, row.key);
-        const resolved = entry?.label ?? entry?.displayName ?? null;
-        labelMap.set(row.key, resolved);
-      }),
-    );
-  }
-
-  const sessions = rows.map((row) => rowToMasSession(row, labelMap.get(row.key)));
+  const sessions = rows.map((row) => rowToMasSession(row));
 
   // Batch-load persisted summaries for sessions that have one (requirement 4.10)
   const withSummary = sessions.filter((s) => s.hasSummary === true);

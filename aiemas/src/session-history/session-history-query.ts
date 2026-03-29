@@ -76,6 +76,8 @@ function rowToStoredMessage(row: Record<string, unknown>): StoredMessage {
     timestamp: row["timestamp"] as number,
     seq: row["seq"] as number,
     archivedDate: (row["archivedDate"] as string | null) ?? null,
+    toolCallId: (row["toolCallId"] as string | null) ?? null,
+    toolName: (row["toolName"] as string | null) ?? null,
   };
 }
 
@@ -172,11 +174,18 @@ export function queryHistoryRange(
     totalMsgCount: 0,
   };
   try {
-    const statRow = db
-      .prepare(
-        "SELECT firstMsgAt, lastMsgAt, msgCount FROM session_msg_statistic WHERE sessionKey = ?",
-      )
-      .get(params.sessionKey) as
+    let statSql =
+      "SELECT firstMsgAt, lastMsgAt, msgCount FROM session_msg_statistic WHERE sessionKey = ?";
+    const statParams: unknown[] = [params.sessionKey];
+    if (params.sessionId) {
+      statSql += " AND sessionId = ?";
+      statParams.push(params.sessionId);
+    } else {
+      // If no sessionId specified, return the most recent session's stats for this key.
+      statSql += " ORDER BY lastMsgAt DESC LIMIT 1";
+    }
+
+    const statRow = db.prepare(statSql).get(...(statParams as Parameters<typeof stmt.get>)) as
       | { firstMsgAt: number; lastMsgAt: number; msgCount: number }
       | undefined;
     if (statRow) {

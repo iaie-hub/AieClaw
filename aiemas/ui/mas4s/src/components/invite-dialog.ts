@@ -320,26 +320,17 @@ export class InviteDialog extends LitElement {
         <div class="avatar">${(p.name || "?").charAt(0).toUpperCase()}</div>
         <div class="user-info">
           <div class="user-name">
-            ${p.name} 
-            ${
-              p.isInitiator
-                ? html`
-                    <span class="owner-badge">所有者</span>
-                  `
-                : nothing
-            }
+            ${p.name} ${p.isInitiator ? html` <span class="owner-badge">所有者</span> ` : nothing}
           </div>
           <div class="user-handle">${p.id}</div>
         </div>
-        ${
-          isInitiator && !p.isInitiator
-            ? html`
+        ${isInitiator && !p.isInitiator
+          ? html`
               <button class="action-btn remove" @click=${() => this._onRemove(p.id, p.name)}>
                 ${iconRemove} 移除
               </button>
             `
-            : nothing
-        }
+          : nothing}
       </div>
     `;
   }
@@ -438,7 +429,7 @@ export class InviteDialog extends LitElement {
       <div class="overlay" @click=${this._onOverlayClick}>
         <div class="dialog-card">
           <h3>${iconUsers} 协作管理</h3>
-          
+
           <div class="scroll-area">
             <div class="section-title">会话成员 (${this.session.participants?.length || 0})</div>
             <div class="member-list">
@@ -448,16 +439,20 @@ export class InviteDialog extends LitElement {
             <div class="section-title">邀请新成员</div>
             <div class="search-box">
               <span class="search-icon">${iconSearch}</span>
-              <input 
-                class="search-input" 
-                placeholder="搜索用户名或显示名称..." 
+              <input
+                class="search-input"
+                placeholder="搜索用户名或显示名称..."
                 .value=${this._searchQuery}
                 @input=${this._onSearchInput}
               />
             </div>
             <div class="search-results">
               ${filteredUsers.map((u) => this._renderSearchResult(u))}
-              ${filteredUsers.length === 0 ? html`<div style="padding:10px;color:#94a3b8;font-size:12px;text-align:center">${query ? "未找到匹配的用户" : "暂无可邀请的用户"}</div>` : nothing}
+              ${filteredUsers.length === 0
+                ? html`<div style="padding:10px;color:#94a3b8;font-size:12px;text-align:center">
+                    ${query ? "未找到匹配的用户" : "暂无可邀请的用户"}
+                  </div>`
+                : nothing}
             </div>
           </div>
 
@@ -467,20 +462,19 @@ export class InviteDialog extends LitElement {
         </div>
       </div>
 
-      ${
-        this._removeConfirmUser
-          ? html`
+      ${this._removeConfirmUser
+        ? html`
             <confirm-dialog
               title="解除协作"
-              message="确定要移除成员「${this._removeConfirmUser.name}」吗？移除后该用户将不再能访问此会话的消息与进度。"
+              message="确定要移除成员「${this._removeConfirmUser
+                .name}」吗？移除后该用户将不再能访问此会话的消息与进度。"
               confirmText="确定移除"
               confirmVariant="danger"
               @confirm=${this._onRemoveConfirm}
               @cancel=${this._onRemoveCancel}
             ></confirm-dialog>
           `
-          : nothing
-      }
+        : nothing}
     `;
   }
 }

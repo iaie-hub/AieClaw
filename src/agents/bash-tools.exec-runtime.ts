@@ -108,7 +108,11 @@ export const DEFAULT_PENDING_MAX_OUTPUT = clampWithDefault(
 );
 export const DEFAULT_PATH =
   process.env.PATH ?? "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
-export const DEFAULT_NOTIFY_TAIL_CHARS = 400;
+// Increased from 400 to 8000 to accommodate common command outputs like `ls -la`,
+// `ps aux`, `docker ps -a`, etc. that may list many items. The output is still
+// tail-truncated to avoid excessive token usage, but 8000 chars provides better
+// completeness for typical command outputs while remaining reasonable for LLM context.
+export const DEFAULT_NOTIFY_TAIL_CHARS = 8000;
 const DEFAULT_NOTIFY_SNIPPET_CHARS = 180;
 export const DEFAULT_APPROVAL_TIMEOUT_MS = 120_000;
 export const DEFAULT_APPROVAL_REQUEST_TIMEOUT_MS = 130_000;

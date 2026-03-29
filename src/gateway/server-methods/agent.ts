@@ -124,10 +124,45 @@ function emitSessionsChanged(
       ts: Date.now(),
       ...(sessionRow
         ? {
+            updatedAt: sessionRow.updatedAt ?? undefined,
+            sessionId: sessionRow.sessionId,
+            kind: sessionRow.kind,
+            channel: sessionRow.channel,
+            subject: sessionRow.subject,
+            groupChannel: sessionRow.groupChannel,
+            space: sessionRow.space,
+            chatType: sessionRow.chatType,
+            origin: sessionRow.origin,
+            spawnedBy: sessionRow.spawnedBy,
+            spawnedWorkspaceDir: sessionRow.spawnedWorkspaceDir,
+            forkedFromParent: sessionRow.forkedFromParent,
+            spawnDepth: sessionRow.spawnDepth,
+            subagentRole: sessionRow.subagentRole,
+            subagentControlScope: sessionRow.subagentControlScope,
+            label: sessionRow.label,
+            displayName: sessionRow.displayName,
+            deliveryContext: sessionRow.deliveryContext,
+            parentSessionKey: sessionRow.parentSessionKey,
+            childSessions: sessionRow.childSessions,
+            thinkingLevel: sessionRow.thinkingLevel,
+            fastMode: sessionRow.fastMode,
+            verboseLevel: sessionRow.verboseLevel,
+            reasoningLevel: sessionRow.reasoningLevel,
+            elevatedLevel: sessionRow.elevatedLevel,
+            sendPolicy: sessionRow.sendPolicy,
+            systemSent: sessionRow.systemSent,
+            abortedLastRun: sessionRow.abortedLastRun,
+            inputTokens: sessionRow.inputTokens,
+            outputTokens: sessionRow.outputTokens,
+            lastChannel: sessionRow.lastChannel,
+            lastTo: sessionRow.lastTo,
+            lastAccountId: sessionRow.lastAccountId,
+            lastThreadId: sessionRow.lastThreadId,
             totalTokens: sessionRow.totalTokens,
             totalTokensFresh: sessionRow.totalTokensFresh,
             contextTokens: sessionRow.contextTokens,
             estimatedCostUsd: sessionRow.estimatedCostUsd,
+            responseUsage: sessionRow.responseUsage,
             modelProvider: sessionRow.modelProvider,
             model: sessionRow.model,
             status: sessionRow.status,
@@ -209,6 +244,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       return;
     }
     const request = p as {
+      role?: "user" | "system";
       message: string;
       agentId?: string;
       provider?: string;
@@ -465,6 +501,7 @@ export const agentHandlers: GatewayRequestHandlers = {
         lastChannel: deliveryFields.lastChannel ?? entry?.lastChannel,
         lastTo: deliveryFields.lastTo ?? entry?.lastTo,
         lastAccountId: deliveryFields.lastAccountId ?? entry?.lastAccountId,
+        lastThreadId: deliveryFields.lastThreadId ?? entry?.lastThreadId,
         modelOverride: entry?.modelOverride,
         providerOverride: entry?.providerOverride,
         label: labelValue,
@@ -499,6 +536,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       resolvedSessionKey = canonicalSessionKey;
       const agentId = resolveAgentIdFromSessionKey(canonicalSessionKey);
       const mainSessionKey = resolveAgentMainSessionKey({ cfg, agentId });
+      console.log("mainSessionKey: ", mainSessionKey);
       if (storePath) {
         const persisted = await updateSessionStore(storePath, (store) => {
           const { primaryKey } = migrateAndPruneGatewaySessionStoreKey({
@@ -512,7 +550,11 @@ export const agentHandlers: GatewayRequestHandlers = {
         });
         sessionEntry = persisted;
       }
-      if (canonicalSessionKey === mainSessionKey || canonicalSessionKey === "global") {
+      // if (canonicalSessionKey === mainSessionKey || canonicalSessionKey === "global") {
+      if (
+        canonicalSessionKey === "global" ||
+        classifySessionKeyShape(canonicalSessionKey) === "agent"
+      ) {
         context.addChatRun(idem, {
           sessionKey: canonicalSessionKey,
           clientRunId: idem,
@@ -656,7 +698,7 @@ export const agentHandlers: GatewayRequestHandlers = {
     respond(true, accepted, undefined, { runId });
 
     if (resolvedSessionKey) {
-      reactivateCompletedSubagentSession({
+      await reactivateCompletedSubagentSession({
         sessionKey: resolvedSessionKey,
         runId,
       });
@@ -679,6 +721,7 @@ export const agentHandlers: GatewayRequestHandlers = {
 
     dispatchAgentRunFromGateway({
       ingressOpts: {
+        role: request.role,
         message,
         images,
         provider: providerOverride,

@@ -4,6 +4,12 @@ import { onSessionTranscriptUpdate } from "../../../src/sessions/transcript-even
 import type { SessionTranscriptUpdate } from "../../../src/sessions/transcript-events.js";
 import { upsertSummary } from "./session-summary-store.js";
 
+const debugLog = (...args: unknown[]) => {
+  if (process.env.OPENCLAW_MAS4S_DEBUG_EVENTS === "1") {
+    console.log(...args);
+  }
+};
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface SenderContext {
@@ -17,11 +23,13 @@ export interface StoredMessage {
   sessionId: string;
   userId: string | null;
   tenantId: string | null;
-  role: "user" | "assistant" | "tool";
+  role: "user" | "assistant" | "tool" | "approval" | "system";
   content: string;
   timestamp: number;
   seq: number;
   archivedDate: string | null;
+  toolCallId: string | null;
+  toolName: string | null;
 }
 
 export interface SessionTranscriptStoreOptions {
@@ -45,6 +53,8 @@ export interface SessionTranscriptStoreOptions {
  */
 interface SessionState {
   sender: SenderContext;
+  sessionKey: string;
+  sessionId: string;
   lastSeq: number;
   firstMsgAt: number;
   lastMsgAt: number;
@@ -89,8 +99,11 @@ function extractContent(raw: unknown): string {
         }
         const b = block as Record<string, unknown>;
         // text block: { type: "text", text: "..." }
+        // Serialise with a [text] prefix so normalizeMessage can reconstruct
+        // the correct item order when thinking and text appear in the same message.
+        // Newlines are escaped to keep the serialised form on a single line.
         if (b["type"] === "text" && typeof b["text"] === "string") {
-          return b["text"];
+          return `[text] ${b["text"].replace(/\n/g, "\\n")}`;
         }
         // thinking block: { type: "thinking", thinking: "..." }
         // Serialise so it can be restored as a thinking content item in the history view.
@@ -130,7 +143,7 @@ function extractContent(raw: unknown): string {
 }
 
 /** Normalise raw role strings to the allowed set. */
-function normaliseRole(raw: unknown): "user" | "assistant" | "tool" {
+function normaliseRole(raw: unknown): "user" | "assistant" | "tool" | "approval" | "system" {
   if (raw === "human" || raw === "user") {
     return "user";
   }
@@ -139,6 +152,12 @@ function normaliseRole(raw: unknown): "user" | "assistant" | "tool" {
   }
   if (raw === "tool" || raw === "toolResult" || raw === "tool_result") {
     return "tool";
+  }
+  if (raw === "approval") {
+    return "approval";
+  }
+  if (raw === "system") {
+    return "system";
   }
   // Unknown roles fall back to "user" to satisfy the DB CHECK constraint.
   return "user";
@@ -194,9 +213,11 @@ function formatToolResult(value: unknown): string {
 }
 
 /** Return a default (empty) SessionState for a session not yet seen. */
-function defaultSessionState(): SessionState {
+function defaultSessionState(sessionKey: string, sessionId: string): SessionState {
   return {
     sender: { userId: null, tenantId: null },
+    sessionKey,
+    sessionId,
     lastSeq: 0,
     firstMsgAt: 0,
     lastMsgAt: 0,
@@ -213,11 +234,17 @@ export class SessionTranscriptStore {
 
   /**
    * Central per-session state store.
-   * Keyed by sessionKey (== sessionId in this codebase).
-   * Loaded from session_msg_statistic on construction; kept in sync after every
-   * persistBatch commit so callers never need to query the DB for seq or stats.
+   * Keyed by sessionId (effectively unique per reset instance).
+   * Loaded from session_msg_statistic on construction.
    */
   private readonly sessionStates = new Map<string, SessionState>();
+
+  /**
+   * Mapping of sessionKey -> latest sessionId.
+   * Used to resolve the active sessionId for events that only carry sessionKey
+   * (e.g. tool calls, approvals). Updated by handleUpdate and recordSenderContext.
+   */
+  private readonly activeSessionIds = new Map<string, string>();
 
   /** In-memory write buffer; drained on each flush. */
   private readonly buffer: StoredMessage[] = [];
@@ -259,23 +286,32 @@ export class SessionTranscriptStore {
     try {
       const rows = this.db
         .prepare(
-          "SELECT sessionKey, firstMsgAt, lastMsgAt, msgCount, lastSeq FROM session_msg_statistic",
+          "SELECT sessionKey, sessionId, firstMsgAt, lastMsgAt, msgCount, lastSeq FROM session_msg_statistic",
         )
         .all() as Array<{
         sessionKey: string;
+        sessionId: string;
         firstMsgAt: number;
         lastMsgAt: number;
         msgCount: number;
         lastSeq: number;
       }>;
       for (const row of rows) {
-        this.sessionStates.set(row.sessionKey, {
+        this.sessionStates.set(row.sessionId, {
           sender: { userId: null, tenantId: null },
+          sessionKey: row.sessionKey,
+          sessionId: row.sessionId,
           lastSeq: row.lastSeq,
           firstMsgAt: row.firstMsgAt,
           lastMsgAt: row.lastMsgAt,
           msgCount: row.msgCount,
         });
+        // Track the "latest" sessionId per sessionKey by picking the one with the highest sequence/timestamp.
+        // This is a heuristic for startup; subsequent updates will keep this map current.
+        const current = this.activeSessionIds.get(row.sessionKey);
+        if (!current || row.lastMsgAt > (this.sessionStates.get(current)?.lastMsgAt ?? 0)) {
+          this.activeSessionIds.set(row.sessionKey, row.sessionId);
+        }
       }
     } catch {
       // Table may not exist yet during first init — safe to ignore.
@@ -284,21 +320,23 @@ export class SessionTranscriptStore {
 
   // ── getOrInitState (private) ───────────────────────────────────────────────
 
-  /** Return the SessionState for a key, creating a default entry if absent. */
-  private getOrInitState(sessionKey: string): SessionState {
-    let state = this.sessionStates.get(sessionKey);
+  /** Return the SessionState for a key pair, creating a default entry if absent. */
+  private getOrInitState(sessionKey: string, sessionId: string): SessionState {
+    let state = this.sessionStates.get(sessionId);
     if (!state) {
-      state = defaultSessionState();
-      this.sessionStates.set(sessionKey, state);
+      state = defaultSessionState(sessionKey, sessionId);
+      this.sessionStates.set(sessionId, state);
     }
+    // Update active mapping whenever we touch a session
+    this.activeSessionIds.set(sessionKey, sessionId);
     return state;
   }
 
   // ── recordSenderContext ────────────────────────────────────────────────────
 
-  /** Called by the chat.send extraHandler to associate a sessionKey with a user. */
-  recordSenderContext(sessionKey: string, ctx: SenderContext): void {
-    this.getOrInitState(sessionKey).sender = ctx;
+  /** Called by the chat.send extraHandler to associate a session with a user. */
+  recordSenderContext(sessionKey: string, sessionId: string, ctx: SenderContext): void {
+    this.getOrInitState(sessionKey, sessionId).sender = ctx;
   }
 
   // ── start ──────────────────────────────────────────────────────────────────
@@ -370,28 +408,60 @@ export class SessionTranscriptStore {
       const argsStr = args != null ? JSON.stringify(args) : "";
       const callContent = argsStr ? `[tool_use:${name}] ${argsStr}` : `[tool_use:${name}]`;
       this.pendingToolCalls.set(toolCallId, { sessionKey, name, callContent, timestamp });
+      debugLog(
+        `[mas4s:transcript-store] recordToolEvent phase=start toolCallId=${toolCallId} name=${name}`,
+      );
       return;
     }
 
     if (phase === "result") {
       const pending = this.pendingToolCalls.get(toolCallId);
-      if (!pending) {
-        return;
-      }
-      this.pendingToolCalls.delete(toolCallId);
+      this.pendingToolCalls.delete(toolCallId); // Always cleanup
 
       const resultStr = formatToolResult(result);
-      const content = resultStr
-        ? `${pending.callContent}\n[tool_result] ${resultStr.replace(/\n/g, "\\n")}`
-        : pending.callContent;
+      debugLog(
+        `[mas4s:transcript-store] recordToolEvent phase=result toolCallId=${toolCallId} hasPending=${!!pending} resultLength=${resultStr?.length ?? 0}`,
+      );
 
+      if (!resultStr) {
+        return;
+      }
+
+      // Instead of merging into 'assistant', push a dedicated 'tool' role message.
+      // This matches frontend MsgToolCard and avoids transcript-triggered duplication.
       this.pushToBuffer({
-        sessionKey: pending.sessionKey,
-        role: "assistant",
-        content,
-        timestamp: pending.timestamp,
+        sessionKey: pending?.sessionKey ?? sessionKey,
+        role: "tool",
+        content: `[tool_result] ${resultStr.replace(/\n/g, "\\n")}`,
+        timestamp: timestamp || (pending?.timestamp ?? Date.now()),
+        toolCallId: toolCallId,
+        toolName: pending?.name ?? name,
       });
     }
+  }
+
+  // ── recordApprovalEvent ───────────────────────────────────────────────────
+
+  /**
+   * Persist an exec.approval event (requested or resolved) to session_messages.
+   * Content format: `[approval:requested] {...}` or `[approval:resolved] {...}`
+   * or `[approval:user-resolve] {...}` so normalizeMessage can reconstruct the
+   * approval card on history replay.
+   */
+  recordApprovalEvent(params: {
+    sessionKey: string;
+    type: "requested" | "resolved" | "user-resolve";
+    payload: unknown;
+    timestamp: number;
+  }): void {
+    const { sessionKey, type, payload, timestamp } = params;
+    const content = `[approval:${type}] ${JSON.stringify(payload)}`;
+    this.pushToBuffer({
+      sessionKey,
+      role: "approval",
+      content,
+      timestamp,
+    });
   }
 
   // ── persistSummary ────────────────────────────────────────────────────────
@@ -403,13 +473,16 @@ export class SessionTranscriptStore {
    */
   persistSummary(params: {
     sessionKey: string;
+    sessionId: string;
     textSummary: string | null;
     toolSummary: string | null;
     generatedAt: number;
     generatedBy: string;
   }): void {
     upsertSummary(this.db, params);
-    console.log(`[mas4s:transcript-store] persisted summary for sessionKey=${params.sessionKey}`);
+    debugLog(
+      `[mas4s:transcript-store] persisted summary for sessionKey=${params.sessionKey} sessionId=${params.sessionId}`,
+    );
   }
 
   /**
@@ -446,14 +519,22 @@ export class SessionTranscriptStore {
 
   private pushToBuffer(params: {
     sessionKey: string;
+    sessionId?: string;
     role: StoredMessage["role"];
     content: string;
     timestamp: number;
+    toolCallId?: string | null;
+    toolName?: string | null;
   }): void {
-    const { sessionKey, role, content, timestamp } = params;
-    // sessionId == sessionKey in this codebase.
-    const sessionId = sessionKey;
-    const state = this.getOrInitState(sessionKey);
+    const { sessionKey, role, content, timestamp, toolCallId, toolName } = params;
+    let { sessionId } = params;
+
+    // Resolve sessionId if missing via the active mapping
+    if (!sessionId) {
+      sessionId = this.activeSessionIds.get(sessionKey) ?? sessionKey;
+    }
+
+    const state = this.getOrInitState(sessionKey, sessionId);
     const seq = state.lastSeq + 1;
     // Eagerly advance lastSeq so subsequent pushes in the same flush cycle get
     // monotonically increasing seq values without waiting for a DB round-trip.
@@ -470,6 +551,8 @@ export class SessionTranscriptStore {
       timestamp,
       seq,
       archivedDate: null,
+      toolCallId: toolCallId ?? null,
+      toolName: toolName ?? null,
     });
 
     if (this.buffer.length >= this.maxBufferSize) {
@@ -487,8 +570,13 @@ export class SessionTranscriptStore {
       }
 
       const msg = update.message as Record<string, unknown>;
-
       const rawRole = msg["role"];
+      const sessionKey = update.sessionKey ?? "";
+
+      debugLog(
+        `[mas4s:transcript-store] incoming role=${String(rawRole)} sessionKey=${sessionKey} hasCallId=${!!msg["toolCallId"] || !!msg["tool_call_id"]} msg=${JSON.stringify(msg)}`,
+      );
+
       // content 可能是字符串（user 消息）或数组（assistant/tool 消息）
       // 数组格式：[{ type: "text", text: "..." }, ...]
       const content = extractContent(msg["content"]);
@@ -498,7 +586,6 @@ export class SessionTranscriptStore {
         typeof msg["sessionId"] === "string" && msg["sessionId"]
           ? msg["sessionId"]
           : (update.sessionKey ?? "");
-      const sessionKey = update.sessionKey ?? "";
 
       if (!sessionKey) {
         return;
@@ -512,7 +599,7 @@ export class SessionTranscriptStore {
         return;
       }
 
-      const state = this.getOrInitState(sessionKey);
+      const state = this.getOrInitState(sessionKey, sessionId);
       const seq = state.lastSeq + 1;
       state.lastSeq = seq;
 
@@ -527,9 +614,97 @@ export class SessionTranscriptStore {
         timestamp,
         seq,
         archivedDate: null,
+        toolCallId:
+          (msg["toolCallId"] as string | null) ?? (msg["tool_call_id"] as string | null) ?? null,
+        toolName: (msg["toolName"] as string | null) ?? (msg["tool_name"] as string | null) ?? null,
       };
 
+      debugLog(
+        `[mas4s:transcript-store] pushing to buffer role=${role} toolCallId=${stored.toolCallId} seq=${seq}`,
+      );
       this.buffer.push(stored);
+
+      // Back-fill triggeredByMsgId into the most recent [approval:requested] record
+      // for this session. exec.approval.requested (path C) fires before the JSONL
+      // transcript event (path A), so by the time this assistant message arrives the
+      // approval record may already have been flushed to DB by the periodic timer.
+      // We therefore update the DB row directly rather than patching the in-memory
+      // buffer, which avoids the race with the flush timer.
+      //
+      // Only link assistant messages whose timestamp is strictly after the approval's
+      // createdAtMs, so that the earlier assistant message containing the tool_use
+      // that triggered the approval is not incorrectly linked.
+      if (role === "assistant") {
+        try {
+          // Back-fill triggeredByMsgId into the most recent [approval:requested] record
+          // for this session. exec.approval.requested (path C) fires before the JSONL
+          // transcript event (path A), so by the time this assistant message arrives the
+          // approval record may already have been flushed to DB by the periodic timer.
+          //
+          // Only link assistant messages whose timestamp is strictly after the approval's
+          // createdAtMs, so that the earlier assistant message containing the tool_use
+          // that triggered the approval is not incorrectly linked.
+          //
+          // The two steps below are mutually exclusive: an approval record is either
+          // in the buffer (not yet flushed) or in the DB (already flushed), never both.
+          // Step 1 handles the already-flushed case; step 2 handles the still-buffered case.
+
+          // Step 1: patch a DB row that was already flushed.
+          let dbPatched = false;
+          const row = this.db
+            .prepare(
+              `SELECT id, content FROM session_messages
+                  WHERE sessionKey = ? AND role = 'approval'
+                    AND content LIKE '[approval:requested]%'
+                  ORDER BY timestamp DESC
+                  LIMIT 1`,
+            )
+            .get(sessionKey) as { id: string; content: string } | undefined;
+
+          if (row) {
+            const jsonStart = row.content.indexOf(" ") + 1;
+            const parsed = JSON.parse(row.content.slice(jsonStart)) as Record<string, unknown>;
+            const createdAtMs =
+              typeof parsed["createdAtMs"] === "number" ? parsed["createdAtMs"] : 0;
+            if (!parsed["triggeredByMsgId"] && timestamp > createdAtMs) {
+              parsed["triggeredByMsgId"] = stored.id;
+              const newContent = `[approval:requested] ${JSON.stringify(parsed)}`;
+              this.db
+                .prepare(`UPDATE session_messages SET content = ? WHERE id = ?`)
+                .run(newContent, row.id);
+              dbPatched = true;
+            }
+          }
+
+          // Step 2: patch a matching entry still in the buffer (not yet flushed).
+          // Skipped if step 1 already patched the DB row.
+          if (!dbPatched) {
+            for (let i = this.buffer.length - 2; i >= 0; i--) {
+              const entry = this.buffer[i];
+              if (!entry || entry.sessionKey !== sessionKey || entry.role !== "approval") {
+                continue;
+              }
+              if (!entry.content.startsWith("[approval:requested]")) {
+                continue;
+              }
+              const jsonStart = entry.content.indexOf(" ") + 1;
+              const entryParsed = JSON.parse(entry.content.slice(jsonStart)) as Record<
+                string,
+                unknown
+              >;
+              const entryCreatedAtMs =
+                typeof entryParsed["createdAtMs"] === "number" ? entryParsed["createdAtMs"] : 0;
+              if (!entryParsed["triggeredByMsgId"] && timestamp > entryCreatedAtMs) {
+                entryParsed["triggeredByMsgId"] = stored.id;
+                entry.content = `[approval:requested] ${JSON.stringify(entryParsed)}`;
+              }
+              break;
+            }
+          }
+        } catch (err) {
+          console.warn("[mas4s:transcript-store] backfill triggeredByMsgId failed:", err);
+        }
+      }
 
       if (this.buffer.length >= this.maxBufferSize) {
         this.flush();
@@ -557,6 +732,7 @@ export class SessionTranscriptStore {
   // ── persistBatch (private) ────────────────────────────────────────────────
 
   private persistBatch(msgs: StoredMessage[]): void {
+    debugLog(`[mas4s:transcript-store] persistBatch: persisting ${msgs.length} messages`);
     // Group by sessionKey for archive checks and statistic updates.
     const byKey = new Map<string, StoredMessage[]>();
     for (const m of msgs) {
@@ -570,17 +746,17 @@ export class SessionTranscriptStore {
 
     const insertStmt = this.db.prepare(
       `INSERT INTO session_messages
-         (id, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate, toolCallId, toolName)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
     // Upsert statistic row: on first insert create the row; on subsequent inserts
     // update lastMsgAt/msgCount/lastSeq and narrow firstMsgAt if a back-dated
     // message arrives (e.g. from a replay).
     const upsertStatStmt = this.db.prepare(
-      `INSERT INTO session_msg_statistic (sessionKey, firstMsgAt, lastMsgAt, msgCount, lastSeq)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(sessionKey) DO UPDATE SET
+      `INSERT INTO session_msg_statistic (sessionKey, sessionId, firstMsgAt, lastMsgAt, msgCount, lastSeq)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(sessionKey, sessionId) DO UPDATE SET
          firstMsgAt = MIN(firstMsgAt, excluded.firstMsgAt),
          lastMsgAt  = MAX(lastMsgAt,  excluded.lastMsgAt),
          msgCount   = msgCount + excluded.msgCount,
@@ -624,11 +800,25 @@ export class SessionTranscriptStore {
           m.timestamp,
           m.seq,
           m.archivedDate,
+          m.toolCallId,
+          m.toolName,
         );
       }
 
-      // Upsert session_msg_statistic once per sessionKey.
-      for (const [sessionKey, group] of byKey) {
+      // Group by sessionId for stats updates to match composite PK.
+      const bySessionId = new Map<string, StoredMessage[]>();
+      for (const m of msgs) {
+        let group = bySessionId.get(m.sessionId);
+        if (!group) {
+          group = [];
+          bySessionId.set(m.sessionId, group);
+        }
+        group.push(m);
+      }
+
+      // Upsert session_msg_statistic once per sessionId.
+      for (const [sessionId, group] of bySessionId) {
+        const sessionKey = group[0].sessionKey;
         const batchMinTs = group.reduce(
           (min, m) => (m.timestamp < min ? m.timestamp : min),
           group[0].timestamp,
@@ -638,7 +828,14 @@ export class SessionTranscriptStore {
           group[0].timestamp,
         );
         const batchMaxSeq = group.reduce((max, m) => (m.seq > max ? m.seq : max), group[0].seq);
-        upsertStatStmt.run(sessionKey, batchMinTs, batchMaxTs, group.length, batchMaxSeq);
+        upsertStatStmt.run(
+          sessionKey,
+          sessionId,
+          batchMinTs,
+          batchMaxTs,
+          group.length,
+          batchMaxSeq,
+        );
       }
 
       this.db.exec("COMMIT");
@@ -656,22 +853,13 @@ export class SessionTranscriptStore {
     }
 
     // Commit succeeded: update in-memory statistic counters to mirror the DB.
-    for (const [sessionKey, group] of byKey) {
-      const state = this.getOrInitState(sessionKey);
-      const batchMinTs = group.reduce(
-        (min, m) => (m.timestamp < min ? m.timestamp : min),
-        group[0].timestamp,
-      );
-      const batchMaxTs = group.reduce(
-        (max, m) => (m.timestamp > max ? m.timestamp : max),
-        group[0].timestamp,
-      );
+    for (const m of msgs) {
+      const state = this.getOrInitState(m.sessionKey, m.sessionId);
       state.firstMsgAt =
-        state.firstMsgAt === 0 ? batchMinTs : Math.min(state.firstMsgAt, batchMinTs);
-      state.lastMsgAt = Math.max(state.lastMsgAt, batchMaxTs);
-      state.msgCount += group.length;
-      // lastSeq was already advanced eagerly in pushToBuffer/handleUpdate;
-      // no further update needed here.
+        state.firstMsgAt === 0 ? m.timestamp : Math.min(state.firstMsgAt, m.timestamp);
+      state.lastMsgAt = Math.max(state.lastMsgAt, m.timestamp);
+      state.msgCount += 1; // Simplified batch update
+      // lastSeq logic remains eagerly advanced.
     }
   }
 

@@ -5,13 +5,16 @@ import { createMas4sGatewayPlugin } from "./mas4s-gateway-plugin.js";
 vi.mock("../store/database.js", () => ({
   initDatabase: vi.fn(() => ({
     prepare: vi.fn(() => ({
+      all: vi.fn(() => []),
       get: vi.fn(() => ({ count: 0 })),
+      run: vi.fn(() => ({ changes: 0, lastInsertRowid: 0 })),
     })),
   })),
   initMessageDatabase: vi.fn(() => ({
     prepare: vi.fn(() => ({
       all: vi.fn(() => []),
       get: vi.fn(() => ({ cnt: 0 })),
+      run: vi.fn(() => ({ changes: 0, lastInsertRowid: 0 })),
     })),
   })),
 }));

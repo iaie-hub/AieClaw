@@ -32,6 +32,7 @@ export const AgentEventSchema = Type.Object(
 export const SendParamsSchema = Type.Object(
   {
     to: NonEmptyString,
+    /** Local prompt text to process. */
     message: Type.Optional(Type.String()),
     mediaUrl: Type.Optional(Type.String()),
     mediaUrls: Type.Optional(Type.Array(Type.String())),
@@ -73,6 +74,8 @@ export const PollParamsSchema = Type.Object(
 
 export const AgentParamsSchema = Type.Object(
   {
+    /** Optional role for the initial turn (defaults to "user"). */
+    role: Type.Optional(Type.Union([Type.Literal("user"), Type.Literal("system")])),
     message: NonEmptyString,
     agentId: Type.Optional(NonEmptyString),
     provider: Type.Optional(Type.String()),

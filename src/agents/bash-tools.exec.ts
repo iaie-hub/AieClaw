@@ -500,6 +500,7 @@ export function createExecTool(
           strictInlineEval: defaults?.strictInlineEval,
           agentId,
           sessionKey: defaults?.sessionKey,
+          runId: defaults?.runId,
           turnSourceChannel: defaults?.messageProvider,
           turnSourceTo: defaults?.currentChannelId,
           turnSourceAccountId: defaults?.accountId,

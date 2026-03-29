@@ -15,12 +15,22 @@ import { extractContentFromStoredMessages, generateSummaryWithLLM } from "./summ
 import type { StoredMessageForSummary } from "./summary-llm.js";
 
 export class GatewayAuthBridge {
+  private loadSessionRow?: (sessionKey: string) => { sessionId?: string } | null;
+
   constructor(
     private readonly tenantService: TenantService,
     private readonly db: DatabaseSync,
     public llmConfig?: { baseUrl: string; apiKey: string; model: string },
     private readonly transcriptStore?: SessionTranscriptStore,
   ) {}
+
+  /**
+   * Set the loadSessionRow callback for resolving sessionId from sessionKey.
+   * This is called by the integration layer after plugin creation.
+   */
+  setLoadSessionRow(fn: (sessionKey: string) => { sessionId?: string } | null): void {
+    this.loadSessionRow = fn;
+  }
 
   /**
    * Authenticate a WS connect request.
@@ -277,12 +287,28 @@ export class GatewayAuthBridge {
     payload: unknown,
     _connectedUsers: Map<string, MasAuthContext>,
   ): Set<string> | null {
+    const debugLog = (...args: unknown[]) => {
+      if (process.env.OPENCLAW_MAS4S_DEBUG_EVENTS === "1") {
+        console.log(...args);
+      }
+    };
+
     // Extract sessionKey from payload
     const payloadObj =
       typeof payload === "object" && payload !== null
         ? (payload as Record<string, unknown>)
         : undefined;
-    const sessionKey = payloadObj?.["sessionKey"] as string | undefined;
+
+    // exec.approval.* events carry sessionKey inside request.sessionKey, not at top level
+    const sessionKey =
+      (payloadObj?.["sessionKey"] as string | undefined) ??
+      ((payloadObj?.["request"] as Record<string, unknown> | undefined)?.["sessionKey"] as
+        | string
+        | undefined);
+
+    debugLog(
+      `[bridge.filterBroadcastTargets] event=${event} sessionKey=${sessionKey ?? "(none)"} connectedUsers=${_connectedUsers.size} payloadKeys=${Object.keys(payloadObj ?? {}).join(",")}`,
+    );
 
     if (!sessionKey) {
       return null;
@@ -292,6 +318,9 @@ export class GatewayAuthBridge {
     // skip filtering to ensure they receive essential system events.
     for (const context of _connectedUsers.values()) {
       if (context.userId === null) {
+        debugLog(
+          `[bridge.filterBroadcastTargets] event=${event} compat-mode: unauthenticated client present, skipping filter`,
+        );
         return null;
       }
     }
@@ -313,6 +342,10 @@ export class GatewayAuthBridge {
         }
       }
     }
+
+    debugLog(
+      `[bridge.filterBroadcastTargets] event=${event} sessionKey=${sessionKey} targetUserIds=[${targetUserIds.join(",")}]`,
+    );
 
     return new Set(targetUserIds);
   }
@@ -464,8 +497,12 @@ export class GatewayAuthBridge {
       );
 
       if (isArchived) {
+        // For archived sessions, sessionId must be resolved from the gateway session entry
+        // because sessions.reset generates a new sessionId while keeping the same sessionKey.
+        const sessionId = this._resolveSessionId(sessionKey);
         this.transcriptStore?.persistSummary({
           sessionKey,
+          sessionId,
           textSummary: llmResult.textSummary,
           toolSummary: llmResult.toolSummary,
           generatedAt: llmResult.generatedAt,
@@ -481,8 +518,10 @@ export class GatewayAuthBridge {
       }
 
       // Not archived: return without persisting
+      const sessionId = this._resolveSessionId(sessionKey);
       this.transcriptStore?.persistSummary({
         sessionKey,
+        sessionId,
         textSummary: llmResult.textSummary,
         toolSummary: llmResult.toolSummary,
         generatedAt: llmResult.generatedAt,
@@ -615,6 +654,22 @@ export class GatewayAuthBridge {
     }
     return row.role as "owner" | "participant";
   }
+
+  /**
+   * Resolve sessionId from sessionKey via the gateway session store.
+   * Falls back to sessionKey if loadSessionRow callback is not available or returns null.
+   * This is critical for sessions.reset, which generates a new sessionId while keeping
+   * the same sessionKey.
+   */
+  private _resolveSessionId(sessionKey: string): string {
+    if (this.loadSessionRow) {
+      const row = this.loadSessionRow(sessionKey);
+      if (row?.sessionId) {
+        return row.sessionId;
+      }
+    }
+    return sessionKey;
+  }
 }
 
 // ── Module-level helpers ─────────────────────────────────────────────────────
@@ -635,8 +690,24 @@ function enrichSessionRow(
   const membership = db
     .prepare("SELECT role FROM session_memberships WHERE sessionKey = ? AND userId = ?")
     .get(sessionKey, userId) as { role: string } | undefined;
+
+  // Resolve displayName: always prefer persisted label in session_labels
+  // (survives session resets because sessionKey is stable) over the gateway
+  // value, which may be stale or derived from the sender name after a reset.
+  const gatewayDisplayName = session["displayName"] as string | null | undefined;
+  const persisted = db
+    .prepare("SELECT label, displayName FROM session_labels WHERE sessionKey = ?")
+    .get(sessionKey) as { label: string | null; displayName: string | null } | undefined;
+  const resolvedDisplayName =
+    persisted?.displayName ??
+    persisted?.label ??
+    gatewayDisplayName ??
+    (session["label"] as string | null | undefined) ??
+    null;
+
   return {
     ...session,
+    displayName: resolvedDisplayName,
     archivedAt: ownership?.archivedAt ?? null,
     masRole: membership?.role ?? null,
   };

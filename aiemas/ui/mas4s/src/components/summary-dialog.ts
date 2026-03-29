@@ -459,23 +459,35 @@ export class SummaryDialog extends LitElement {
             会话摘要
           </div>
           <div class="panel-header-actions">
-            ${
-              !this._isArchived && this._summary
-                ? html`
-                    <button class="regen-btn primary" @click=${this._onRegenerate} ?disabled=${this._loading} aria-label="重新生成摘要">
-                      重新生成
-                    </button>
-                  `
-                : nothing
-            }
+            ${!this._isArchived && this._summary
+              ? html`
+                  <button
+                    class="regen-btn primary"
+                    @click=${this._onRegenerate}
+                    ?disabled=${this._loading}
+                    aria-label="重新生成摘要"
+                  >
+                    重新生成
+                  </button>
+                `
+              : nothing}
             <button class="close-btn" @click=${this._onClose} aria-label="关闭摘要面板">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
             </button>
           </div>
         </div>
-        <div class="panel-body">
-          ${this._renderBody()}
-        </div>
+        <div class="panel-body">${this._renderBody()}</div>
       </div>
     `;
   }
@@ -505,32 +517,22 @@ export class SummaryDialog extends LitElement {
   private _renderSummary(s: SessionSummary) {
     const timeStr = new Date(s.generatedAt).toLocaleString();
     return html`
-      <div class="cache-notice" style="margin-bottom: 16px;">
-        摘要生成时间：${timeStr}
-      </div>
+      <div class="cache-notice" style="margin-bottom: 16px;">摘要生成时间：${timeStr}</div>
 
       <div class="summary-section">
         <div class="section-label">对话摘要</div>
         <div class="section-content markdown-body">
-          ${
-            s.textSummary
-              ? markdownMath(s.textSummary)
-              : html`
-                  <span class="empty-hint">暂无对话内容</span>
-                `
-          }
+          ${s.textSummary
+            ? markdownMath(s.textSummary)
+            : html` <span class="empty-hint">暂无对话内容</span> `}
         </div>
       </div>
       <div class="summary-section">
         <div class="section-label">工具调用摘要</div>
         <div class="section-content markdown-body">
-          ${
-            s.toolSummary
-              ? markdownMath(s.toolSummary)
-              : html`
-                  <span class="empty-hint">暂无工具调用</span>
-                `
-          }
+          ${s.toolSummary
+            ? markdownMath(s.toolSummary)
+            : html` <span class="empty-hint">暂无工具调用</span> `}
         </div>
       </div>
     `;

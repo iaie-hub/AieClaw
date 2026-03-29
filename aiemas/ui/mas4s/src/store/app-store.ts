@@ -1,7 +1,8 @@
 import type { ReactiveController, ReactiveControllerHost } from "lit";
-import type { ApprovalRequest } from "../types/approval-types.js";
+import type { ApprovalRequest, ApprovalResolved } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
 import type { MasSession, MasParticipant } from "../types/session-types.js";
+import type { SkillStatusReport } from "../types/skills-types.js";
 
 export type GlobalRole = "admin" | "member" | "viewer";
 
@@ -122,6 +123,10 @@ export class AppStore {
   // ── 审批队列（跨会话聚合） ────────────────────────
   pendingApprovals: ApprovalRequest[] = [];
 
+  // ── 已决策审批（保留用于消息流渲染） ──────────────
+  resolvedApprovals: Map<string, { approval: ApprovalRequest; resolved: ApprovalResolved }> =
+    new Map();
+
   // ── 子 Agent 启动确认队列（第三期） ───────────────
   pendingSpawnConfirms: PendingSpawnConfirm[] = [];
 
@@ -131,6 +136,28 @@ export class AppStore {
 
   updateUserPresence(userId: string, isOnline: boolean): void {
     this.userPresenceOverrides.set(userId, isOnline);
+    this.notify();
+  }
+
+  // ── Skills 状态管理 ───────────────────────────────
+  skillsReport: SkillStatusReport | null = null;
+  skillsLoading: boolean = false;
+  skillsError: string | null = null;
+
+  setSkillsReport(report: SkillStatusReport): void {
+    this.skillsReport = report;
+    this.skillsError = null;
+    this.notify();
+  }
+
+  setSkillsLoading(loading: boolean): void {
+    this.skillsLoading = loading;
+    this.notify();
+  }
+
+  setSkillsError(error: string): void {
+    this.skillsError = error;
+    this.skillsLoading = false;
     this.notify();
   }
 
@@ -313,12 +340,95 @@ export class AppStore {
   // ── 审批操作 ──────────────────────────────────────
 
   addApproval(req: ApprovalRequest): void {
+    // 避免重复添加同一审核请求
+    if (this.pendingApprovals.some((a) => a.id === req.id)) {
+      return;
+    }
     this.pendingApprovals = [...this.pendingApprovals, req];
+    // 向审核请求所属的 session 插入 pending 消息，而非当前活跃 session
+    // 避免跨 session 污染（审核请求可能来自非当前活跃 session）
+    const targetSessionKey = req.request.sessionKey ?? this.activeSessionId;
+    if (targetSessionKey) {
+      const pendingMsg: ChatMessage = {
+        id: req.id,
+        role: "assistant",
+        subType: "pending",
+        content: [],
+        timestamp: req.createdAtMs,
+      };
+      const msgs = this.messagesBySession.get(targetSessionKey) ?? [];
+      // 避免重复插入
+      if (!msgs.some((m) => m.id === req.id)) {
+        this.messagesBySession.set(targetSessionKey, [...msgs, pendingMsg]);
+      }
+    }
     this.notify();
   }
 
-  resolveApproval(id: string): void {
+  resolveApproval(id: string, resolved?: ApprovalResolved): void {
+    const found = this.pendingApprovals.find((a) => a.id === id);
+    const resolvedData: ApprovalResolved = resolved ?? {
+      id,
+      decision: "allow-once",
+      ts: Date.now(),
+    };
+
+    let approvalRecord: { approval: ApprovalRequest; resolved: ApprovalResolved } | undefined;
+
+    if (found) {
+      approvalRecord = { approval: found, resolved: resolvedData };
+      this.resolvedApprovals.set(id, approvalRecord);
+    } else if (!this.resolvedApprovals.has(id)) {
+      // gateway 广播到达时 pending 可能已被乐观移除，用 resolved payload 中的 request 构造
+      if (resolvedData.request) {
+        const syntheticApproval: ApprovalRequest = {
+          id,
+          request: resolvedData.request,
+          createdAtMs: resolvedData.ts,
+          expiresAtMs: resolvedData.ts,
+        };
+        approvalRecord = { approval: syntheticApproval, resolved: resolvedData };
+        this.resolvedApprovals.set(id, approvalRecord);
+      }
+    } else {
+      // 已有乐观记录，用 gateway 广播的完整数据覆盖 resolved 部分
+      const existing = this.resolvedApprovals.get(id)!;
+      approvalRecord = { approval: existing.approval, resolved: resolvedData };
+      this.resolvedApprovals.set(id, approvalRecord);
+    }
+
     this.pendingApprovals = this.pendingApprovals.filter((a) => a.id !== id);
+
+    // 向对应 session 追加一条用户操作消息，显示在审核卡片下方
+    if (approvalRecord) {
+      const { approval, resolved: r } = approvalRecord;
+      const sessionKey = approval.request.sessionKey ?? this.activeSessionId;
+      if (sessionKey) {
+        const decisionText =
+          r.decision === "deny" ? "拒绝" : r.decision === "allow-always" ? "始终允许" : "允许一次";
+        const command = approval.request.commandPreview ?? approval.request.command;
+        const actionMsg: ChatMessage = {
+          id: `approval-action-${id}`,
+          role: "user",
+          subType: undefined,
+          content: [{ type: "text", text: `${decisionText}：${command}` }],
+          timestamp: r.ts,
+          senderLabel: r.resolvedBy ?? undefined,
+        };
+        const msgs = this.messagesBySession.get(sessionKey) ?? [];
+        // 避免重复插入（乐观 + gateway 广播各触发一次）
+        if (!msgs.some((m) => m.id === actionMsg.id)) {
+          this.messagesBySession.set(sessionKey, [...msgs, actionMsg]);
+        } else {
+          // 已存在时用 gateway 广播的完整数据（含 resolvedBy）覆盖
+          this.messagesBySession.set(
+            sessionKey,
+            msgs.map((m) => (m.id === actionMsg.id ? actionMsg : m)),
+          );
+        }
+      }
+    }
+
     this.notify();
   }
 

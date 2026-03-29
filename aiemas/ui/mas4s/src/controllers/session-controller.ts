@@ -61,6 +61,35 @@ export class SessionController {
     }
   };
 
+  onSessionHistoryRefresh = async (e: CustomEvent<{ sessionKey: string }>) => {
+    const { sessionKey } = e.detail;
+    console.debug("[mas4s:session] history-refresh → sessionKey=%s", sessionKey);
+
+    // 确保该会话变为活跃状态
+    this.store.setActiveSession(sessionKey);
+
+    // 清除并重新加载
+    this.store.clearMessages(sessionKey);
+    const client = getClient();
+    try {
+      const result = await fetchSessionHistoryRange(client, sessionKey, { page: 1, pageSize: 200 });
+      this.store.messagesBySession.set(sessionKey, result.messages);
+      this.store.setHistoryMeta(sessionKey, {
+        truncated: result.truncated,
+        hasSummary: result.hasSummary,
+        page: result.page,
+        totalPages: result.totalPages,
+        sessionStats: result.sessionStats,
+      });
+      console.debug(
+        "[mas4s:session] history-refresh ← re-loaded: count=%d",
+        result.messages.length,
+      );
+    } catch (err) {
+      console.error("[mas4s:session] history-refresh failed:", err);
+    }
+  };
+
   onSessionRename = async (
     e: CustomEvent<{ sessionKey: string; label: string; reasoningLevel?: "stream" | "on" | "off" }>,
   ) => {

@@ -1,7 +1,7 @@
 import type { GatewayEventFrame } from "../lib/gateway.js";
 import { normalizeMessage } from "../lib/message-normalizer.js";
 import { AppStore } from "../store/app-store.js";
-import type { ApprovalRequest } from "../types/approval-types.js";
+import type { ApprovalRequest, ApprovalResolved } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
 import type { MasSession } from "../types/session-types.js";
 import { parseSenderPrefix } from "../utils/message-format.js";
@@ -55,10 +55,17 @@ function formatToolOutput(value: unknown): string | undefined {
  * 必须在 getClient() 之前调用，处理器通过 addEventHandler 注册到构造时的 onEvent 回调。
  * 第一期处理：chat、agent（thinking delta 记录）、exec.approval.*
  */
+const debugLog = (...args: unknown[]) => {
+  if (import.meta.env.VITE_DEBUG_MAS4S_EVENTS === "true") {
+    console.log(...args);
+  }
+};
+
 export function registerEventHandlers(): void {
   const store = AppStore.instance;
 
   addEventHandler((evt: GatewayEventFrame) => {
+    debugLog(`[mas4s:event-handler] event=${evt.event}`, evt.payload);
     switch (evt.event) {
       case "chat":
         handleChatEvent(store, evt.payload);
@@ -75,8 +82,8 @@ export function registerEventHandlers(): void {
         store.addApproval(evt.payload as ApprovalRequest);
         break;
       case "exec.approval.resolved": {
-        const { id } = evt.payload as { id: string };
-        store.resolveApproval(id);
+        const resolved = evt.payload as ApprovalResolved;
+        store.resolveApproval(resolved.id, resolved);
         break;
       }
       case "session.joined": {
@@ -306,6 +313,29 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
       output: output ?? undefined,
       startedAt: existing?.startedAt ?? Date.now(),
     });
+
+    // When a tool execution finishes (phase="result"), append a dedicated toolResult message
+    // to the chat flow so it is rendered by MsgToolResult/MsgToolCard.
+    if (phase === "result" && data.result !== undefined) {
+      const toolMsg: ChatMessage = {
+        role: "toolResult",
+        content: [{ type: "tool_result", text: formatToolOutput(data.result) }],
+        timestamp: Date.now(),
+        id: `${toolCallId}-result`,
+        senderLabel: null,
+        toolCallId,
+        toolName: name,
+        isError: !!(
+          (data as { isError?: boolean }).isError ||
+          (data.result &&
+            typeof data.result === "object" &&
+            ((data.result as Record<string, unknown>).status === "error" ||
+              !!(data.result as Record<string, unknown>).error))
+        ),
+      };
+      debugLog(`[mas4s:event-handler] Appending manual toolResult message for ${name}`, toolMsg);
+      store.appendMessage(sessionKey, toolMsg);
+    }
     return;
   }
 
@@ -330,8 +360,9 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
 
 /**
  * 流式消息更新策略：
- * - 若最后一条消息 id 相同且 role 相同则更新内容（无论 delta 还是 final）
- * - 否则追加新消息
+ * - 先按 id + role 全列表查找，找到则原地更新（避免 pending 卡片插入后末尾匹配失败）
+ * - chat final 更新时保留已有的 thinking 内容，只更新 text 部分
+ * - 找不到则追加新消息
  *
  * 注意：必须同时校验 role，避免用户消息与 agent 消息共用同一 runId 时
  * 发生 role 错误（content 被替换但 role 保留为 "user"）。
@@ -340,16 +371,28 @@ export function updateChatStream(
   store: AppStore,
   sessionKey: string,
   msg: ChatMessage,
-  _isFinal: boolean,
+  isFinal: boolean,
 ): void {
   const msgs = store.messagesBySession.get(sessionKey) ?? [];
-  const last = msgs[msgs.length - 1];
 
-  if (last?.id && last.id === msg.id && last.role === msg.role) {
-    store.updateLastMessage(sessionKey, { ...last, content: msg.content });
-  } else {
-    store.appendMessage(sessionKey, msg);
+  // 只在最后一条消息 ID 匹配时执行原地更新，避免跨越工具调用或协作消息进行原地覆盖
+  const last = msgs[msgs.length - 1];
+  if (msg.id && last && last.id === msg.id && last.role === msg.role) {
+    let mergedContent = msg.content;
+    if (isFinal) {
+      // chat final 只携带 text，需保留已有的 thinking 内容
+      const existingThinking = last.content.filter((c) => c.type === "thinking");
+      const incomingNonThinking = msg.content.filter((c) => c.type !== "thinking");
+      if (existingThinking.length > 0 && incomingNonThinking.length > 0) {
+        mergedContent = [...existingThinking, ...incomingNonThinking];
+      }
+    }
+    store.updateLastMessage(sessionKey, { ...last, content: mergedContent });
+    return;
   }
+
+  // 不存在匹配的末尾消息，则追加
+  store.appendMessage(sessionKey, msg);
 }
 
 /**

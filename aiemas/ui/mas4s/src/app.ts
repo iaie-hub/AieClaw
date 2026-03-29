@@ -19,6 +19,7 @@ import "./components/main-workspace.js";
 import "./components/invite-dialog.js";
 import "./views/login-view.js";
 import "./views/user-list-view.js";
+import "./views/skills-manager.js";
 
 /**
  * mas4s 根组件。三栏布局：primary-sidebar + session-sidebar + main-workspace。
@@ -123,6 +124,8 @@ export class Mas4sApp extends LitElement {
       onSessionRename: (e) => this._session.onSessionRename(e),
       onSessionDelete: (e) => this._session.onSessionDelete(e),
       onSessionRefresh: (e: Event) => void this._session.onSessionRefresh(e),
+      onSessionHistoryRefresh: (e: CustomEvent<{ sessionKey: string }>) =>
+        this._session.onSessionHistoryRefresh(e),
       onSessionArchive: (e: CustomEvent<{ sessionKey: string }>) =>
         this._session.onSessionArchive(e),
       onSessionUnarchive: (e: CustomEvent<{ sessionKey: string }>) =>

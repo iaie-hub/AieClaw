@@ -124,6 +124,10 @@ import {
   ExecApprovalRequestParamsSchema,
   type ExecApprovalResolveParams,
   ExecApprovalResolveParamsSchema,
+  type PluginApprovalRequestParams,
+  PluginApprovalRequestParamsSchema,
+  type PluginApprovalResolveParams,
+  PluginApprovalResolveParamsSchema,
   ErrorCodes,
   type ErrorCode,
   type ErrorShape,
@@ -437,6 +441,12 @@ export const validateExecApprovalRequestParams = ajv.compile<ExecApprovalRequest
 );
 export const validateExecApprovalResolveParams = ajv.compile<ExecApprovalResolveParams>(
   ExecApprovalResolveParamsSchema,
+);
+export const validatePluginApprovalRequestParams = ajv.compile<PluginApprovalRequestParams>(
+  PluginApprovalRequestParamsSchema,
+);
+export const validatePluginApprovalResolveParams = ajv.compile<PluginApprovalResolveParams>(
+  PluginApprovalResolveParamsSchema,
 );
 export const validateExecApprovalsNodeGetParams = ajv.compile<ExecApprovalsNodeGetParams>(
   ExecApprovalsNodeGetParamsSchema,

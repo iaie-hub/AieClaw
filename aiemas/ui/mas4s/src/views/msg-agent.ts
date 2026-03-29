@@ -256,54 +256,141 @@ export class MsgAgent extends LitElement {
       background: #fafffe;
       color: #475569;
       line-height: 1.6;
-      white-space: pre-wrap;
       word-break: break-word;
       border-top: 1px solid #d1fae5;
+    }
+
+    /* Markdown styles inside thinking block */
+    .thinking-body p {
+      margin: 0 0 0.5em;
+    }
+    .thinking-body p:last-child {
+      margin-bottom: 0;
+    }
+    .thinking-body h1,
+    .thinking-body h2,
+    .thinking-body h3,
+    .thinking-body h4 {
+      margin: 0.6em 0 0.3em;
+      font-weight: 600;
+    }
+    .thinking-body ul,
+    .thinking-body ol {
+      margin: 0.3em 0;
+      padding-left: 1.4em;
+    }
+    .thinking-body li {
+      margin: 0.15em 0;
+    }
+    .thinking-body code {
+      background: #ecfdf5;
+      border: 1px solid #d1fae5;
+      border-radius: 3px;
+      padding: 1px 4px;
+      font-size: 0.87em;
+      font-family: ui-monospace, monospace;
+    }
+    .thinking-body pre {
+      background: #f0fdf4;
+      border: 1px solid #d1fae5;
+      border-radius: 6px;
+      padding: 8px 12px;
+      overflow-x: auto;
+      margin: 0.5em 0;
+    }
+    .thinking-body pre code {
+      background: none;
+      border: none;
+      padding: 0;
+    }
+    .thinking-body blockquote {
+      border-left: 3px solid #10b981;
+      margin: 0.5em 0;
+      padding: 3px 10px;
+      color: #64748b;
+      background: #f0fdf4;
+      border-radius: 0 4px 4px 0;
+    }
+    .thinking-body strong {
+      font-weight: 600;
+    }
+    .thinking-body em {
+      font-style: italic;
+    }
+    .thinking-body table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 0.5em 0;
+      font-size: 0.9em;
+    }
+    .thinking-body th,
+    .thinking-body td {
+      border: 1px solid #d1fae5;
+      padding: 4px 8px;
+    }
+    .thinking-body th {
+      background: #ecfdf5;
+      font-weight: 600;
     }
   `;
 
   private _renderContent(items: MessageContentItem[]) {
-    const thinkingItems = items.filter((c) => c.type === "thinking");
-    const textItems = items.filter((c) => c.type === "text");
-    const toolItems = items.filter((c) => c.type === "tool_call" || c.type === "tool_result");
+    return html`${items.map((item) => {
+      if (item.type === "thinking") {
+        const rawThinking = item.thinking ?? item.text ?? "";
+        if (!rawThinking.trim()) {
+          return nothing;
+        }
 
-    const thinkingText = thinkingItems.map((c) => c.thinking ?? c.text ?? "").join("\n\n");
-    const text = textItems.map((c) => c.text ?? "").join("");
+        // 格式化思考内容：对齐流式输出格式 "Reasoning:\n_line1_\n_line2_"
+        const thinkingText = (() => {
+          const trimmed = rawThinking.trim();
+          if (trimmed.startsWith("Reasoning:")) {
+            return trimmed;
+          }
+          const italicLines = trimmed
+            .split("\n")
+            .map((line) => (line ? `_${line}_` : line))
+            .join("\n");
+          return `Reasoning:\n${italicLines}`;
+        })();
 
-    return html`
-      ${
-        thinkingText
-          ? html`
-            <div class="thinking-block">
-              <div
-                class="thinking-toggle"
-                @click=${() => {
-                  this._thinkingExpanded = !this._thinkingExpanded;
-                }}
-              >
-                <span class="thinking-arrow ${this._thinkingExpanded ? "expanded" : ""}">▶</span>
-                <span>思考过程</span>
-              </div>
-              ${
-                this._thinkingExpanded
-                  ? html`<div class="thinking-body">${thinkingText}</div>`
-                  : nothing
-              }
+        return html`
+          <div class="thinking-block">
+            <div
+              class="thinking-toggle"
+              @click=${() => {
+                this._thinkingExpanded = !this._thinkingExpanded;
+              }}
+            >
+              <span class="thinking-arrow ${this._thinkingExpanded ? "expanded" : ""}">▶</span>
+              <span>思考过程</span>
             </div>
-          `
-          : nothing
+            ${this._thinkingExpanded
+              ? html`<div class="thinking-body">${markdownMath(thinkingText)}</div>`
+              : nothing}
+          </div>
+        `;
       }
-      ${text.trim() ? html`<div class="message-bubble">${markdownMath(text)}</div>` : nothing}
-      ${
-        toolItems.length > 0
-          ? html`
-            <div class="tool-cards">
-              ${toolItems.map((item) => html`<msg-tool-card .item=${item}></msg-tool-card>`)}
-            </div>
-          `
-          : nothing
+
+      if (item.type === "text") {
+        const text = item.text ?? "";
+        if (!text.trim()) {
+          return nothing;
+        }
+        return html`<div class="message-bubble">${markdownMath(text)}</div>`;
       }
-    `;
+
+      if (item.type === "tool_call") {
+        return html`
+          <div class="tool-cards">
+            <msg-tool-card .item=${item}></msg-tool-card>
+          </div>
+        `;
+      }
+
+      return nothing;
+    })}`;
   }
 
   render() {
@@ -317,39 +404,40 @@ export class MsgAgent extends LitElement {
         })()
       : "";
 
-    // 判断消息是否包含工具调用/结果，用于显示 Tool 标签
-    const hasTool = this.message.content.some(
-      (c) => c.type === "tool_call" || c.type === "tool_result",
-    );
-
     return html`
       <div class="message-row">
         <div class="message-avatar">
           <!-- 机器人/AI SVG 图标 -->
-          <svg class="avatar-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="3" y="8" width="18" height="12" rx="3" fill="rgba(255,255,255,0.25)" stroke="white" stroke-width="1.5"/>
-            <circle cx="9" cy="14" r="2" fill="white"/>
-            <circle cx="15" cy="14" r="2" fill="white"/>
-            <path d="M9 8V6" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
-            <path d="M15 8V6" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
-            <circle cx="9" cy="5" r="1" fill="white"/>
-            <circle cx="15" cy="5" r="1" fill="white"/>
-            <path d="M12 6V4" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
-            <circle cx="12" cy="3" r="1.2" fill="white"/>
-            <path d="M7 20v1M17 20v1" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+          <svg
+            class="avatar-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <rect
+              x="3"
+              y="8"
+              width="18"
+              height="12"
+              rx="3"
+              fill="rgba(255,255,255,0.25)"
+              stroke="white"
+              stroke-width="1.5"
+            />
+            <circle cx="9" cy="14" r="2" fill="white" />
+            <circle cx="15" cy="14" r="2" fill="white" />
+            <path d="M9 8V6" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+            <path d="M15 8V6" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+            <circle cx="9" cy="5" r="1" fill="white" />
+            <circle cx="15" cy="5" r="1" fill="white" />
+            <path d="M12 6V4" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+            <circle cx="12" cy="3" r="1.2" fill="white" />
+            <path d="M7 20v1M17 20v1" stroke="white" stroke-width="1.5" stroke-linecap="round" />
           </svg>
         </div>
         <div class="message-content">
           <div class="message-name">
-            ${name}
-            ${
-              hasTool
-                ? html`
-                    <span class="tool-tag"> <span class="tool-tag-icon">⚡</span>Tool </span>
-                  `
-                : nothing
-            }
-            ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
+            ${name} ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
           </div>
           ${this._renderContent(this.message.content)}
         </div>

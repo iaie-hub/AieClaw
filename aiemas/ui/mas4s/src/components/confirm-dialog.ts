@@ -140,15 +140,18 @@ export class ConfirmDialog extends LitElement {
   render() {
     return html`
       <div class="overlay" @click=${this._onOverlayClick}>
-        <div class="dialog-card" role="alertdialog" aria-modal="true" aria-labelledby="title" aria-describedby="message">
+        <div
+          class="dialog-card"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="title"
+          aria-describedby="message"
+        >
           <h3 id="title">${this.title}</h3>
           <div class="message" id="message">${this.message}</div>
           <div class="actions">
             <button class="cancel-btn" @click=${this._onCancel}>${this.cancelText}</button>
-            <button
-              class="confirm-btn ${this.confirmVariant}"
-              @click=${this._onConfirm}
-            >
+            <button class="confirm-btn ${this.confirmVariant}" @click=${this._onConfirm}>
               ${this.confirmText}
             </button>
           </div>

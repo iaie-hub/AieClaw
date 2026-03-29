@@ -1,7 +1,6 @@
 import { html, type TemplateResult } from "lit";
 import type { NavItem, DialogKind } from "../controllers/ui-state-controller.js";
 import type { AppStore } from "../store/app-store.js";
-import "./exec-approval-overlay.js";
 
 export interface AppShellHandlers {
   onLoginSuccess: () => void;
@@ -13,6 +12,7 @@ export interface AppShellHandlers {
   onSessionRename: (e: CustomEvent<{ sessionKey: string; label: string }>) => void;
   onSessionDelete: (e: CustomEvent<{ sessionKey: string }>) => void;
   onSessionRefresh: (e: Event) => void;
+  onSessionHistoryRefresh: (e: CustomEvent<{ sessionKey: string }>) => void;
   onSessionArchive: (e: CustomEvent<{ sessionKey: string }>) => void;
   onSessionUnarchive: (e: CustomEvent<{ sessionKey: string }>) => void;
   onSessionMembersFetch: (e: CustomEvent<{ sessionKey: string }>) => void;
@@ -75,9 +75,8 @@ export function renderMain(
       @logout=${h.onLogout}
     ></primary-sidebar>
 
-    ${
-      activeNav === "workspace"
-        ? html`
+    ${activeNav === "workspace"
+      ? html`
           <session-sidebar
             .sessions=${store.sessions}
             .activeSessionKey=${store.activeSessionId ?? ""}
@@ -86,38 +85,30 @@ export function renderMain(
             @session-rename=${h.onSessionRename}
             @session-delete=${h.onSessionDelete}
             @session-refresh=${h.onSessionRefresh}
+            @session-history-refresh=${h.onSessionHistoryRefresh}
           ></session-sidebar>
         `
-        : ""
-    }
+      : ""}
 
     <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
       <!-- 内容区 -->
-      ${
-        activeNav === "users"
-          ? html`
-              <user-list-view style="flex: 1; overflow: hidden"></user-list-view>
-            `
-          : html`
+      ${activeNav === "users"
+        ? html` <user-list-view style="flex: 1; overflow: hidden"></user-list-view> `
+        : html`
             <main-workspace
               .activeNav=${activeNav}
               .session=${store.activeSession ?? null}
-              .messages=${
-                store.activeSessionId
-                  ? (store.messagesBySession.get(store.activeSessionId) ?? [])
-                  : []
-              }
+              .messages=${store.activeSessionId
+                ? (store.messagesBySession.get(store.activeSessionId) ?? [])
+                : []}
               .pendingApprovals=${store.pendingApprovals}
-              .hasSummary=${
-                store.activeSessionId
-                  ? store.getHistoryMeta(store.activeSessionId).hasSummary
-                  : false
-              }
-              .truncated=${
-                store.activeSessionId
-                  ? store.getHistoryMeta(store.activeSessionId).truncated
-                  : false
-              }
+              .resolvedApprovals=${store.resolvedApprovals}
+              .hasSummary=${store.activeSessionId
+                ? store.getHistoryMeta(store.activeSessionId).hasSummary
+                : false}
+              .truncated=${store.activeSessionId
+                ? store.getHistoryMeta(store.activeSessionId).truncated
+                : false}
               .hasMoreHistory=${(() => {
                 if (!store.activeSessionId) {
                   return false;
@@ -136,14 +127,12 @@ export function renderMain(
               @session-unarchive=${h.onSessionUnarchive}
               @load-more-history=${h.onLoadMoreHistory}
             ></main-workspace>
-          `
-      }
+          `}
     </div>
 
     <!-- 弹窗 -->
-    ${
-      dialog === "invite" && store.activeSession
-        ? html`
+    ${dialog === "invite" && store.activeSession
+      ? html`
           <invite-dialog
             .session=${store.activeSession}
             @close=${h.onDialogClose}
@@ -152,19 +141,6 @@ export function renderMain(
             @member-remove=${h.onMemberRemove}
           ></invite-dialog>
         `
-        : ""
-    }
-
-    <!-- 人工审核浮层（exec-approval HITL） -->
-    ${
-      store.pendingApprovals.length > 0
-        ? html`
-          <exec-approval-overlay
-            .queue=${store.pendingApprovals}
-            @resolve-approval=${h.onResolveApproval}
-          ></exec-approval-overlay>
-        `
-        : ""
-    }
+      : ""}
   `;
 }

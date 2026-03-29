@@ -100,7 +100,14 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
   const m = message as Record<string, unknown>;
   let role = typeof m.role === "string" ? m.role : "unknown";
 
-  const hasToolId = typeof m.toolCallId === "string" || typeof m.tool_call_id === "string";
+  const toolCallId =
+    (typeof m.toolCallId === "string" ? m.toolCallId : "") ||
+    (typeof m.tool_call_id === "string" ? m.tool_call_id : "");
+  const toolName =
+    (typeof m.toolName === "string" ? m.toolName : "") ||
+    (typeof m.tool_name === "string" ? m.tool_name : "");
+  const hasToolId = !!toolCallId;
+  const hasToolName = !!toolName;
   const contentRaw = m.content;
   const contentItems = Array.isArray(contentRaw) ? contentRaw : null;
   const hasToolContent =
@@ -110,7 +117,6 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
       const t = (typeof x.type === "string" ? x.type : "").toLowerCase();
       return t === "toolresult" || t === "tool_result";
     });
-  const hasToolName = typeof m.toolName === "string" || typeof m.tool_name === "string";
 
   if (hasToolId || hasToolContent || hasToolName) {
     role = "toolResult";
@@ -143,6 +149,13 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
         items.push({ type: "thinking", thinking: (thinkingMatch[1] ?? "").replace(/\\n/g, "\n") });
         continue;
       }
+      // [text] prefix — explicit text block (serialised by extractContent)
+      const textBlockMatch = /^\[text\] (.*)$/.exec(line);
+      if (textBlockMatch) {
+        flushText();
+        items.push({ type: "text", text: (textBlockMatch[1] ?? "").replace(/\\n/g, "\n") });
+        continue;
+      }
       // [tool_use:name] {...} prefix
       const toolMatch = /^\[tool_use:([^\]]+)\]\s*(.*)$/.exec(line);
       if (toolMatch) {
@@ -163,7 +176,59 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
       const resultMatch = /^\[tool_result\]\s*(.*)$/.exec(line);
       if (resultMatch) {
         flushText();
-        items.push({ type: "tool_result", text: (resultMatch[1] ?? "").replace(/\\n/g, "\n") });
+        const text = (resultMatch[1] ?? "").replace(/\\n/g, "\n");
+        let isError = false;
+        try {
+          const parsed = JSON.parse(text) as unknown;
+          if (
+            parsed &&
+            typeof parsed === "object" &&
+            ((parsed as Record<string, unknown>).status === "error" ||
+              !!(parsed as Record<string, unknown>).error)
+          ) {
+            isError = true;
+          }
+        } catch {
+          // Not JSON or parse error, keep isError as false
+        }
+        items.push({ type: "tool_result", text, isError });
+        continue;
+      }
+      // [approval:requested] {...} prefix — exec approval request stored for history replay
+      const approvalReqMatch = /^\[approval:requested\]\s*(.*)$/.exec(line);
+      if (approvalReqMatch) {
+        flushText();
+        try {
+          const data = JSON.parse(approvalReqMatch[1] ?? "{}");
+          items.push({ type: "approval_requested", args: data });
+        } catch {
+          items.push({ type: "text", text: line });
+        }
+        continue;
+      }
+      // [approval:resolved] {...} prefix — exec approval decision stored for history replay
+      const approvalResMatch = /^\[approval:resolved\]\s*(.*)$/.exec(line);
+      if (approvalResMatch) {
+        flushText();
+        try {
+          const data = JSON.parse(approvalResMatch[1] ?? "{}");
+          items.push({ type: "approval_resolved", args: data });
+        } catch {
+          items.push({ type: "text", text: line });
+        }
+        continue;
+      }
+      // [approval:user-resolve] {...} prefix — user's resolve request (before gateway broadcast)
+      const approvalUserResMatch = /^\[approval:user-resolve\]\s*(.*)$/.exec(line);
+      if (approvalUserResMatch) {
+        flushText();
+        try {
+          const data = JSON.parse(approvalUserResMatch[1] ?? "{}");
+          // Mark as user-resolve so message-list can render it as a user action bubble
+          items.push({ type: "approval_resolved", args: { ...data, _source: "user-resolve" } });
+        } catch {
+          items.push({ type: "text", text: line });
+        }
         continue;
       }
       textLines.push(line);
@@ -181,13 +246,23 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
       content = items.length > 0 ? items : [{ type: "text", text: m.content }];
     }
   } else if (Array.isArray(m.content)) {
-    content = m.content.map((item: Record<string, unknown>) => ({
-      type: (item.type as MessageContentItem["type"]) || "text",
-      text: item.text as string | undefined,
-      thinking: item.thinking as string | undefined,
-      name: item.name as string | undefined,
-      args: item.args ?? item.arguments,
-    }));
+    content = m.content.map((item: Record<string, unknown>) => {
+      let type = (item.type as MessageContentItem["type"]) || "text";
+      const text = item.text as string | undefined;
+      // For role=tool messages, ensure text items are treated as tool_result
+      if ((role === "tool" || role === "toolResult") && type === "text" && text) {
+        type = "tool_result";
+      }
+      return {
+        type,
+        text,
+        thinking: item.thinking as string | undefined,
+        name: item.name as string | undefined,
+        args: item.args ?? item.arguments,
+        // Carry over isError if present
+        isError: (item.isError as boolean | undefined) ?? (m.isError as boolean | undefined),
+      } as MessageContentItem;
+    });
   } else if (typeof m.text === "string") {
     content = [{ type: "text", text: m.text }];
   }
@@ -212,5 +287,5 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
     });
   }
 
-  return { role, content, timestamp, id, senderLabel };
+  return { role, content, timestamp, id, senderLabel, toolCallId, toolName };
 }

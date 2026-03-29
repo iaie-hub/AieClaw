@@ -33,6 +33,8 @@ export type AgentRunContext = {
 
 export type AgentCommandOpts = {
   message: string;
+  /** Optional role for the initial turn (defaults to "user"). */
+  role?: "user" | "system";
   /** Optional image attachments for multimodal messages. */
   images?: ImageContent[];
   /** Optional client-provided tools (OpenResponses hosted tools). */

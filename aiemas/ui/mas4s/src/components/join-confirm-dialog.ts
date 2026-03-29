@@ -174,9 +174,7 @@ export class JoinConfirmDialog extends LitElement {
 
   private _renderSessionInfo() {
     if (this.loading) {
-      return html`
-        <p class="loading-hint">正在获取会话信息…</p>
-      `;
+      return html` <p class="loading-hint">正在获取会话信息…</p> `;
     }
     if (this.error) {
       return html`<p class="error-msg">${this.error}</p>`;
@@ -212,11 +210,7 @@ export class JoinConfirmDialog extends LitElement {
           ${this._renderSessionInfo()}
           <div class="actions">
             <button class="cancel-btn" @click=${this._onCancel}>取消</button>
-            <button
-              class="confirm-btn"
-              ?disabled=${!canConfirm}
-              @click=${this._onConfirm}
-            >
+            <button class="confirm-btn" ?disabled=${!canConfirm} @click=${this._onConfirm}>
               ${this._joining ? "加入中…" : "确认加入"}
             </button>
           </div>

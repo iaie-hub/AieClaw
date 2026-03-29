@@ -1,6 +1,6 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property } from "lit/decorators.js";
-import type { ApprovalRequest } from "../types/approval-types.js";
+import type { ApprovalRequest, ApprovalResolved } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
 import type { MasSession } from "../types/session-types.js";
 import "./main-header.js";
@@ -16,6 +16,10 @@ export class MainWorkspace extends LitElement {
   @property({ attribute: false }) session: MasSession | undefined = undefined;
   @property({ attribute: false }) messages: ChatMessage[] = [];
   @property({ attribute: false }) pendingApprovals: ApprovalRequest[] = [];
+  @property({ attribute: false }) resolvedApprovals: Map<
+    string,
+    { approval: ApprovalRequest; resolved: ApprovalResolved }
+  > = new Map();
   @property({ type: Boolean }) hasSummary = false;
   @property({ type: Boolean }) truncated = false;
   @property({ type: Boolean }) hasMoreHistory = false;
@@ -69,42 +73,46 @@ export class MainWorkspace extends LitElement {
     const hasSession = !!this.session;
     const isInitiator = this.session?.masType === "initiated";
 
-    return html`
-      <main-header
-        .title=${hasSession ? `会话：${this.session!.label ?? this.session!.key}` : ""}
-        .status=${this.session?.status}
-        .approvalCount=${this.pendingApprovals.length}
-        .pendingApprovals=${this.pendingApprovals}
-        .showInvite=${hasSession}
-        .session=${this.session}
-        @invite-click=${this._onInviteClick}
-        @summary-click=${this._onSummaryClick}
-        @resolve-approval=${this._onResolve}
-        @session-archive=${this._onSessionArchive}
-        @session-unarchive=${this._onSessionUnarchive}
-      ></main-header>
+    if (this.activeNav === "skills") {
+      return html`<skills-manager></skills-manager>`;
+    }
 
-      <div class="workspace-content">
-        ${
-          this.activeNav === "workspace"
-            ? html`
+    return html`
+      ${this.activeNav === "workspace"
+        ? html`
+            <main-header
+              .title=${hasSession ? `会话：${this.session!.label ?? this.session!.key}` : ""}
+              .status=${this.session?.status}
+              .approvalCount=${this.pendingApprovals.length}
+              .pendingApprovals=${this.pendingApprovals}
+              .showInvite=${hasSession}
+              .session=${this.session}
+              @invite-click=${this._onInviteClick}
+              @summary-click=${this._onSummaryClick}
+              @resolve-approval=${this._onResolve}
+              @session-archive=${this._onSessionArchive}
+              @session-unarchive=${this._onSessionUnarchive}
+            ></main-header>
+            <div class="workspace-content">
               <chat-view
                 .messages=${this.messages}
                 .session=${this.session}
                 .isInitiator=${isInitiator}
                 .pendingApprovals=${this.pendingApprovals}
+                .resolvedApprovals=${this.resolvedApprovals}
                 .hasSummary=${this.hasSummary}
                 .truncated=${this.truncated}
                 .hasMoreHistory=${this.hasMoreHistory}
                 @resolve=${this._onResolve}
                 @load-more-history=${this._onLoadMoreHistory}
               ></chat-view>
-            `
-            : html`
-                <div class="placeholder">该视图正在开发中…</div>
-              `
-        }
-      </div>
+            </div>
+          `
+        : html`
+            <div class="workspace-content">
+              <div class="placeholder">该视图正在开发中…</div>
+            </div>
+          `}
     `;
   }
 

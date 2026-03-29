@@ -20,7 +20,10 @@ export class LoginView extends LitElement {
   // 网关配置字段 — 默认从 localStorage 加载
   @state() private _wsUrl = localStorage.getItem("mas4s_ws_url") || "ws://localhost:18789";
   @state() private _wsToken = localStorage.getItem("mas4s_ws_token") || "";
-  @state() private _gwExpanded = false;
+  @state() private _gwExpanded =
+    !localStorage.getItem("mas4s_ws_url") || !localStorage.getItem("mas4s_ws_token");
+  // 用户主动点击折叠时置 true，优先于 connectError 的自动展开
+  @state() private _gwUserCollapsed = false;
 
   // 业务表单字段
   @state() private _username = "";
@@ -638,20 +641,23 @@ export class LoginView extends LitElement {
   /** 网关配置折叠区，始终渲染在卡片底部 */
   private _renderGatewaySection() {
     const gwErr = this.connectError;
-    // 有外部错误时自动展开
-    const expanded = this._gwExpanded || Boolean(gwErr);
+    // 有外部错误时自动展开，但用户主动折叠后优先尊重用户操作
+    const expanded = this._gwUserCollapsed ? this._gwExpanded : this._gwExpanded || Boolean(gwErr);
     return html`
       <div class="gw-section">
         <button
           class="gw-toggle ${expanded ? "open" : ""}"
-          @click=${() => (this._gwExpanded = !this._gwExpanded)}
+          @click=${() => {
+            const next = !expanded;
+            this._gwExpanded = next;
+            this._gwUserCollapsed = !next;
+          }}
         >
           <span>网关配置</span>
           <span class="arrow">▼</span>
         </button>
-        ${
-          expanded
-            ? html`
+        ${expanded
+          ? html`
               <div class="gw-body">
                 <div class="field">
                   <label>WebSocket URL</label>
@@ -681,25 +687,18 @@ export class LoginView extends LitElement {
                     </button>
                   </div>
                 </div>
-                <button
-                  class="btn-test"
-                  ?disabled=${this._gwTesting}
-                  @click=${this._onTestGateway}
-                >
+                <button class="btn-test" ?disabled=${this._gwTesting} @click=${this._onTestGateway}>
                   ${this._gwTesting ? "测试中…" : "测试连接"}
                 </button>
-                ${
-                  this._gwTestResult
-                    ? this._gwTestResult.ok
-                      ? html`<div class="gw-success">${this._gwTestResult.msg}</div>`
-                      : html`<div class="gw-error">${this._gwTestResult.msg}</div>`
-                    : ""
-                }
+                ${this._gwTestResult
+                  ? this._gwTestResult.ok
+                    ? html`<div class="gw-success">${this._gwTestResult.msg}</div>`
+                    : html`<div class="gw-error">${this._gwTestResult.msg}</div>`
+                  : ""}
                 ${gwErr && !this._gwTestResult ? html`<div class="gw-error">${gwErr}</div>` : ""}
               </div>
             `
-            : ""
-        }
+          : ""}
       </div>
     `;
   }
@@ -707,17 +706,11 @@ export class LoginView extends LitElement {
   private _renderLoginForm() {
     return html`
       <h2>登录</h2>
-      ${
-        this._pendingApproval
-          ? html`
-              <div class="success">注册成功，请等待管理员审批后登录</div>
-            `
-          : this._initSuccess
-            ? html`
-                <div class="success">初始化成功，请登录系统</div>
-              `
-            : ""
-      }
+      ${this._pendingApproval
+        ? html` <div class="success">注册成功，请等待管理员审批后登录</div> `
+        : this._initSuccess
+          ? html` <div class="success">初始化成功，请登录系统</div> `
+          : ""}
       <div class="field">
         <label>用户名</label>
         <input
@@ -753,13 +746,11 @@ export class LoginView extends LitElement {
         @click=${this._onLogin}
         ?disabled=${this._loading || this._rateLimitCountdown > 0}
       >
-        ${
-          this._loading
-            ? "登录中…"
-            : this._rateLimitCountdown > 0
-              ? `请等待 ${this._rateLimitCountdown}s`
-              : "登录"
-        }
+        ${this._loading
+          ? "登录中…"
+          : this._rateLimitCountdown > 0
+            ? `请等待 ${this._rateLimitCountdown}s`
+            : "登录"}
       </button>
       ${this._error ? html`<div class="error">${this._error}</div>` : ""}
       <div class="options-row">
@@ -848,11 +839,7 @@ export class LoginView extends LitElement {
           </button>
         </div>
       </div>
-      <button
-        class="btn-primary"
-        @click=${this._onRegisterOrInit}
-        ?disabled=${this._loading}
-      >
+      <button class="btn-primary" @click=${this._onRegisterOrInit} ?disabled=${this._loading}>
         ${this._loading ? "初始化中…" : "初始化系统"}
       </button>
       ${this._error ? html`<div class="error">${this._error}</div>` : ""}
@@ -920,11 +907,7 @@ export class LoginView extends LitElement {
           </button>
         </div>
       </div>
-      <button
-        class="btn-primary"
-        @click=${this._onRegisterOrInit}
-        ?disabled=${this._loading}
-      >
+      <button class="btn-primary" @click=${this._onRegisterOrInit} ?disabled=${this._loading}>
         ${this._loading ? "注册中…" : "注册"}
       </button>
       ${this._error ? html`<div class="error">${this._error}</div>` : ""}
@@ -937,13 +920,11 @@ export class LoginView extends LitElement {
   render() {
     return html`
       <div class="card">
-        ${
-          this.mode === "init"
-            ? this._renderInitForm()
-            : this.mode === "register"
-              ? this._renderRegisterForm()
-              : this._renderLoginForm()
-        }
+        ${this.mode === "init"
+          ? this._renderInitForm()
+          : this.mode === "register"
+            ? this._renderRegisterForm()
+            : this._renderLoginForm()}
         ${this._renderGatewaySection()}
       </div>
     `;

@@ -337,11 +337,7 @@ export class PrimarySidebar extends LitElement {
         <div class="spacer"></div>
       </nav>
       <div class="bottom-nav">
-        <button
-          class="nav-item"
-          @click=${() => this._onLogoutClick()}
-          aria-label="退出登录"
-        >
+        <button class="nav-item" @click=${() => this._onLogoutClick()} aria-label="退出登录">
           <div class="nav-icon-wrapper">${LOGOUT_ICON}</div>
           <span class="nav-label">登出</span>
         </button>

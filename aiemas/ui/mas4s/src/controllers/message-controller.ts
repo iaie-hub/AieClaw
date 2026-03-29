@@ -1,5 +1,5 @@
 import { getClient } from "../gateway/client.js";
-import type { AppStore } from "../store/app-store.js";
+import { AppStore } from "../store/app-store.js";
 import { buildChatSendParams } from "../utils/message-format.js";
 
 /**
@@ -58,6 +58,12 @@ export class MessageController {
       e.detail.id,
       e.detail.decision,
     );
+    // 乐观更新：立即将审批移入 resolved，避免等待 gateway 广播
+    AppStore.instance.resolveApproval(e.detail.id, {
+      id: e.detail.id,
+      decision: e.detail.decision,
+      ts: Date.now(),
+    });
     const client = getClient();
     try {
       await client.request("exec.approval.resolve", {

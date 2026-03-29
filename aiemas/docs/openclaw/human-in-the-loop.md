@@ -183,6 +183,17 @@ Full id: `approval-uuid`
 
 `allow-always` 会调用 `addAllowlistEntry()` 将命令模式写入 `~/.openclaw/exec-approvals.json`，后续相同命令自动放行。
 
+> **重要：`allow-always` 与 followup 循环风险**
+>
+> 当 agent 在单次任务中需要执行多条命令时，对第一条命令选择 `allow-always` 后，
+> gateway 会启动 `exec-approval-followup` agent run 来继续任务。
+> 如果模型指令遵循能力不足（例如使用本地/开源模型），该 followup run 可能重新规划任务
+> 并再次发出相同命令序列，触发新一轮审核，形成循环。
+>
+> **建议：** 对统计、查询类只读命令优先使用 `allow-always` 将其加入白名单，
+> 而不是在任务执行中途反复选择 `allow-always`。
+> 对写操作命令使用 `allow-once`，避免 followup 循环。
+
 ## 5. 超时 fallback 策略
 
 `askFallback` 配置决定审核超时后的行为（`src/node-host/exec-policy.ts`）：
@@ -311,11 +322,184 @@ const hostAsk = approvals.agent.ask === "off" ? "off" : maxAsk(params.ask, appro
 2. 实际解析路径在 `safeBinTrustedDirs` 受信目录下
 3. 命令参数符合该工具的 `safeBinProfiles` 安全策略（防止参数注入）
 
+**推荐的 safeBins 基础配置（适用于代码/统计类任务）：**
+
+```json
+{
+  "tools": {
+    "exec": {
+      "host": "gateway",
+      "security": "allowlist",
+      "ask": "on-miss",
+      "safeBins": [
+        "jq",
+        "cut",
+        "uniq",
+        "head",
+        "tail",
+        "tr",
+        "wc",
+        "git",
+        "find",
+        "du",
+        "ls",
+        "awk",
+        "sed",
+        "sort",
+        "echo",
+        "cat",
+        "grep"
+      ],
+      "safeBinTrustedDirs": ["/bin", "/usr/bin", "/opt/homebrew/bin", "/usr/local/bin"]
+    }
+  }
+}
+```
+
+将常用只读命令加入 `safeBins` 是避免 followup 循环的最直接手段：命令直接放行，不进入审核流程，也就不会触发 followup agent run。
+
 ### 8.5 allow-always 持久化
 
 用户选择 `allow-always` 后，`addAllowlistEntry()` 将命令的实际解析路径写入对应 agent 的 `allowlist`，下次相同命令自动放行，无需再次审核。
 
-## 9. 完整审核时序图
+## 9. Followup 循环问题（已修复）
+
+### 9.1 问题描述
+
+当 agent 在单次任务中执行多条需要审核的命令时，会出现以下循环：
+
+```
+用户发送任务
+  → agent 执行命令 A → 触发审核
+  → 审核通过 → exec-approval-followup 启动新 agent run
+  → 新 run 收到 followup 消息后，模型忽略约束，重新规划任务
+  → 再次执行命令 A、B、C → 每条命令再次触发审核
+  → 每次审核通过又启动新 followup run → 循环
+```
+
+**实测日志时序（复现于 Qwen3-Coder 模型）：**
+
+```
+23:53:51  followup sent (ls -la /tmp 结果)
+23:53:53  [tools] allowlist warning  ← agent 开始新 turn
+23:53:54  approval registered: ls -la /private/tmp  ← agent 主动发起新命令
+23:53:57  followup sent (/private/tmp 结果)
+23:53:59  approval registered: ls -la /tmp  ← agent 又发起！
+```
+
+### 9.2 根本原因
+
+`exec-approval-followup` 通过 `callGatewayTool("agent", ...)` 向 agent session 投递一条新消息。agent 把这条消息当作普通用户消息处理，继续调用 exec 工具。`buildExecApprovalFollowupPrompt` 里的 CRITICAL INSTRUCTIONS 对指令遵循能力弱的模型（本地/开源模型）无效。
+
+两个具体问题：
+
+1. **followup 消息触发新 agent turn**：agent 收到 followup 后认为有新任务，继续规划和执行命令
+2. **无硬约束**：gateway 层面没有阻止 followup turn 调用 exec 工具的机制
+
+### 9.3 修复方案（已实施）
+
+**修复一：`extraSystemPrompt` 软约束**（`src/agents/bash-tools.exec-approval-followup.ts`）
+
+followup 调用 `agent` method 时加入 `extraSystemPrompt`，在系统提示层面明确禁止工具调用：
+
+```typescript
+await callGatewayTool(
+  "agent",
+  { timeoutMs: 60_000 },
+  {
+    sessionKey,
+    message: buildExecApprovalFollowupPrompt(resultText),
+    ...deliverPayload,
+    idempotencyKey: `exec-approval-followup:${params.approvalId}`,
+    // 新增：系统提示层面禁止工具调用
+    extraSystemPrompt: [
+      "RUNTIME CONSTRAINT: This turn is a completion notification for an async exec command.",
+      "You MUST NOT call any tools (exec, bash, or otherwise) in this turn.",
+      "You MUST NOT re-run the command or start new tasks.",
+      "Only summarize the result already provided and reply to the user.",
+    ].join(" "),
+  },
+  { expectFinal: true },
+);
+```
+
+**修复二：`runId` 硬约束**（`src/agents/bash-tools.exec-host-gateway.ts`）
+
+在 `processGatewayAllowlist` 入口处检测 followup runId，直接拒绝 exec 调用：
+
+```typescript
+export async function processGatewayAllowlist(
+  params: ProcessGatewayAllowlistParams,
+): Promise<ProcessGatewayAllowlistResult> {
+  // 硬约束：followup turn 不允许调用 exec
+  if (params.runId?.startsWith("exec-approval-followup:")) {
+    console.warn(
+      `[exec-host-gateway] BLOCKED exec in followup turn: runId=${params.runId}, command=${params.command}`,
+    );
+    throw new Error(
+      "exec denied: tool calls are not allowed in exec-approval followup turns (summary-only).",
+    );
+  }
+  // ...
+}
+```
+
+`runId` 传递链：`ExecToolDefaults.runId` → `createExecTool` → `processGatewayAllowlist`，在 `createOpenClawCodingTools` 里通过 `runId: options?.runId` 注入。
+
+**修复三：强化 followup prompt**（`src/agents/bash-tools.exec-approval-followup.ts`）
+
+```typescript
+export function buildExecApprovalFollowupPrompt(resultText: string): string {
+  return [
+    "SYSTEM: An async exec command that the user already approved has completed. This is a completion notification only.",
+    "CRITICAL INSTRUCTIONS — you MUST follow all of these:",
+    "1. Do NOT call exec or any other tool.",
+    "2. Do NOT re-run the command.",
+    "3. Do NOT start new tasks or plan new steps.",
+    "4. ONLY summarize the result below and reply to the user.",
+    "",
+    "Completed command result:",
+    resultText.trim(),
+    "",
+    "Reply to the user with the relevant output above.",
+    "If it succeeded, share the key results.",
+    "If it failed, explain what went wrong.",
+    "Do not call any tools. Do not run any commands.",
+  ].join("\n");
+}
+```
+
+### 9.4 防御配置（推荐）
+
+将常用只读命令加入 `safeBins`，使其直接放行，不进入审核流程，从源头避免 followup 循环：
+
+```json
+{
+  "tools": {
+    "exec": {
+      "host": "gateway",
+      "security": "allowlist",
+      "ask": "on-miss",
+      "safeBins": ["ls", "cat", "grep", "find", "du", "wc", "head", "tail", "git", "jq"],
+      "safeBinTrustedDirs": ["/bin", "/usr/bin", "/opt/homebrew/bin", "/usr/local/bin"]
+    }
+  }
+}
+```
+
+### 9.5 涉及文件
+
+| 文件                                              | 修改内容                                                       |
+| ------------------------------------------------- | -------------------------------------------------------------- |
+| `src/agents/bash-tools.exec-approval-followup.ts` | 强化 prompt + 加 `extraSystemPrompt` 硬约束                    |
+| `src/agents/bash-tools.exec-host-gateway.ts`      | `processGatewayAllowlist` 入口检测 followup runId              |
+| `src/agents/bash-tools.exec-types.ts`             | `ExecToolDefaults` 加 `runId` 字段                             |
+| `src/agents/bash-tools.exec.ts`                   | 传递 `runId` 给 `processGatewayAllowlist`                      |
+| `src/agents/pi-tools.ts`                          | `createExecTool` 传入 `runId: options?.runId`                  |
+| `src/gateway/exec-approval-manager.ts`            | 新增 `pendingCount` getter 和 `listPendingCommands()` 诊断方法 |
+| `src/gateway/server-methods/exec-approval.ts`     | 加入重复 approval 检测日志                                     |
+
+## 10. 完整审核时序图
 
 ```
 Agent                    Gateway                    UI/Telegram
@@ -344,9 +528,16 @@ Agent                    Gateway                    UI/Telegram
   │    allow-once/deny       │                           │
   │                         │                           │
   │── 继续执行 or 返回错误 ──│                           │
+  │                         │                           │
+  │   (命令执行完成)         │                           │
+  │                         │                           │
+  │                         │── sendExecApprovalFollowup►│ ⚠ 新 agent run
+  │                         │   idempotencyKey=         │   (循环风险点)
+  │                         │   exec-approval-followup: │
+  │                         │   <approvalId>            │
 ```
 
-## 10. Telegram 审核配置示例
+## 11. Telegram 审核配置示例
 
 ```json
 {
@@ -359,3 +550,22 @@ Agent                    Gateway                    UI/Telegram
   }
 }
 ```
+
+## 12. UI 渲染与消息排序优化
+
+在 mas4s 前端中，为了确保流式输出过程中工具调用（Tool Call）及其结果（Result）的显示顺序符合逻辑时序，实施了以下优化措施：
+
+### 12.1 消息拆分与原地更新策略
+
+实时流式更新函数 `updateChatStream`（`event-handler.ts`）采用了“仅更新末尾”的策略：
+
+- **原地更新**：只有当当前消息列表的**最后一条**消息的 `id` 与流式事件的 `runId` 匹配时，才执行原地更新（更新思考过程或合并最终文本）。
+- **自动分段**：一旦中间插入了工具调用卡片、审批卡片（`pending` 状态）或其它协作消息，由于智体的 `runId` 消息不再位于末尾，系统会自动为后续内容**追加新消息块**。
+- **意义**：这模拟了历史记录加载时的 `splitHistoryMessage` 行为，确保工具执行的结果和随后的评价逻辑上始终位于工具调用之后，解决了实时对话中内容“由于 ID 匹配被拉回上方旧消息块”导致的乱序问题。
+
+### 12.2 内容顺序物理映射
+
+`MsgAgent.ts` 渲染组件重载了条目渲染逻辑：
+
+- **物理顺序渲染**：不再将 `thinking`、`text`、`tool_call` 分类分组显示，而是严格按照 `content` 数组中的**原始物理索引顺序**进行循环映射。
+- **时序对齐**：配合 12.1 的拆分策略，这保证了即是在单个消息块内部或跨消息块，用户看到的思考、操作与回复的流式展示与智体的实际执行路径完全同步。
