@@ -15,6 +15,7 @@ export type MessageContentItem = {
   thinking?: string;
   name?: string;
   args?: unknown;
+  isError?: boolean;
 };
 
 /** Normalized message structure for rendering */
@@ -24,4 +25,7 @@ export type NormalizedMessage = {
   timestamp: number;
   id?: string;
   senderLabel?: string | null;
+  toolCallId?: string;
+  toolName?: string;
+  isError?: boolean;
 };

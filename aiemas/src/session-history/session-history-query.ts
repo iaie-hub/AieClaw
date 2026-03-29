@@ -76,6 +76,8 @@ function rowToStoredMessage(row: Record<string, unknown>): StoredMessage {
     timestamp: row["timestamp"] as number,
     seq: row["seq"] as number,
     archivedDate: (row["archivedDate"] as string | null) ?? null,
+    toolCallId: (row["toolCallId"] as string | null) ?? null,
+    toolName: (row["toolName"] as string | null) ?? null,
   };
 }
 

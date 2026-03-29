@@ -165,9 +165,22 @@ export function ensureMessageSchema(db: DatabaseSync): void {
       content     TEXT    NOT NULL,
       timestamp   INTEGER NOT NULL,
       seq         INTEGER NOT NULL DEFAULT 0,
-      archivedDate TEXT   NULL
+      archivedDate TEXT   NULL,
+      toolCallId  TEXT    NULL,
+      toolName    TEXT    NULL
     );
   `);
+
+  // Idempotent migration: add toolCallId and toolName columns if they don't exist
+  const msgCols = db.prepare("PRAGMA table_info(session_messages)").all() as Array<{
+    name: string;
+  }>;
+  if (!msgCols.some((c) => c.name === "toolCallId")) {
+    db.exec("ALTER TABLE session_messages ADD COLUMN toolCallId TEXT");
+  }
+  if (!msgCols.some((c) => c.name === "toolName")) {
+    db.exec("ALTER TABLE session_messages ADD COLUMN toolName TEXT");
+  }
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_session_messages_key_ts

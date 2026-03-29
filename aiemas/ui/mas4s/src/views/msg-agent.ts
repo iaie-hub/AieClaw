@@ -381,7 +381,7 @@ export class MsgAgent extends LitElement {
         return html`<div class="message-bubble">${markdownMath(text)}</div>`;
       }
 
-      if (item.type === "tool_call" || item.type === "tool_result") {
+      if (item.type === "tool_call") {
         return html`
           <div class="tool-cards">
             <msg-tool-card .item=${item}></msg-tool-card>
@@ -403,11 +403,6 @@ export class MsgAgent extends LitElement {
           return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
         })()
       : "";
-
-    // 判断消息是否包含工具调用/结果，用于显示 Tool 标签
-    const hasTool = this.message.content.some(
-      (c) => c.type === "tool_call" || c.type === "tool_result",
-    );
 
     return html`
       <div class="message-row">
@@ -442,11 +437,7 @@ export class MsgAgent extends LitElement {
         </div>
         <div class="message-content">
           <div class="message-name">
-            ${name}
-            ${hasTool
-              ? html` <span class="tool-tag"> <span class="tool-tag-icon">⚡</span>Tool </span> `
-              : nothing}
-            ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
+            ${name} ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
           </div>
           ${this._renderContent(this.message.content)}
         </div>

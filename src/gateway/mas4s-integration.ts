@@ -11,6 +11,7 @@ import { resolveEnvApiKey } from "../agents/model-auth-env.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { collectConfigRuntimeEnvVars } from "../config/env-vars.js";
 import { isValidEnvSecretRefId } from "../config/types.secrets.js";
+import { onAgentEvent } from "../infra/agent-events.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
 import { resolveSecretInputString } from "../secrets/resolve-secret-input-string.js";
 import { ADMIN_SCOPE, READ_SCOPE, WRITE_SCOPE } from "./method-scopes.js";
@@ -235,6 +236,33 @@ export async function initMas4sIntegration(
     const plugin = await createMas4sGatewayPlugin({ llm });
     log.info("mas4s multi-tenant plugin loaded");
 
+    onAgentEvent((evt) => {
+      const p = evt as Record<string, unknown>;
+      const evtSessionKey = typeof p["sessionKey"] === "string" ? p["sessionKey"] : "";
+
+      if (evtSessionKey && p["stream"] === "tool") {
+        const data = p["data"] as Record<string, unknown> | undefined;
+        const phase = typeof data?.["phase"] === "string" ? data["phase"] : "";
+        const toolCallId = typeof data?.["toolCallId"] === "string" ? data["toolCallId"] : "";
+        const name = typeof data?.["name"] === "string" ? data["name"] : "tool";
+
+        if (toolCallId && (phase === "start" || phase === "result")) {
+          plugin.transcriptStore.recordToolEvent({
+            sessionKey: evtSessionKey,
+            toolCallId,
+            name,
+            phase,
+            args: phase === "start" ? data?.["args"] : undefined,
+            result:
+              phase === "result"
+                ? (data?.["result"] ?? data?.["partialResult"] ?? data?.["meta"])
+                : undefined,
+            timestamp: typeof p["ts"] === "number" ? p["ts"] : Date.now(),
+          });
+        }
+      }
+    });
+
     // Set the loadSessionRow callback so bridge can resolve sessionId from sessionKey.
     // This is critical for sessions.reset, which generates a new sessionId while keeping
     // the same sessionKey.
@@ -423,31 +451,7 @@ export async function initMas4sIntegration(
         const evtSessionKey = typeof p["sessionKey"] === "string" ? p["sessionKey"] : "";
 
         if (evtSessionKey) {
-          // 1. Tool call events (agent stream:tool / session.tool)
-          if (event === "agent" || event === "session.tool") {
-            if (p["stream"] === "tool") {
-              const data = p["data"] as Record<string, unknown> | undefined;
-              const phase = typeof data?.["phase"] === "string" ? data["phase"] : "";
-              const toolCallId = typeof data?.["toolCallId"] === "string" ? data["toolCallId"] : "";
-              const name = typeof data?.["name"] === "string" ? data["name"] : "tool";
-              if (toolCallId && (phase === "start" || phase === "result")) {
-                plugin.transcriptStore.recordToolEvent({
-                  sessionKey: evtSessionKey,
-                  toolCallId,
-                  name,
-                  phase,
-                  args: phase === "start" ? data?.["args"] : undefined,
-                  result:
-                    phase === "result"
-                      ? (data?.["result"] ?? data?.["partialResult"] ?? data?.["meta"])
-                      : undefined,
-                  timestamp: typeof p["ts"] === "number" ? p["ts"] : Date.now(),
-                });
-              }
-            }
-          }
-
-          // 2. Assistant final message: handled by the transcript event path (handleUpdate).
+          // Assistant final message: handled by the transcript event path (handleUpdate).
           // recordAssistantFinal is intentionally not called here to avoid double-writing,
           // since handleUpdate already captures the full assistant message (including
           // thinking + toolCall blocks) from the JSONL transcript event.

@@ -5,6 +5,7 @@ import type { ChatMessage } from "../types/chat-types.js";
 import "./msg-user.js";
 import "./msg-colleague.js";
 import "./msg-agent.js";
+import "./msg-tool-result.js";
 import "./msg-approval-card.js";
 
 /**
@@ -171,15 +172,15 @@ export class MessageList extends LitElement {
     if (msg.role === "user" || msg.role === "User") {
       return html`<msg-user .message=${msg}></msg-user>`;
     }
-    if (msg.role === "assistant" || msg.role === "toolResult" || msg.role === "tool") {
+    if (msg.role === "assistant") {
       // Suppress assistant messages that triggered an approval request.
-      // In real-time, `chat final` overwrites these with empty content and the
-      // approval card takes over. In history, we use the stored triggeredByMsgId
-      // to achieve the same effect without content-matching heuristics.
-      if (msg.role === "assistant" && msg.id && this._cachedApprovalTriggeredMsgIds.has(msg.id)) {
+      if (msg.id && this._cachedApprovalTriggeredMsgIds.has(msg.id)) {
         return html``;
       }
       return html`<msg-agent .message=${msg}></msg-agent>`;
+    }
+    if (msg.role === "tool" || msg.role === "toolResult") {
+      return html`<msg-tool-result .message=${msg}></msg-tool-result>`;
     }
     // 其他 role（system 等）暂不渲染
     return html``;

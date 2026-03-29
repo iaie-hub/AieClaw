@@ -287,6 +287,12 @@ export class GatewayAuthBridge {
     payload: unknown,
     _connectedUsers: Map<string, MasAuthContext>,
   ): Set<string> | null {
+    const debugLog = (...args: unknown[]) => {
+      if (process.env.OPENCLAW_MAS4S_DEBUG_EVENTS === "1") {
+        console.log(...args);
+      }
+    };
+
     // Extract sessionKey from payload
     const payloadObj =
       typeof payload === "object" && payload !== null
@@ -300,8 +306,8 @@ export class GatewayAuthBridge {
         | string
         | undefined);
 
-    console.log(
-      `[bridge.filterBroadcastTargets] event=${event} sessionKey=${sessionKey ?? "(none)"} connectedUsers=${_connectedUsers.size}`,
+    debugLog(
+      `[bridge.filterBroadcastTargets] event=${event} sessionKey=${sessionKey ?? "(none)"} connectedUsers=${_connectedUsers.size} payloadKeys=${Object.keys(payloadObj ?? {}).join(",")}`,
     );
 
     if (!sessionKey) {
@@ -312,7 +318,7 @@ export class GatewayAuthBridge {
     // skip filtering to ensure they receive essential system events.
     for (const context of _connectedUsers.values()) {
       if (context.userId === null) {
-        console.log(
+        debugLog(
           `[bridge.filterBroadcastTargets] event=${event} compat-mode: unauthenticated client present, skipping filter`,
         );
         return null;
@@ -337,7 +343,7 @@ export class GatewayAuthBridge {
       }
     }
 
-    console.log(
+    debugLog(
       `[bridge.filterBroadcastTargets] event=${event} sessionKey=${sessionKey} targetUserIds=[${targetUserIds.join(",")}]`,
     );
 

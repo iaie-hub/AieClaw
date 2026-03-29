@@ -55,10 +55,17 @@ function formatToolOutput(value: unknown): string | undefined {
  * 必须在 getClient() 之前调用，处理器通过 addEventHandler 注册到构造时的 onEvent 回调。
  * 第一期处理：chat、agent（thinking delta 记录）、exec.approval.*
  */
+const debugLog = (...args: unknown[]) => {
+  if (import.meta.env.VITE_DEBUG_MAS4S_EVENTS === "true") {
+    console.log(...args);
+  }
+};
+
 export function registerEventHandlers(): void {
   const store = AppStore.instance;
 
   addEventHandler((evt: GatewayEventFrame) => {
+    debugLog(`[mas4s:event-handler] event=${evt.event}`, evt.payload);
     switch (evt.event) {
       case "chat":
         handleChatEvent(store, evt.payload);
@@ -306,6 +313,29 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
       output: output ?? undefined,
       startedAt: existing?.startedAt ?? Date.now(),
     });
+
+    // When a tool execution finishes (phase="result"), append a dedicated toolResult message
+    // to the chat flow so it is rendered by MsgToolResult/MsgToolCard.
+    if (phase === "result" && data.result !== undefined) {
+      const toolMsg: ChatMessage = {
+        role: "toolResult",
+        content: [{ type: "tool_result", text: formatToolOutput(data.result) }],
+        timestamp: Date.now(),
+        id: `${toolCallId}-result`,
+        senderLabel: null,
+        toolCallId,
+        toolName: name,
+        isError: !!(
+          (data as { isError?: boolean }).isError ||
+          (data.result &&
+            typeof data.result === "object" &&
+            ((data.result as Record<string, unknown>).status === "error" ||
+              !!(data.result as Record<string, unknown>).error))
+        ),
+      };
+      debugLog(`[mas4s:event-handler] Appending manual toolResult message for ${name}`, toolMsg);
+      store.appendMessage(sessionKey, toolMsg);
+    }
     return;
   }
 

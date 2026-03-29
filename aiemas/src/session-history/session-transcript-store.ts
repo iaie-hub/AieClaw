@@ -4,6 +4,12 @@ import { onSessionTranscriptUpdate } from "../../../src/sessions/transcript-even
 import type { SessionTranscriptUpdate } from "../../../src/sessions/transcript-events.js";
 import { upsertSummary } from "./session-summary-store.js";
 
+const debugLog = (...args: unknown[]) => {
+  if (process.env.OPENCLAW_MAS4S_DEBUG_EVENTS === "1") {
+    console.log(...args);
+  }
+};
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface SenderContext {
@@ -22,6 +28,8 @@ export interface StoredMessage {
   timestamp: number;
   seq: number;
   archivedDate: string | null;
+  toolCallId: string | null;
+  toolName: string | null;
 }
 
 export interface SessionTranscriptStoreOptions {
@@ -400,30 +408,34 @@ export class SessionTranscriptStore {
       const argsStr = args != null ? JSON.stringify(args) : "";
       const callContent = argsStr ? `[tool_use:${name}] ${argsStr}` : `[tool_use:${name}]`;
       this.pendingToolCalls.set(toolCallId, { sessionKey, name, callContent, timestamp });
+      debugLog(
+        `[mas4s:transcript-store] recordToolEvent phase=start toolCallId=${toolCallId} name=${name}`,
+      );
       return;
     }
 
     if (phase === "result") {
       const pending = this.pendingToolCalls.get(toolCallId);
-      if (!pending) {
-        return;
-      }
-      this.pendingToolCalls.delete(toolCallId);
+      this.pendingToolCalls.delete(toolCallId); // Always cleanup
 
       const resultStr = formatToolResult(result);
+      debugLog(
+        `[mas4s:transcript-store] recordToolEvent phase=result toolCallId=${toolCallId} hasPending=${!!pending} resultLength=${resultStr?.length ?? 0}`,
+      );
+
       if (!resultStr) {
-        // No result content — the JSONL transcript path (handleUpdate) already captured
-        // the tool_use block in the assistant message. Skip to avoid a duplicate
-        // tool_call bubble without a result in the history view.
         return;
       }
-      const content = `${pending.callContent}\n[tool_result] ${resultStr.replace(/\n/g, "\\n")}`;
 
+      // Instead of merging into 'assistant', push a dedicated 'tool' role message.
+      // This matches frontend MsgToolCard and avoids transcript-triggered duplication.
       this.pushToBuffer({
-        sessionKey: pending.sessionKey,
-        role: "assistant",
-        content,
-        timestamp: pending.timestamp,
+        sessionKey: pending?.sessionKey ?? sessionKey,
+        role: "tool",
+        content: `[tool_result] ${resultStr.replace(/\n/g, "\\n")}`,
+        timestamp: timestamp || (pending?.timestamp ?? Date.now()),
+        toolCallId: toolCallId,
+        toolName: pending?.name ?? name,
       });
     }
   }
@@ -468,7 +480,7 @@ export class SessionTranscriptStore {
     generatedBy: string;
   }): void {
     upsertSummary(this.db, params);
-    console.log(
+    debugLog(
       `[mas4s:transcript-store] persisted summary for sessionKey=${params.sessionKey} sessionId=${params.sessionId}`,
     );
   }
@@ -511,8 +523,10 @@ export class SessionTranscriptStore {
     role: StoredMessage["role"];
     content: string;
     timestamp: number;
+    toolCallId?: string | null;
+    toolName?: string | null;
   }): void {
-    const { sessionKey, role, content, timestamp } = params;
+    const { sessionKey, role, content, timestamp, toolCallId, toolName } = params;
     let { sessionId } = params;
 
     // Resolve sessionId if missing via the active mapping
@@ -537,6 +551,8 @@ export class SessionTranscriptStore {
       timestamp,
       seq,
       archivedDate: null,
+      toolCallId: toolCallId ?? null,
+      toolName: toolName ?? null,
     });
 
     if (this.buffer.length >= this.maxBufferSize) {
@@ -554,8 +570,13 @@ export class SessionTranscriptStore {
       }
 
       const msg = update.message as Record<string, unknown>;
-
       const rawRole = msg["role"];
+      const sessionKey = update.sessionKey ?? "";
+
+      debugLog(
+        `[mas4s:transcript-store] incoming role=${String(rawRole)} sessionKey=${sessionKey} hasCallId=${!!msg["toolCallId"] || !!msg["tool_call_id"]} msg=${JSON.stringify(msg)}`,
+      );
+
       // content 可能是字符串（user 消息）或数组（assistant/tool 消息）
       // 数组格式：[{ type: "text", text: "..." }, ...]
       const content = extractContent(msg["content"]);
@@ -565,7 +586,6 @@ export class SessionTranscriptStore {
         typeof msg["sessionId"] === "string" && msg["sessionId"]
           ? msg["sessionId"]
           : (update.sessionKey ?? "");
-      const sessionKey = update.sessionKey ?? "";
 
       if (!sessionKey) {
         return;
@@ -594,8 +614,14 @@ export class SessionTranscriptStore {
         timestamp,
         seq,
         archivedDate: null,
+        toolCallId:
+          (msg["toolCallId"] as string | null) ?? (msg["tool_call_id"] as string | null) ?? null,
+        toolName: (msg["toolName"] as string | null) ?? (msg["tool_name"] as string | null) ?? null,
       };
 
+      debugLog(
+        `[mas4s:transcript-store] pushing to buffer role=${role} toolCallId=${stored.toolCallId} seq=${seq}`,
+      );
       this.buffer.push(stored);
 
       // Back-fill triggeredByMsgId into the most recent [approval:requested] record
@@ -706,6 +732,7 @@ export class SessionTranscriptStore {
   // ── persistBatch (private) ────────────────────────────────────────────────
 
   private persistBatch(msgs: StoredMessage[]): void {
+    debugLog(`[mas4s:transcript-store] persistBatch: persisting ${msgs.length} messages`);
     // Group by sessionKey for archive checks and statistic updates.
     const byKey = new Map<string, StoredMessage[]>();
     for (const m of msgs) {
@@ -719,8 +746,8 @@ export class SessionTranscriptStore {
 
     const insertStmt = this.db.prepare(
       `INSERT INTO session_messages
-         (id, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate, toolCallId, toolName)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
     // Upsert statistic row: on first insert create the row; on subsequent inserts
@@ -773,6 +800,8 @@ export class SessionTranscriptStore {
           m.timestamp,
           m.seq,
           m.archivedDate,
+          m.toolCallId,
+          m.toolName,
         );
       }
 
