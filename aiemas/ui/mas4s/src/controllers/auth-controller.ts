@@ -117,6 +117,19 @@ export class AuthController {
           .catch((err) => {
             console.warn("[mas4s:auth] doConnect ← fetchSessions failed:", err);
           });
+        // 同时拉取可用 Agent 列表
+        void getClient()
+          .request<{ agents: { id: string; name?: string; description?: string }[] }>(
+            "agents.list",
+            {},
+          )
+          .then((res) => {
+            this.store.setAgents(res.agents || []);
+            console.debug("[mas4s:auth] doConnect ← agents loaded: count=%d", res.agents?.length);
+          })
+          .catch((err) => {
+            console.warn("[mas4s:auth] doConnect ← agents.list failed:", err);
+          });
       },
       onClose: (info) => {
         console.debug(

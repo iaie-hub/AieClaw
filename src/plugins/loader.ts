@@ -1013,7 +1013,7 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
     if (onlyPluginIdSet && !onlyPluginIdSet.has(pluginId)) {
       continue;
     }
-    logger.info(`[plugins] loading plugin: ${pluginId} (origin: ${candidate.origin})`);
+    // logger.info(`[plugins] loading plugin: ${pluginId} (origin: ${candidate.origin})`);
     const existingOrigin = seenIds.get(pluginId);
     if (existingOrigin) {
       const record = createPluginRecord({

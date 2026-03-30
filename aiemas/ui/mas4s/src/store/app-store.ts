@@ -14,6 +14,12 @@ export interface CurrentUser {
   tenantId: string;
 }
 
+export interface AgentInfo {
+  id: string;
+  name?: string;
+  description?: string;
+}
+
 /** 工具执行流条目 */
 export interface ToolStreamEntry {
   toolCallId: string;
@@ -44,6 +50,14 @@ export class AppStore {
   // ── 当前用户 ──────────────────────────────────────
   currentUser: CurrentUser | null = null;
 
+  // ── 可用 Agent 列表 ──────────────────────────────
+  agents: AgentInfo[] = [];
+
+  setAgents(agents: AgentInfo[]): void {
+    this.agents = agents;
+    this.notify();
+  }
+
   setCurrentUser(user: CurrentUser): void {
     this.currentUser = user;
     this.notify();
@@ -62,16 +76,21 @@ export class AppStore {
 
   // ── 会话列表 ──────────────────────────────────────
   sessions: MasSession[] = [];
-  activeSessionId: string | null = null;
+  activeSessionUuid: string | null = null;
 
   get activeSession(): MasSession | undefined {
-    return this.sessions.find((s) => s.key === this.activeSessionId);
+    return this.sessions.find((s) => s.sessionUuid === this.activeSessionUuid);
   }
 
-  // ── 消息缓存（sessionKey → 消息数组） ────────────
+  /** 获取当前活跃会话的网关 sessionKey */
+  get activeSessionKey(): string | undefined {
+    return this.activeSession?.key;
+  }
+
+  // ── 消息缓存（sessionUuid → 消息数组） ────────────
   messagesBySession: Map<string, ChatMessage[]> = new Map();
 
-  // ── 历史消息元数据（sessionKey → { truncated, hasSummary, page, totalPages, sessionStats }） ──
+  // ── 历史消息元数据（sessionUuid → { truncated, hasSummary, page, totalPages, sessionStats }） ──
   historyMetaBySession: Map<
     string,
     {
@@ -84,7 +103,7 @@ export class AppStore {
   > = new Map();
 
   setHistoryMeta(
-    sessionKey: string,
+    sessionUuid: string,
     meta: {
       truncated: boolean;
       hasSummary: boolean;
@@ -93,11 +112,11 @@ export class AppStore {
       sessionStats: { firstMsgAt: number | null; lastMsgAt: number | null; totalMsgCount: number };
     },
   ): void {
-    this.historyMetaBySession.set(sessionKey, meta);
+    this.historyMetaBySession.set(sessionUuid, meta);
     this.notify();
   }
 
-  getHistoryMeta(sessionKey: string): {
+  getHistoryMeta(sessionUuid: string): {
     truncated: boolean;
     hasSummary: boolean;
     page: number;
@@ -105,7 +124,7 @@ export class AppStore {
     sessionStats: { firstMsgAt: number | null; lastMsgAt: number | null; totalMsgCount: number };
   } {
     return (
-      this.historyMetaBySession.get(sessionKey) ?? {
+      this.historyMetaBySession.get(sessionUuid) ?? {
         truncated: false,
         hasSummary: false,
         page: 1,
@@ -186,8 +205,8 @@ export class AppStore {
     this.notify();
   }
 
-  setActiveSession(key: string): void {
-    this.activeSessionId = key;
+  setActiveSession(uuid: string): void {
+    this.activeSessionUuid = uuid;
     this.notify();
   }
 
@@ -196,10 +215,10 @@ export class AppStore {
     this.notify();
   }
 
-  removeSession(sessionKey: string): void {
-    this.sessions = this.sessions.filter((s) => s.key !== sessionKey);
-    if (this.activeSessionId === sessionKey) {
-      this.activeSessionId = null;
+  removeSession(sessionUuid: string): void {
+    this.sessions = this.sessions.filter((s) => s.sessionUuid !== sessionUuid);
+    if (this.activeSessionUuid === sessionUuid) {
+      this.activeSessionUuid = null;
     }
     this.notify();
   }
@@ -233,8 +252,10 @@ export class AppStore {
     this.notify();
   }
 
-  updateSessionParticipants(sessionKey: string, participants: MasParticipant[]): void {
-    this.sessions = this.sessions.map((s) => (s.key === sessionKey ? { ...s, participants } : s));
+  updateSessionParticipants(sessionUuid: string, participants: MasParticipant[]): void {
+    this.sessions = this.sessions.map((s) =>
+      s.sessionUuid === sessionUuid ? { ...s, participants } : s,
+    );
     this.notify();
   }
 
@@ -247,26 +268,26 @@ export class AppStore {
 
   // ── 消息操作 ──────────────────────────────────────
 
-  appendMessage(sessionKey: string, msg: ChatMessage): void {
-    const msgs = this.messagesBySession.get(sessionKey) ?? [];
-    this.messagesBySession.set(sessionKey, [...msgs, msg]);
+  appendMessage(sessionUuid: string, msg: ChatMessage): void {
+    const msgs = this.messagesBySession.get(sessionUuid) ?? [];
+    this.messagesBySession.set(sessionUuid, [...msgs, msg]);
     this.notify();
   }
 
-  updateLastMessage(sessionKey: string, msg: ChatMessage): void {
-    const msgs = this.messagesBySession.get(sessionKey) ?? [];
+  updateLastMessage(sessionUuid: string, msg: ChatMessage): void {
+    const msgs = this.messagesBySession.get(sessionUuid) ?? [];
     if (msgs.length === 0) {
-      this.appendMessage(sessionKey, msg);
+      this.appendMessage(sessionUuid, msg);
       return;
     }
     const updated = [...msgs];
     updated[updated.length - 1] = msg;
-    this.messagesBySession.set(sessionKey, updated);
+    this.messagesBySession.set(sessionUuid, updated);
     this.notify();
   }
 
-  clearMessages(sessionKey: string): void {
-    this.messagesBySession.set(sessionKey, []);
+  clearMessages(sessionUuid: string): void {
+    this.messagesBySession.set(sessionUuid, []);
     this.notify();
   }
 
@@ -274,25 +295,25 @@ export class AppStore {
    * 将旧消息前插到现有消息列表头部（用于向上翻页加载更早的历史）。
    * 不触发 notify()，由调用方在锚点恢复后统一触发，避免页面闪烁。
    */
-  prependMessages(sessionKey: string, older: ChatMessage[]): void {
+  prependMessages(sessionUuid: string, older: ChatMessage[]): void {
     if (older.length === 0) {
       return;
     }
-    const current = this.messagesBySession.get(sessionKey) ?? [];
-    this.messagesBySession.set(sessionKey, [...older, ...current]);
+    const current = this.messagesBySession.get(sessionUuid) ?? [];
+    this.messagesBySession.set(sessionUuid, [...older, ...current]);
     // Intentionally no notify() here — caller must call notify() after
     // restoring the scroll anchor to prevent visible layout jump.
   }
 
   // ── 工具流操作 ────────────────────────────────────
 
-  upsertToolStream(entry: ToolStreamEntry): void {
+  upsertToolStream(entry: ToolStreamEntry, sessionUuid: string): void {
     this.toolStreamById.set(entry.toolCallId, entry);
     if (!this.toolStreamOrder.includes(entry.toolCallId)) {
       this.toolStreamOrder.push(entry.toolCallId);
     }
     // 将工具执行状态同步为消息追加到对应会话
-    this._syncToolStreamMessage(entry);
+    this._syncToolStreamMessage(entry, sessionUuid);
     this.notify();
   }
 
@@ -313,8 +334,9 @@ export class AppStore {
     this.notify();
   }
 
-  private _syncToolStreamMessage(entry: ToolStreamEntry): void {
-    const { sessionKey, toolCallId, name, args, output, startedAt } = entry;
+  private _syncToolStreamMessage(entry: ToolStreamEntry, sessionUuid: string): void {
+    const { toolCallId, name, args, output, startedAt } = entry;
+    // Note: entry.sessionKey is stored for reference, but we cache by uuid
     const content: ChatMessage["content"] = [{ type: "tool_call", name, args }];
     if (output) {
       content.push({ type: "tool_result", name, text: output });
@@ -326,14 +348,14 @@ export class AppStore {
       id: `tool:${toolCallId}`,
       senderLabel: null,
     };
-    const msgs = this.messagesBySession.get(sessionKey) ?? [];
+    const msgs = this.messagesBySession.get(sessionUuid) ?? [];
     const existingIdx = msgs.findIndex((m) => m.id === msg.id);
     if (existingIdx >= 0) {
       const updated = [...msgs];
       updated[existingIdx] = msg;
-      this.messagesBySession.set(sessionKey, updated);
+      this.messagesBySession.set(sessionUuid, updated);
     } else {
-      this.messagesBySession.set(sessionKey, [...msgs, msg]);
+      this.messagesBySession.set(sessionUuid, [...msgs, msg]);
     }
   }
 
@@ -347,8 +369,12 @@ export class AppStore {
     this.pendingApprovals = [...this.pendingApprovals, req];
     // 向审核请求所属的 session 插入 pending 消息，而非当前活跃 session
     // 避免跨 session 污染（审核请求可能来自非当前活跃 session）
-    const targetSessionKey = req.request.sessionKey ?? this.activeSessionId;
-    if (targetSessionKey) {
+    const targetSessionKey = req.request.sessionKey;
+    const targetSessionUuid = targetSessionKey
+      ? targetSessionKey.split(":").pop()!
+      : this.activeSessionUuid;
+
+    if (targetSessionUuid) {
       const pendingMsg: ChatMessage = {
         id: req.id,
         role: "assistant",
@@ -356,10 +382,10 @@ export class AppStore {
         content: [],
         timestamp: req.createdAtMs,
       };
-      const msgs = this.messagesBySession.get(targetSessionKey) ?? [];
+      const msgs = this.messagesBySession.get(targetSessionUuid) ?? [];
       // 避免重复插入
       if (!msgs.some((m) => m.id === req.id)) {
-        this.messagesBySession.set(targetSessionKey, [...msgs, pendingMsg]);
+        this.messagesBySession.set(targetSessionUuid, [...msgs, pendingMsg]);
       }
     }
     this.notify();
@@ -402,8 +428,10 @@ export class AppStore {
     // 向对应 session 追加一条用户操作消息，显示在审核卡片下方
     if (approvalRecord) {
       const { approval, resolved: r } = approvalRecord;
-      const sessionKey = approval.request.sessionKey ?? this.activeSessionId;
-      if (sessionKey) {
+      const sessionKey = approval.request.sessionKey;
+      const sessionUuid = sessionKey ? sessionKey.split(":").pop()! : this.activeSessionUuid;
+
+      if (sessionUuid) {
         const decisionText =
           r.decision === "deny" ? "拒绝" : r.decision === "allow-always" ? "始终允许" : "允许一次";
         const command = approval.request.commandPreview ?? approval.request.command;
@@ -415,14 +443,14 @@ export class AppStore {
           timestamp: r.ts,
           senderLabel: r.resolvedBy ?? undefined,
         };
-        const msgs = this.messagesBySession.get(sessionKey) ?? [];
+        const msgs = this.messagesBySession.get(sessionUuid) ?? [];
         // 避免重复插入（乐观 + gateway 广播各触发一次）
         if (!msgs.some((m) => m.id === actionMsg.id)) {
-          this.messagesBySession.set(sessionKey, [...msgs, actionMsg]);
+          this.messagesBySession.set(sessionUuid, [...msgs, actionMsg]);
         } else {
           // 已存在时用 gateway 广播的完整数据（含 resolvedBy）覆盖
           this.messagesBySession.set(
-            sessionKey,
+            sessionUuid,
             msgs.map((m) => (m.id === actionMsg.id ? actionMsg : m)),
           );
         }

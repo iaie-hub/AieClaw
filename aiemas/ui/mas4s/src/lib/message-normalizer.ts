@@ -269,6 +269,7 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
 
   const timestamp = typeof m.timestamp === "number" ? m.timestamp : Date.now();
   const id = typeof m.id === "string" ? m.id : undefined;
+  const sessionKey = typeof m.sessionKey === "string" ? m.sessionKey : undefined;
   // gateway 存储时会在 senderLabel 末尾附加 " (channel-id)" 后缀（如 "管理员 (webchat-ui)"），
   // 前端只展示用户名部分，剥离括号后缀。
   const rawSenderLabel =
@@ -287,5 +288,5 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
     });
   }
 
-  return { role, content, timestamp, id, senderLabel, toolCallId, toolName };
+  return { role, content, timestamp, id, sessionKey, senderLabel, toolCallId, toolName };
 }

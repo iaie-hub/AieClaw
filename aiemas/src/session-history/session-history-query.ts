@@ -4,7 +4,8 @@ import type { StoredMessage } from "./session-transcript-store.js";
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface HistoryRangeParams {
-  sessionKey: string;
+  sessionUuid: string;
+  sessionKey?: string;
   /** When specified, only return messages for this sessionId */
   sessionId?: string;
   /**
@@ -67,6 +68,7 @@ export interface HistoryRangeResult {
 function rowToStoredMessage(row: Record<string, unknown>): StoredMessage {
   return {
     id: row["id"] as string,
+    sessionUuid: row["sessionUuid"] as string,
     sessionKey: row["sessionKey"] as string,
     sessionId: row["sessionId"] as string,
     userId: (row["userId"] as string | null) ?? null,
@@ -107,8 +109,8 @@ export function queryHistoryRange(
 
   // ── Build conditional SQL ──────────────────────────────────────────────────
   // from/to are truly optional: omitting them removes the time filter entirely.
-  let sql = "SELECT * FROM session_messages WHERE sessionKey = ?";
-  const sqlParams: unknown[] = [params.sessionKey];
+  let sql = "SELECT * FROM session_messages WHERE sessionUuid = ?";
+  const sqlParams: unknown[] = [params.sessionUuid];
 
   if (params.from !== undefined) {
     sql += " AND timestamp >= ?";
@@ -136,7 +138,7 @@ export function queryHistoryRange(
   // ── Merge buffer messages ──────────────────────────────────────────────────
   const buffered = (params.buffered ?? []).filter(
     (m) =>
-      m.sessionKey === params.sessionKey &&
+      m.sessionUuid === params.sessionUuid &&
       (params.from === undefined || m.timestamp >= params.from) &&
       (params.to === undefined || m.timestamp <= params.to) &&
       (params.sessionId === undefined || m.sessionId === params.sessionId),
@@ -175,8 +177,8 @@ export function queryHistoryRange(
   };
   try {
     let statSql =
-      "SELECT firstMsgAt, lastMsgAt, msgCount FROM session_msg_statistic WHERE sessionKey = ?";
-    const statParams: unknown[] = [params.sessionKey];
+      "SELECT firstMsgAt, lastMsgAt, msgCount FROM session_msg_statistic WHERE sessionUuid = ?";
+    const statParams: unknown[] = [params.sessionUuid];
     if (params.sessionId) {
       statSql += " AND sessionId = ?";
       statParams.push(params.sessionId);

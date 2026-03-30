@@ -1,3 +1,4 @@
+import { extractAgentNameFromKey } from "@core/utils/session-utils.js";
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { SessionRunStatus } from "../lib/types.js";
@@ -22,6 +23,8 @@ export class MainHeader extends LitElement {
   @property({ attribute: false }) session: MasSession | undefined = undefined;
   @state() private _notifOpen = false;
   @state() private _confirmingAction: "none" | "archive" | "unarchive" = "none";
+  @state() private _agentDialogOpen = false;
+  @state() private _selectedAgentId = "default";
 
   static styles = css`
     :host {
@@ -157,6 +160,153 @@ export class MainHeader extends LitElement {
 
     .archive-btn:hover::after {
       opacity: 1;
+    }
+
+    .agent-btn {
+      padding: 5px 12px;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+      background: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #0891b2;
+      transition: all 0.2s;
+    }
+
+    .agent-btn:hover {
+      border-color: #0891b2;
+      background: #ecfeff;
+    }
+
+    /* Agent 对话框 */
+    .agent-dialog-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.2);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .agent-dialog {
+      width: 320px;
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      animation: dialogPop 0.2s ease-out;
+    }
+
+    @keyframes dialogPop {
+      from {
+        transform: scale(0.95);
+        opacity: 0;
+      }
+      to {
+        transform: scale(1);
+        opacity: 1;
+      }
+    }
+
+    .agent-dialog-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #f1f5f9;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .agent-dialog-header h3 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+      color: #1e293b;
+    }
+
+    .agent-list {
+      max-height: 300px;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    .agent-item {
+      padding: 10px 12px;
+      border-radius: 10px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      transition: all 0.2s;
+      margin-bottom: 4px;
+    }
+
+    .agent-item:hover {
+      background: #f8fafc;
+    }
+
+    .agent-item.active {
+      background: #ecfeff;
+      border: 1px solid #0891b2;
+    }
+
+    .agent-name-row {
+      font-size: 14px;
+      font-weight: 600;
+      color: #1e293b;
+    }
+
+    .agent-desc-row {
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    .agent-dialog-footer {
+      padding: 12px 20px;
+      background: #f8fafc;
+      border-top: 1px solid #f1f5f9;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .dialog-btn {
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .dialog-btn.cancel {
+      background: white;
+      border-color: #e2e8f0;
+      color: #64748b;
+    }
+
+    .dialog-btn.cancel:hover {
+      background: #f1f5f9;
+      color: #1e293b;
+    }
+
+    .dialog-btn.confirm {
+      background: #0891b2;
+      color: white;
+    }
+
+    .dialog-btn.confirm:hover {
+      background: #0e7490;
     }
 
     .right {
@@ -414,6 +564,73 @@ export class MainHeader extends LitElement {
     );
   }
 
+  private _onAgentClick = () => {
+    this._selectedAgentId = this.session?.currentAgentId || "default";
+    this._agentDialogOpen = true;
+  };
+
+  private _onSelectAgentInList = (agentId: string) => {
+    this._selectedAgentId = agentId;
+  };
+
+  private _onConfirmAgentUpdate = () => {
+    this._agentDialogOpen = false;
+    if (!this.session || this.session.currentAgentId === this._selectedAgentId) {
+      return;
+    }
+    this.dispatchEvent(
+      new CustomEvent("session-agent-update", {
+        detail: { sessionKey: this.session.key, agentId: this._selectedAgentId },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  };
+
+  private _renderAgentDialog() {
+    if (!this._agentDialogOpen) {
+      return nothing;
+    }
+    const agents = this._ctrl.store.agents;
+    const currentSelection = this._selectedAgentId;
+
+    return html`
+      <div class="agent-dialog-overlay" @click=${() => (this._agentDialogOpen = false)}>
+        <div class="agent-dialog" @click=${(e: Event) => e.stopPropagation()}>
+          <div class="agent-dialog-header">
+            <h3>选择执行 Agent</h3>
+            <button class="notif-close-btn" @click=${() => (this._agentDialogOpen = false)}>
+              ✕
+            </button>
+          </div>
+          <div class="agent-list">
+            ${agents.length === 0
+              ? html`<div class="notif-empty">未发现可用 Agent</div>`
+              : agents.map(
+                  (a) => html`
+                    <div
+                      class="agent-item ${a.id === currentSelection ? "active" : ""}"
+                      @click=${() => this._onSelectAgentInList(a.id)}
+                    >
+                      <div class="agent-name-row">${a.name || a.id}</div>
+                      ${a.description
+                        ? html`<div class="agent-desc-row">${a.description}</div>`
+                        : ""}
+                    </div>
+                  `,
+                )}
+          </div>
+          <div class="agent-dialog-footer">
+            <button class="dialog-btn cancel" @click=${() => (this._agentDialogOpen = false)}>
+              取消
+            </button>
+            <button class="dialog-btn confirm" @click=${this._onConfirmAgentUpdate}>确定</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   private _renderNotifPanel() {
     if (!this._notifOpen) {
       return nothing;
@@ -490,6 +707,31 @@ export class MainHeader extends LitElement {
         ${this.title
           ? html`
               <span>${this.title}</span>
+              ${isInitiator
+                ? html`
+                    <button class="agent-btn" @click=${this._onAgentClick} title="切换执行 Agent">
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path
+                          d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"
+                        ></path>
+                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                        <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                      </svg>
+                      Agent:
+                      ${this.session?.currentAgentId ||
+                      (this.session ? extractAgentNameFromKey(this.session.key) : "default")}
+                    </button>
+                  `
+                : nothing}
               ${this.showInvite
                 ? html`
                     <button class="invite-btn" @click=${this._onInviteClick} title="邀请协作者">
@@ -618,7 +860,7 @@ export class MainHeader extends LitElement {
         </div>
       </div>
 
-      ${this._renderConfirmDialog()}
+      ${this._renderConfirmDialog()} ${this._renderAgentDialog()}
     `;
   }
 }

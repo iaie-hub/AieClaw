@@ -905,9 +905,11 @@ export async function initMas4sIntegration(
 
         // Record sender context for message capture before core handler runs
         if (sessionKey) {
+          const { extractUuidFromKey } = await import("../../aiemas/src/utils/session-utils.js");
+          const sessionUuid = extractUuidFromKey(sessionKey);
           const sessionRow = loadGatewaySessionRow(sessionKey);
           const sessionId = sessionRow?.sessionId ?? sessionKey;
-          plugin.transcriptStore.recordSenderContext(sessionKey, sessionId, {
+          plugin.transcriptStore.recordSenderContext(sessionUuid, sessionKey, sessionId, {
             userId: masAuth.userId ?? null,
             tenantId: masAuth.tenantId ?? null,
           });

@@ -1,60 +1,57 @@
 import type { DatabaseSync } from "node:sqlite";
+import { extractUuidFromKey, extractAgentNameFromKey } from "../utils/session-utils.js";
 
 export interface SessionLabelEntry {
-  sessionKey: string;
+  sessionUuid: string;
   label: string | null;
   displayName: string | null;
+  currentAgentId: string | null;
   updatedAt: number;
 }
 
 /**
- * Upsert label/displayName for a sessionKey.
- * Only updates fields that are explicitly provided (non-undefined).
- * Skips the write entirely if both values are null/undefined.
+ * Upsert label/displayName/currentAgentId for a session.
+ * Accepts sessionKey and handles UUID extraction internally.
  */
 export function upsertSessionLabel(
   db: DatabaseSync,
   sessionKey: string,
-  patch: { label?: string | null; displayName?: string | null },
+  patch: { label?: string | null; displayName?: string | null; currentAgentId?: string | null },
 ): void {
-  const hasLabel = patch.label !== undefined;
-  const hasDisplayName = patch.displayName !== undefined;
-  if (!hasLabel && !hasDisplayName) {
-    return;
-  }
-
-  const existing = getSessionLabel(db, sessionKey);
+  const uuid = extractUuidFromKey(sessionKey);
   const now = Date.now();
 
+  const existing = getSessionLabel(db, uuid);
+
   if (!existing) {
+    const agentId = patch.currentAgentId ?? extractAgentNameFromKey(sessionKey);
     db.prepare(
-      `INSERT INTO session_labels (sessionKey, label, displayName, updatedAt)
-       VALUES (?, ?, ?, ?)`,
-    ).run(
-      sessionKey,
-      hasLabel ? (patch.label ?? null) : null,
-      hasDisplayName ? (patch.displayName ?? null) : null,
-      now,
-    );
+      `INSERT INTO session_labels (sessionUuid, label, displayName, currentAgentId, updatedAt)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(uuid, patch.label ?? null, patch.displayName ?? null, agentId, now);
     return;
   }
 
   // Merge: only overwrite fields that are explicitly provided.
-  const nextLabel = hasLabel ? (patch.label ?? null) : existing.label;
-  const nextDisplayName = hasDisplayName ? (patch.displayName ?? null) : existing.displayName;
+  const nextLabel = patch.label !== undefined ? patch.label : existing.label;
+  const nextDisplayName =
+    patch.displayName !== undefined ? patch.displayName : existing.displayName;
+  const nextAgentId =
+    patch.currentAgentId !== undefined ? patch.currentAgentId : existing.currentAgentId;
 
   db.prepare(
-    `UPDATE session_labels SET label = ?, displayName = ?, updatedAt = ? WHERE sessionKey = ?`,
-  ).run(nextLabel, nextDisplayName, now, sessionKey);
+    `UPDATE session_labels SET label = ?, displayName = ?, currentAgentId = ?, updatedAt = ? WHERE sessionUuid = ?`,
+  ).run(nextLabel, nextDisplayName, nextAgentId, now, uuid);
 }
 
-/** Get the persisted label entry for a sessionKey, or null if not found. */
-export function getSessionLabel(db: DatabaseSync, sessionKey: string): SessionLabelEntry | null {
+/** Get the persisted label entry for a sessionUuid or sessionKey, or null if not found. */
+export function getSessionLabel(db: DatabaseSync, identifier: string): SessionLabelEntry | null {
+  const uuid = identifier.includes(":") ? extractUuidFromKey(identifier) : identifier;
   const row = db
     .prepare(
-      `SELECT sessionKey, label, displayName, updatedAt FROM session_labels WHERE sessionKey = ?`,
+      `SELECT sessionUuid, label, displayName, currentAgentId, updatedAt FROM session_labels WHERE sessionUuid = ?`,
     )
-    .get(sessionKey) as SessionLabelEntry | undefined;
+    .get(uuid) as SessionLabelEntry | undefined;
   return row ?? null;
 }
 
@@ -62,12 +59,13 @@ export function getSessionLabel(db: DatabaseSync, sessionKey: string): SessionLa
 export function listSessionLabels(db: DatabaseSync): SessionLabelEntry[] {
   return db
     .prepare(
-      `SELECT sessionKey, label, displayName, updatedAt FROM session_labels ORDER BY updatedAt DESC`,
+      `SELECT sessionUuid, label, displayName, currentAgentId, updatedAt FROM session_labels ORDER BY updatedAt DESC`,
     )
     .all() as unknown as SessionLabelEntry[];
 }
 
-/** Delete the label entry for a sessionKey (e.g. on session delete). */
-export function deleteSessionLabel(db: DatabaseSync, sessionKey: string): void {
-  db.prepare(`DELETE FROM session_labels WHERE sessionKey = ?`).run(sessionKey);
+/** Delete the label entry for a session (accepts sessionUuid or sessionKey). */
+export function deleteSessionLabel(db: DatabaseSync, identifier: string): void {
+  const uuid = identifier.includes(":") ? extractUuidFromKey(identifier) : identifier;
+  db.prepare(`DELETE FROM session_labels WHERE sessionUuid = ?`).run(uuid);
 }

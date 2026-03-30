@@ -8,6 +8,7 @@ import {
   fetchSessionHistoryRange,
   fetchSessions,
   renameSession,
+  updateSessionAgent,
 } from "../gateway/session-manager.js";
 import type { AppStore } from "../store/app-store.js";
 
@@ -36,7 +37,7 @@ export class SessionController {
       // 创建成功后刷新完整会话列表，确保 label 等字段与 gateway 存储一致
       const sessions = await fetchSessions(client);
       this.store.setSessions(sessions);
-      this.store.setActiveSession(session.key);
+      this.store.setActiveSession(session.sessionUuid!);
       console.debug("[mas4s:session] create ← key=%s sessions=%d", session.key, sessions.length);
     } catch (err) {
       console.error("[mas4s:session] createSession failed:", err);
@@ -63,18 +64,17 @@ export class SessionController {
 
   onSessionHistoryRefresh = async (e: CustomEvent<{ sessionKey: string }>) => {
     const { sessionKey } = e.detail;
-    console.debug("[mas4s:session] history-refresh → sessionKey=%s", sessionKey);
-
+    const uuid = sessionKey.split(":").pop()!;
     // 确保该会话变为活跃状态
-    this.store.setActiveSession(sessionKey);
+    this.store.setActiveSession(uuid);
 
     // 清除并重新加载
-    this.store.clearMessages(sessionKey);
+    this.store.clearMessages(uuid);
     const client = getClient();
     try {
       const result = await fetchSessionHistoryRange(client, sessionKey, { page: 1, pageSize: 200 });
-      this.store.messagesBySession.set(sessionKey, result.messages);
-      this.store.setHistoryMeta(sessionKey, {
+      this.store.messagesBySession.set(uuid, result.messages);
+      this.store.setHistoryMeta(uuid, {
         truncated: result.truncated,
         hasSummary: result.hasSummary,
         page: result.page,
@@ -116,7 +116,7 @@ export class SessionController {
     const client = getClient();
     try {
       await deleteSession(client, sessionKey);
-      this.store.removeSession(sessionKey);
+      this.store.removeSession(sessionKey.split(":").pop()!);
       console.debug("[mas4s:session] delete ← ok");
     } catch (err) {
       console.error("[mas4s:session] deleteSession failed:", err);
@@ -125,16 +125,17 @@ export class SessionController {
 
   onSessionSelect = (e: CustomEvent<{ sessionKey: string }>) => {
     const { sessionKey } = e.detail;
-    console.debug("[mas4s:session] select → sessionKey=%s", sessionKey);
-    this.store.setActiveSession(sessionKey);
+    const uuid = sessionKey.split(":").pop()!;
+    console.debug("[mas4s:session] select → sessionKey=%s (uuid=%s)", sessionKey, uuid);
+    this.store.setActiveSession(uuid);
 
     // Always re-fetch history on selection (clear previous cache first)
-    this.store.clearMessages(sessionKey);
+    this.store.clearMessages(uuid);
     const client = getClient();
     void fetchSessionHistoryRange(client, sessionKey, { page: 1, pageSize: 200 })
       .then((result) => {
-        this.store.messagesBySession.set(sessionKey, result.messages);
-        this.store.setHistoryMeta(sessionKey, {
+        this.store.messagesBySession.set(uuid, result.messages);
+        this.store.setHistoryMeta(uuid, {
           truncated: result.truncated,
           hasSummary: result.hasSummary,
           page: result.page,
@@ -156,8 +157,8 @@ export class SessionController {
         // Fallback to chat.history
         void fetchSessionHistory(client, sessionKey)
           .then((messages) => {
-            this.store.messagesBySession.set(sessionKey, messages);
-            this.store.setHistoryMeta(sessionKey, {
+            this.store.messagesBySession.set(uuid, messages);
+            this.store.setHistoryMeta(uuid, {
               truncated: false,
               hasSummary: false,
               page: 1,
@@ -188,7 +189,8 @@ export class SessionController {
    */
   onLoadMoreHistory = (e: CustomEvent<{ sessionKey: string }>) => {
     const { sessionKey } = e.detail;
-    const meta = this.store.getHistoryMeta(sessionKey);
+    const uuid = sessionKey.split(":").pop()!;
+    const meta = this.store.getHistoryMeta(uuid);
 
     // 已经是最旧一页，无需继续
     if (meta.page >= meta.totalPages) {
@@ -200,8 +202,8 @@ export class SessionController {
     void fetchSessionHistoryRange(client, sessionKey, { page: nextPage, pageSize: 200 })
       .then((result) => {
         // prependMessages 不触发 notify，由下面统一触发
-        this.store.prependMessages(sessionKey, result.messages);
-        this.store.setHistoryMeta(sessionKey, {
+        this.store.prependMessages(uuid, result.messages);
+        this.store.setHistoryMeta(uuid, {
           truncated: result.truncated,
           hasSummary: result.hasSummary,
           page: result.page,
@@ -246,9 +248,10 @@ export class SessionController {
   onSessionMembersFetch = async (e: CustomEvent<{ sessionKey: string }>) => {
     const { sessionKey } = e.detail;
     const client = getClient();
+    const uuid = sessionKey.split(":").pop()!;
     try {
       const members = await listSessionMembers(client, sessionKey);
-      this.store.updateSessionParticipants(sessionKey, members);
+      this.store.updateSessionParticipants(uuid, members);
     } catch (err) {
       console.error("[mas4s:session] listSessionMembers failed:", err);
     }
@@ -260,8 +263,9 @@ export class SessionController {
     try {
       await inviteUser(client, sessionKey, userId);
       // 邀请成功后刷新成员列表
+      const uuid = sessionKey.split(":").pop()!;
       const members = await listSessionMembers(client, sessionKey);
-      this.store.updateSessionParticipants(sessionKey, members);
+      this.store.updateSessionParticipants(uuid, members);
     } catch (err) {
       console.error("[mas4s:session] inviteUser failed:", err);
     }
@@ -273,10 +277,34 @@ export class SessionController {
     try {
       await removeMember(client, sessionKey, userId);
       // 移除成功后刷新成员列表
+      const uuid = sessionKey.split(":").pop()!;
       const members = await listSessionMembers(client, sessionKey);
-      this.store.updateSessionParticipants(sessionKey, members);
+      this.store.updateSessionParticipants(uuid, members);
     } catch (err) {
       console.error("[mas4s:session] removeMember failed:", err);
+    }
+  };
+
+  onSessionAgentUpdate = async (e: CustomEvent<{ sessionKey: string; agentId: string }>) => {
+    const { sessionKey, agentId } = e.detail;
+    console.debug("[mas4s:session] agent-update → sessionKey=%s agentId=%s", sessionKey, agentId);
+    const client = getClient();
+    try {
+      await updateSessionAgent(client, sessionKey, agentId);
+      // 更新成功后刷新会话列表以获取新的 key
+      const sessions = await fetchSessions(client);
+      this.store.setSessions(sessions);
+      // 找到新的 key 并设为活跃
+      const uuid = sessionKey.split(":").pop()!;
+      const updated = sessions.find((s) => s.sessionUuid === uuid);
+      if (updated) {
+        this.store.setActiveSession(updated.sessionUuid!);
+        // 重要：由于 sessionKey 变更，为了获取最新的 displayName 等，可选刷新
+        // 但由于 UUID 不变，历史消息缓存是稳定的，不需要重新 loadMoreHistory。
+      }
+      console.debug("[mas4s:session] agent-update ← ok");
+    } catch (err) {
+      console.error("[mas4s:session] updateSessionAgent failed:", err);
     }
   };
 }

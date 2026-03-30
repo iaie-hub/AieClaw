@@ -24,6 +24,7 @@ export type NormalizedMessage = {
   content: MessageContentItem[];
   timestamp: number;
   id?: string;
+  sessionKey?: string;
   senderLabel?: string | null;
   toolCallId?: string;
   toolName?: string;

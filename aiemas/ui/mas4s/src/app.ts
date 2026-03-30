@@ -136,7 +136,10 @@ export class Mas4sApp extends LitElement {
         this._session.onUserInvite(e),
       onMemberRemove: (e: CustomEvent<{ sessionKey: string; userId: string }>) =>
         this._session.onMemberRemove(e),
+      onSessionAgentUpdate: (e: CustomEvent<{ sessionKey: string; agentId: string }>) =>
+        this._session.onSessionAgentUpdate(e),
       onSendMessage: (e) => this._message.onSendMessage(e),
+
       onResolveApproval: (e) => this._message.onResolveApproval(e),
       onInviteOpen: () => this._ui.onInviteOpen(),
       onDialogClose: () => this._ui.onDialogClose(),

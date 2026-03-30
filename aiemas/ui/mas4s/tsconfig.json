@@ -14,8 +14,9 @@
     "emitDecoratorMetadata": false,
     "skipLibCheck": true,
     "outDir": "dist",
-    "rootDir": ".",
+    "rootDir": "../../",
     "paths": {
+      "@core/*": ["../../src/*"],
       "@vendor/*": ["../../../../vendor/*"]
     }
   },

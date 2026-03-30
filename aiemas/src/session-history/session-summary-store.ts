@@ -3,6 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface StoredSummary {
+  sessionUuid: string;
   sessionKey: string;
   sessionId: string;
   textSummary: string | null;
@@ -20,6 +21,7 @@ export interface StoredSummary {
 export function upsertSummary(
   db: DatabaseSync,
   params: {
+    sessionUuid: string;
     sessionKey: string;
     sessionId: string;
     textSummary: string | null;
@@ -28,13 +30,14 @@ export function upsertSummary(
     generatedBy: string;
   },
 ): StoredSummary {
-  const { sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy } = params;
+  const { sessionUuid, sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy } =
+    params;
   db.prepare(
     `INSERT OR REPLACE INTO session_summaries
-       (sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy);
-  return { sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy };
+       (sessionUuid, sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(sessionUuid, sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy);
+  return { sessionUuid, sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy };
 }
 
 /**
@@ -44,25 +47,25 @@ export function upsertSummary(
  */
 export function getSummary(
   db: DatabaseSync,
-  sessionKey: string,
+  sessionUuid: string,
   sessionId?: string,
 ): StoredSummary | null {
   if (sessionId) {
     const row = db
       .prepare(
-        `SELECT sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy
-           FROM session_summaries WHERE sessionKey = ? AND sessionId = ?`,
+        `SELECT sessionUuid, sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy
+           FROM session_summaries WHERE sessionUuid = ? AND sessionId = ?`,
       )
-      .get(sessionKey, sessionId) as StoredSummary | undefined;
+      .get(sessionUuid, sessionId) as StoredSummary | undefined;
     return row ?? null;
   }
 
   const row = db
     .prepare(
-      `SELECT sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy
-         FROM session_summaries WHERE sessionKey = ? ORDER BY generatedAt DESC LIMIT 1`,
+      `SELECT sessionUuid, sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy
+         FROM session_summaries WHERE sessionUuid = ? ORDER BY generatedAt DESC LIMIT 1`,
     )
-    .get(sessionKey) as StoredSummary | undefined;
+    .get(sessionUuid) as StoredSummary | undefined;
   return row ?? null;
 }
 
@@ -70,15 +73,15 @@ export function getSummary(
  * Delete the summary for a sessionKey and optional sessionId.
  * Idempotent: does not throw if no summary exists.
  */
-export function deleteSummary(db: DatabaseSync, sessionKey: string, sessionId?: string): void {
+export function deleteSummary(db: DatabaseSync, sessionUuid: string, sessionId?: string): void {
   if (sessionId) {
-    db.prepare("DELETE FROM session_summaries WHERE sessionKey = ? AND sessionId = ?").run(
-      sessionKey,
+    db.prepare("DELETE FROM session_summaries WHERE sessionUuid = ? AND sessionId = ?").run(
+      sessionUuid,
       sessionId,
     );
     return;
   }
-  db.prepare("DELETE FROM session_summaries WHERE sessionKey = ?").run(sessionKey);
+  db.prepare("DELETE FROM session_summaries WHERE sessionUuid = ?").run(sessionUuid);
 }
 
 /**
@@ -86,7 +89,7 @@ export function deleteSummary(db: DatabaseSync, sessionKey: string, sessionId?: 
  * Called when a session is permanently deleted.
  * Idempotent: does not throw if no rows exist.
  */
-export function deleteSessionMessages(db: DatabaseSync, sessionKey: string): void {
-  db.prepare("DELETE FROM session_messages WHERE sessionKey = ?").run(sessionKey);
-  db.prepare("DELETE FROM session_msg_statistic WHERE sessionKey = ?").run(sessionKey);
+export function deleteSessionMessages(db: DatabaseSync, sessionUuid: string): void {
+  db.prepare("DELETE FROM session_messages WHERE sessionUuid = ?").run(sessionUuid);
+  db.prepare("DELETE FROM session_msg_statistic WHERE sessionUuid = ?").run(sessionUuid);
 }

@@ -27,7 +27,7 @@ export class MessageController {
     const clientRunId = crypto.randomUUID();
 
     // 乐观追加用户消息，立即显示在聊天列表中
-    this.store.appendMessage(session.key, {
+    this.store.appendMessage(session.sessionUuid!, {
       role: "user",
       content: [{ type: "text", text: rawText }],
       timestamp: Date.now(),

@@ -110,9 +110,11 @@ export async function createMas4sGatewayPlugin(
     try {
       // On session delete, remove the label, all messages, and summary from message DB.
       if (event.reason === "session-delete") {
-        deleteSessionLabel(db, event.sessionKey);
-        deleteSummary(messageDb, event.sessionKey);
-        deleteSessionMessages(messageDb, event.sessionKey);
+        const { extractUuidFromKey } = require("../utils/session-utils.js");
+        const uuid = extractUuidFromKey(event.sessionKey);
+        deleteSessionLabel(db, uuid);
+        deleteSummary(messageDb, uuid);
+        deleteSessionMessages(messageDb, uuid);
         return;
       }
       const hasLabel = event.label !== undefined;
@@ -169,7 +171,11 @@ export async function createMas4sGatewayPlugin(
           resolvedSid,
         );
 
+        const { extractUuidFromKey } = await import("../utils/session-utils.js");
+        const sessionUuid = extractUuidFromKey(sessionKey);
+
         const queryParams = {
+          sessionUuid,
           sessionKey,
           sessionId: resolvedSid,
           from: resolvedFrom,
@@ -180,6 +186,7 @@ export async function createMas4sGatewayPlugin(
         };
         console.log("[mas4s:session.history.range] params:", JSON.stringify(queryParams));
         const result = queryHistoryRange(messageDb, {
+          sessionUuid,
           sessionKey,
           sessionId: resolvedSid,
           from: resolvedFrom,
@@ -546,8 +553,11 @@ export async function createMas4sGatewayPlugin(
           return;
         }
 
+        const { extractUuidFromKey } = await import("../utils/session-utils.js");
+        const uuid = extractUuidFromKey(sessionKey);
+
         const { getSummary } = await import("../session-history/session-summary-store.js");
-        const summary = getSummary(messageDb, sessionKey);
+        const summary = getSummary(messageDb, uuid);
         respond(true, { summary }, undefined);
       } catch (err) {
         const e =
@@ -598,6 +608,47 @@ export async function createMas4sGatewayPlugin(
         }
         const all = listSessionLabels(db);
         respond(true, { labels: all }, undefined);
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
+    "session.agent.update": async ({ params, client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        const sessionKey = str(params["sessionKey"]);
+        const agentId = str(params["agentId"]);
+        if (!sessionKey || !agentId) {
+          respond(
+            false,
+            undefined,
+            errorShape("INVALID_PARAMS", "sessionKey and agentId required"),
+          );
+          return;
+        }
+
+        const userId = auth.userId;
+        if (!userId) {
+          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
+          return;
+        }
+
+        // Permission check: only owner can change agent
+        const { extractUuidFromKey } = await import("../utils/session-utils.js");
+        const uuid = extractUuidFromKey(sessionKey);
+        const role = bridge.getSessionRole(uuid, userId);
+        if (role !== "owner") {
+          respond(
+            false,
+            undefined,
+            errorShape("SESSION_ACCESS_DENIED", "Only the session owner can change the agent"),
+          );
+          return;
+        }
+
+        upsertSessionLabel(db, sessionKey, { currentAgentId: agentId });
+        respond(true, { ok: true, agentId }, undefined);
       } catch (err) {
         const e =
           err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));

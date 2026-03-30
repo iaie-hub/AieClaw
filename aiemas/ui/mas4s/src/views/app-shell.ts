@@ -18,6 +18,7 @@ export interface AppShellHandlers {
   onSessionMembersFetch: (e: CustomEvent<{ sessionKey: string }>) => void;
   onUserInvite: (e: CustomEvent<{ sessionKey: string; userId: string }>) => void;
   onMemberRemove: (e: CustomEvent<{ sessionKey: string; userId: string }>) => void;
+  onSessionAgentUpdate: (e: CustomEvent<{ sessionKey: string; agentId: string }>) => void;
   onSendMessage: (e: CustomEvent<{ text: string }>) => void;
   onResolveApproval: (e: CustomEvent<{ id: string; decision: string }>) => void;
   onInviteOpen: () => void;
@@ -79,7 +80,7 @@ export function renderMain(
       ? html`
           <session-sidebar
             .sessions=${store.sessions}
-            .activeSessionKey=${store.activeSessionId ?? ""}
+            .activeSessionKey=${store.activeSessionUuid ?? ""}
             @session-select=${h.onSessionSelect}
             @session-create=${h.onSessionCreate}
             @session-rename=${h.onSessionRename}
@@ -98,22 +99,22 @@ export function renderMain(
             <main-workspace
               .activeNav=${activeNav}
               .session=${store.activeSession ?? null}
-              .messages=${store.activeSessionId
-                ? (store.messagesBySession.get(store.activeSessionId) ?? [])
+              .messages=${store.activeSessionUuid
+                ? (store.messagesBySession.get(store.activeSessionUuid) ?? [])
                 : []}
               .pendingApprovals=${store.pendingApprovals}
               .resolvedApprovals=${store.resolvedApprovals}
-              .hasSummary=${store.activeSessionId
-                ? store.getHistoryMeta(store.activeSessionId).hasSummary
+              .hasSummary=${store.activeSessionUuid
+                ? store.getHistoryMeta(store.activeSessionUuid).hasSummary
                 : false}
-              .truncated=${store.activeSessionId
-                ? store.getHistoryMeta(store.activeSessionId).truncated
+              .truncated=${store.activeSessionUuid
+                ? store.getHistoryMeta(store.activeSessionUuid).truncated
                 : false}
               .hasMoreHistory=${(() => {
-                if (!store.activeSessionId) {
+                if (!store.activeSessionUuid) {
                   return false;
                 }
-                const meta = store.getHistoryMeta(store.activeSessionId);
+                const meta = store.getHistoryMeta(store.activeSessionUuid);
                 // Use page < totalPages as the authoritative signal.
                 // totalMsgCount cannot be compared against loaded message count because
                 // splitHistoryMessage expands one raw message into multiple render bubbles,
@@ -125,6 +126,7 @@ export function renderMain(
               @invite-open=${h.onInviteOpen}
               @session-archive=${h.onSessionArchive}
               @session-unarchive=${h.onSessionUnarchive}
+              @session-agent-update=${h.onSessionAgentUpdate}
               @load-more-history=${h.onLoadMoreHistory}
             ></main-workspace>
           `}

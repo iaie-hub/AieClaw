@@ -348,3 +348,13 @@ export async function joinSession(
     participants: [],
   } as MasSession;
 }
+/**
+ * 更新会话关联的 Agent。
+ */
+export async function updateSessionAgent(
+  client: GatewayBrowserClient,
+  sessionKey: string,
+  agentId: string,
+): Promise<void> {
+  await client.request("session.agent.update", { sessionKey, agentId });
+}

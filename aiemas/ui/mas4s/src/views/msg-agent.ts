@@ -1,8 +1,9 @@
+import { extractAgentNameFromKey } from "@core/utils/session-utils.js";
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { markdownMath } from "../lib/markdown-directive.js";
-import type { ChatMessage, MessageContentItem } from "../types/chat-types.js";
 import "./msg-tool-card.js";
+import type { ChatMessage, MessageContentItem } from "../types/chat-types.js";
 
 /**
  * Agent 消息气泡（左对齐，绿色渐变头像）。
@@ -394,7 +395,9 @@ export class MsgAgent extends LitElement {
   }
 
   render() {
-    const name = this.message.senderLabel ?? "Agent";
+    const agentName = this.message.sessionKey
+      ? extractAgentNameFromKey(this.message.sessionKey)
+      : (this.message.senderLabel ?? "Agent");
     const ts = this.message.timestamp;
     const timeStr = ts
       ? (() => {
@@ -437,7 +440,8 @@ export class MsgAgent extends LitElement {
         </div>
         <div class="message-content">
           <div class="message-name">
-            ${name} ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
+            Agent: ${agentName}
+            ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
           </div>
           ${this._renderContent(this.message.content)}
         </div>

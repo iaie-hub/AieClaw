@@ -7,6 +7,7 @@ import {
   SESSION_ACCESS_DENIED,
 } from "../errors.js";
 import type { SessionMember } from "../models.js";
+import { extractUuidFromKey } from "../utils/session-utils.js";
 
 /**
  * Record session creation: create SessionOwnership AND SessionMembership (role="owner")
@@ -17,32 +18,34 @@ export function recordSessionCreated(
   userId: string,
   tenantId: string,
 ): void {
+  const uuid = extractUuidFromKey(sessionKey);
   const now = Date.now();
   db.prepare(
-    "INSERT OR IGNORE INTO session_ownership (sessionKey, userId, tenantId, createdAt) VALUES (?, ?, ?, ?)",
-  ).run(sessionKey, userId, tenantId, now);
+    "INSERT OR IGNORE INTO session_ownership (sessionUuid, userId, tenantId, createdAt) VALUES (?, ?, ?, ?)",
+  ).run(uuid, userId, tenantId, now);
   db.prepare(
-    "INSERT OR IGNORE INTO session_memberships (sessionKey, userId, role, joinedAt) VALUES (?, ?, 'owner', ?)",
-  ).run(sessionKey, userId, now);
+    "INSERT OR IGNORE INTO session_memberships (sessionUuid, userId, role, joinedAt) VALUES (?, ?, 'owner', ?)",
+  ).run(uuid, userId, now);
 }
 
 /**
- * List all sessionKeys where user has a membership
+ * List all sessionUuuids where user has a membership
  */
 export function listSessionsForUser(db: DatabaseSync, userId: string): string[] {
   const rows = db
-    .prepare("SELECT sessionKey FROM session_memberships WHERE userId = ?")
-    .all(userId) as Array<{ sessionKey: string }>;
-  return rows.map((r) => r.sessionKey);
+    .prepare("SELECT sessionUuid FROM session_memberships WHERE userId = ?")
+    .all(userId) as Array<{ sessionUuid: string }>;
+  return rows.map((r) => r.sessionUuid);
 }
 
 /**
  * Check if user has membership for a session
  */
-export function checkSessionAccess(db: DatabaseSync, sessionKey: string, userId: string): boolean {
+export function checkSessionAccess(db: DatabaseSync, identifier: string, userId: string): boolean {
+  const uuid = identifier.includes(":") ? extractUuidFromKey(identifier) : identifier;
   const row = db
-    .prepare("SELECT 1 FROM session_memberships WHERE sessionKey = ? AND userId = ?")
-    .get(sessionKey, userId);
+    .prepare("SELECT 1 FROM session_memberships WHERE sessionUuid = ? AND userId = ?")
+    .get(uuid, userId);
   return row != null;
 }
 
@@ -58,20 +61,21 @@ export function inviteToSession(
   targetUserId: string,
   callerUserId: string,
 ): SessionMember {
+  const uuid = extractUuidFromKey(sessionKey);
   // Check caller is a member
-  if (!checkSessionAccess(db, sessionKey, callerUserId)) {
+  if (!checkSessionAccess(db, uuid, callerUserId)) {
     throw new TenantServiceError(SESSION_ACCESS_DENIED, "You are not a member of this session");
   }
 
   // Check target is not already a member
-  if (checkSessionAccess(db, sessionKey, targetUserId)) {
+  if (checkSessionAccess(db, uuid, targetUserId)) {
     throw new TenantServiceError(ALREADY_MEMBER, "User is already a member of this session");
   }
 
   const now = Date.now();
   db.prepare(
-    "INSERT INTO session_memberships (sessionKey, userId, role, joinedAt) VALUES (?, ?, 'participant', ?)",
-  ).run(sessionKey, targetUserId, now);
+    "INSERT INTO session_memberships (sessionUuid, userId, role, joinedAt) VALUES (?, ?, 'participant', ?)",
+  ).run(uuid, targetUserId, now);
 
   // Fetch displayName for the new member
   const user = db.prepare("SELECT displayName FROM users WHERE userId = ?").get(targetUserId) as
@@ -98,10 +102,11 @@ export function removeMember(
   targetUserId: string,
   callerUserId: string,
 ): void {
+  const uuid = extractUuidFromKey(sessionKey);
   // Check caller is the owner
   const callerRow = db
-    .prepare("SELECT role FROM session_memberships WHERE sessionKey = ? AND userId = ?")
-    .get(sessionKey, callerUserId) as { role: string } | undefined;
+    .prepare("SELECT role FROM session_memberships WHERE sessionUuid = ? AND userId = ?")
+    .get(uuid, callerUserId) as { role: string } | undefined;
 
   if (!callerRow || callerRow.role !== "owner") {
     throw new TenantServiceError(
@@ -119,12 +124,12 @@ export function removeMember(
   }
 
   // Check target is a member
-  if (!checkSessionAccess(db, sessionKey, targetUserId)) {
+  if (!checkSessionAccess(db, uuid, targetUserId)) {
     throw new TenantServiceError(NOT_A_MEMBER, "Target user is not a member of this session");
   }
 
-  db.prepare("DELETE FROM session_memberships WHERE sessionKey = ? AND userId = ?").run(
-    sessionKey,
+  db.prepare("DELETE FROM session_memberships WHERE sessionUuid = ? AND userId = ?").run(
+    uuid,
     targetUserId,
   );
 }
@@ -136,10 +141,11 @@ export function removeMember(
  */
 export function listSessionMembers(
   db: DatabaseSync,
-  sessionKey: string,
+  identifier: string,
   callerUserId: string,
 ): SessionMember[] {
-  if (!checkSessionAccess(db, sessionKey, callerUserId)) {
+  const uuid = identifier.includes(":") ? extractUuidFromKey(identifier) : identifier;
+  if (!checkSessionAccess(db, uuid, callerUserId)) {
     throw new TenantServiceError(SESSION_ACCESS_DENIED, "You are not a member of this session");
   }
 
@@ -148,9 +154,9 @@ export function listSessionMembers(
       `SELECT sm.userId, u.displayName, sm.role, sm.joinedAt
        FROM session_memberships sm
        JOIN users u ON u.userId = sm.userId
-       WHERE sm.sessionKey = ?`,
+       WHERE sm.sessionUuid = ?`,
     )
-    .all(sessionKey) as Array<{
+    .all(uuid) as Array<{
     userId: string;
     displayName: string;
     role: string;
@@ -171,9 +177,10 @@ export function listSessionMembers(
  * Returns SESSION_ACCESS_DENIED if not a member.
  */
 export function leaveSession(db: DatabaseSync, sessionKey: string, callerUserId: string): void {
+  const uuid = extractUuidFromKey(sessionKey);
   const row = db
-    .prepare("SELECT role FROM session_memberships WHERE sessionKey = ? AND userId = ?")
-    .get(sessionKey, callerUserId) as { role: string } | undefined;
+    .prepare("SELECT role FROM session_memberships WHERE sessionUuid = ? AND userId = ?")
+    .get(uuid, callerUserId) as { role: string } | undefined;
 
   if (!row) {
     throw new TenantServiceError(SESSION_ACCESS_DENIED, "You are not a member of this session");
@@ -183,8 +190,8 @@ export function leaveSession(db: DatabaseSync, sessionKey: string, callerUserId:
     throw new TenantServiceError(OWNER_CANNOT_LEAVE, "Owner cannot leave the session");
   }
 
-  db.prepare("DELETE FROM session_memberships WHERE sessionKey = ? AND userId = ?").run(
-    sessionKey,
+  db.prepare("DELETE FROM session_memberships WHERE sessionUuid = ? AND userId = ?").run(
+    uuid,
     callerUserId,
   );
 }
@@ -192,20 +199,22 @@ export function leaveSession(db: DatabaseSync, sessionKey: string, callerUserId:
 /**
  * Get all member userIds for a session (for broadcast filtering)
  */
-export function getSessionMemberUserIds(db: DatabaseSync, sessionKey: string): string[] {
+export function getSessionMemberUserIds(db: DatabaseSync, identifier: string): string[] {
+  const uuid = identifier.includes(":") ? extractUuidFromKey(identifier) : identifier;
   const rows = db
-    .prepare("SELECT userId FROM session_memberships WHERE sessionKey = ?")
-    .all(sessionKey) as Array<{ userId: string }>;
+    .prepare("SELECT userId FROM session_memberships WHERE sessionUuid = ?")
+    .all(uuid) as Array<{ userId: string }>;
   return rows.map((r) => r.userId);
 }
 
 /**
  * Get owner userIds for a session (for approval event broadcast)
  */
-export function getSessionOwnerUserIds(db: DatabaseSync, sessionKey: string): string[] {
+export function getSessionOwnerUserIds(db: DatabaseSync, identifier: string): string[] {
+  const uuid = identifier.includes(":") ? extractUuidFromKey(identifier) : identifier;
   const rows = db
-    .prepare("SELECT userId FROM session_memberships WHERE sessionKey = ? AND role = 'owner'")
-    .all(sessionKey) as Array<{ userId: string }>;
+    .prepare("SELECT userId FROM session_memberships WHERE sessionUuid = ? AND role = 'owner'")
+    .all(uuid) as Array<{ userId: string }>;
   return rows.map((r) => r.userId);
 }
 
@@ -215,10 +224,11 @@ export function getSessionOwnerUserIds(db: DatabaseSync, sessionKey: string): st
  * Returns the archivedAt timestamp.
  */
 export function archiveSession(db: DatabaseSync, sessionKey: string, callerUserId: string): number {
+  const uuid = extractUuidFromKey(sessionKey);
   // Verify caller is the owner
   const callerRow = db
-    .prepare("SELECT role FROM session_memberships WHERE sessionKey = ? AND userId = ?")
-    .get(sessionKey, callerUserId) as { role: string } | undefined;
+    .prepare("SELECT role FROM session_memberships WHERE sessionUuid = ? AND userId = ?")
+    .get(uuid, callerUserId) as { role: string } | undefined;
 
   if (!callerRow || callerRow.role !== "owner") {
     throw new TenantServiceError(
@@ -229,28 +239,26 @@ export function archiveSession(db: DatabaseSync, sessionKey: string, callerUserI
 
   // Check if already archived (idempotent)
   const ownership = db
-    .prepare("SELECT archivedAt FROM session_ownership WHERE sessionKey = ?")
-    .get(sessionKey) as { archivedAt: number | null } | undefined;
+    .prepare("SELECT archivedAt FROM session_ownership WHERE sessionUuid = ?")
+    .get(uuid) as { archivedAt: number | null } | undefined;
 
   if (ownership?.archivedAt != null) {
     return ownership.archivedAt;
   }
 
   const now = Date.now();
-  db.prepare("UPDATE session_ownership SET archivedAt = ? WHERE sessionKey = ?").run(
-    now,
-    sessionKey,
-  );
+  db.prepare("UPDATE session_ownership SET archivedAt = ? WHERE sessionUuid = ?").run(now, uuid);
   return now;
 }
 
 /**
  * Check if a session is archived (archivedAt is not NULL).
  */
-export function isSessionArchived(db: DatabaseSync, sessionKey: string): boolean {
+export function isSessionArchived(db: DatabaseSync, identifier: string): boolean {
+  const uuid = identifier.includes(":") ? extractUuidFromKey(identifier) : identifier;
   const row = db
-    .prepare("SELECT archivedAt FROM session_ownership WHERE sessionKey = ?")
-    .get(sessionKey) as { archivedAt: number | null } | undefined;
+    .prepare("SELECT archivedAt FROM session_ownership WHERE sessionUuid = ?")
+    .get(uuid) as { archivedAt: number | null } | undefined;
   return row?.archivedAt != null;
 }
 
@@ -258,10 +266,11 @@ export function isSessionArchived(db: DatabaseSync, sessionKey: string): boolean
  * Unarchive a session (reset archivedAt to NULL). Only the owner can unarchive.
  */
 export function unarchiveSession(db: DatabaseSync, sessionKey: string, callerUserId: string): void {
+  const uuid = extractUuidFromKey(sessionKey);
   // Verify caller is the owner
   const callerRow = db
-    .prepare("SELECT role FROM session_memberships WHERE sessionKey = ? AND userId = ?")
-    .get(sessionKey, callerUserId) as { role: string } | undefined;
+    .prepare("SELECT role FROM session_memberships WHERE sessionUuid = ? AND userId = ?")
+    .get(uuid, callerUserId) as { role: string } | undefined;
 
   if (!callerRow || callerRow.role !== "owner") {
     throw new TenantServiceError(
@@ -270,13 +279,14 @@ export function unarchiveSession(db: DatabaseSync, sessionKey: string, callerUse
     );
   }
 
-  db.prepare("UPDATE session_ownership SET archivedAt = NULL WHERE sessionKey = ?").run(sessionKey);
+  db.prepare("UPDATE session_ownership SET archivedAt = NULL WHERE sessionUuid = ?").run(uuid);
 }
 
 /**
  * Delete all session records (ownership + memberships) for a deleted session.
  */
-export function deleteSessionRecords(db: DatabaseSync, sessionKey: string): void {
-  db.prepare("DELETE FROM session_memberships WHERE sessionKey = ?").run(sessionKey);
-  db.prepare("DELETE FROM session_ownership WHERE sessionKey = ?").run(sessionKey);
+export function deleteSessionRecords(db: DatabaseSync, identifier: string): void {
+  const uuid = identifier.includes(":") ? extractUuidFromKey(identifier) : identifier;
+  db.prepare("DELETE FROM session_memberships WHERE sessionUuid = ?").run(uuid);
+  db.prepare("DELETE FROM session_ownership WHERE sessionUuid = ?").run(uuid);
 }

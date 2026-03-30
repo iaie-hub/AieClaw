@@ -1,3 +1,4 @@
+import { extractUuidFromKey } from "@core/utils/session-utils.js";
 import type { GatewayEventFrame } from "../lib/gateway.js";
 import { normalizeMessage } from "../lib/message-normalizer.js";
 import { AppStore } from "../store/app-store.js";
@@ -114,7 +115,7 @@ export function registerEventHandlers(): void {
       }
       case "session.removed": {
         const { sessionKey } = evt.payload as { sessionKey: string; removedBy: string };
-        store.removeSession(sessionKey);
+        store.removeSession(extractUuidFromKey(sessionKey));
         console.info("您已被移出会话");
         break;
       }
@@ -209,9 +210,11 @@ function handleChatEvent(store: AppStore, payload: unknown): void {
     message?: unknown;
   };
 
+  const uuid = extractUuidFromKey(sessionKey);
+
   if (state === "clear") {
-    store.clearMessages(sessionKey);
-    store.resetToolStream(sessionKey);
+    store.clearMessages(uuid);
+    store.resetToolStream(uuid);
     return;
   }
 
@@ -286,7 +289,8 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
       id: runId,
       senderLabel: null,
     };
-    updateChatStream(store, sessionKey, streamMsg, false);
+    const uuid = extractUuidFromKey(sessionKey);
+    updateChatStream(store, uuid, streamMsg, false);
     return;
   }
 
@@ -304,15 +308,19 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
           ? formatToolOutput(data.result)
           : existing?.output;
 
-    store.upsertToolStream({
-      toolCallId,
-      runId,
-      sessionKey,
-      name,
-      args: phase === "start" ? data.args : existing?.args,
-      output: output ?? undefined,
-      startedAt: existing?.startedAt ?? Date.now(),
-    });
+    const uuid = extractUuidFromKey(sessionKey);
+    store.upsertToolStream(
+      {
+        toolCallId,
+        runId,
+        sessionKey, // toolStream 内部可能仍需要原始 key
+        name,
+        args: phase === "start" ? data.args : existing?.args,
+        output: output ?? undefined,
+        startedAt: existing?.startedAt ?? Date.now(),
+      },
+      uuid,
+    );
 
     // When a tool execution finishes (phase="result"), append a dedicated toolResult message
     // to the chat flow so it is rendered by MsgToolResult/MsgToolCard.
@@ -334,7 +342,8 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
         ),
       };
       debugLog(`[mas4s:event-handler] Appending manual toolResult message for ${name}`, toolMsg);
-      store.appendMessage(sessionKey, toolMsg);
+      const uuid = extractUuidFromKey(sessionKey);
+      store.appendMessage(uuid, toolMsg);
     }
     return;
   }
@@ -345,6 +354,7 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
     _thinkingByRun.set(runId, thinkingText);
 
     if (sessionKey) {
+      const uuid = extractUuidFromKey(sessionKey);
       const streamMsg: ChatMessage = {
         role: "assistant",
         content: [{ type: "thinking", thinking: thinkingText }],
@@ -352,7 +362,7 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
         id: runId,
         senderLabel: null,
       };
-      updateChatStream(store, sessionKey, streamMsg, false);
+      updateChatStream(store, uuid, streamMsg, false);
     }
     return;
   }
@@ -369,11 +379,11 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
  */
 export function updateChatStream(
   store: AppStore,
-  sessionKey: string,
+  sessionUuid: string,
   msg: ChatMessage,
   isFinal: boolean,
 ): void {
-  const msgs = store.messagesBySession.get(sessionKey) ?? [];
+  const msgs = store.messagesBySession.get(sessionUuid) ?? [];
 
   // 只在最后一条消息 ID 匹配时执行原地更新，避免跨越工具调用或协作消息进行原地覆盖
   const last = msgs[msgs.length - 1];
@@ -387,12 +397,12 @@ export function updateChatStream(
         mergedContent = [...existingThinking, ...incomingNonThinking];
       }
     }
-    store.updateLastMessage(sessionKey, { ...last, content: mergedContent });
+    store.updateLastMessage(sessionUuid, { ...last, content: mergedContent });
     return;
   }
 
   // 不存在匹配的末尾消息，则追加
-  store.appendMessage(sessionKey, msg);
+  store.appendMessage(sessionUuid, msg);
 }
 
 /**
