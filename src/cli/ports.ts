@@ -372,6 +372,13 @@ export async function waitForPortBindable(
   const intervalMs = Math.max(opts.intervalMs ?? 150, 1);
   const host = opts.host;
   let waited = 0;
+  if (host) {
+    console.log(
+      `[port] waiting for port ${port} to become bindable on ${host} (timeout ${timeoutMs}ms)`,
+    );
+  } else {
+    console.log(`[port] waiting for port ${port} to become bindable (timeout ${timeoutMs}ms)`);
+  }
   while (waited < timeoutMs) {
     if (await probePortFree(port, host)) {
       return waited;

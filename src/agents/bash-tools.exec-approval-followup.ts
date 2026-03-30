@@ -11,27 +11,39 @@ type ExecApprovalFollowupParams = {
   resultText: string;
 };
 
-export function buildExecApprovalFollowupPrompt(resultText: string): string {
-  const prompt = [
-    "SYSTEM: An async exec command that the user already approved has completed. This is a completion notification only.",
-    "CRITICAL INSTRUCTIONS — you MUST follow all of these:",
-    "1. Do NOT call exec or any other tool.",
-    "2. Do NOT re-run the command.",
-    "3. Do NOT start new tasks or plan new steps.",
-    "4. ONLY summarize the result below and reply to the user.",
+function buildExecDeniedFollowupPrompt(resultText: string): string {
+  return [
+    "An async command did not run.",
+    "Do not run the command again.",
+    "There is no new command output.",
+    "Do not mention, summarize, or reuse output from any earlier run in this session.",
     "",
-    "Completed command result:",
+    "Exact completion details:",
     resultText.trim(),
+    "",
+    "Reply to the user in a helpful way.",
+    "Explain that the command did not run and why.",
+    "Do not claim there is new command output.",
+  ].join("\n");
+}
+
+export function buildExecApprovalFollowupPrompt(resultText: string): string {
+  const trimmed = resultText.trim();
+  if (trimmed.startsWith("Exec denied (")) {
+    return buildExecDeniedFollowupPrompt(trimmed);
+  }
+  return [
+    "An async command the user already approved has completed.",
+    "Do not run the command again.",
+    "",
+    "Exact completion details:",
+    trimmed,
     "",
     "Reply to the user with the relevant output above.",
     "If it succeeded, share the key results.",
     "If it failed, explain what went wrong.",
     "Do not call any tools. Do not run any commands.",
   ].join("\n");
-  console.log(
-    `[exec-approval-followup] built prompt (${prompt.length} chars): ${prompt.slice(0, 200)}...`,
-  );
-  return prompt;
 }
 
 export async function sendExecApprovalFollowup(

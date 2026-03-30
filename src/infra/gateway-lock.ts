@@ -186,6 +186,7 @@ export async function acquireGatewayLock(
   const sleep =
     opts.sleep ?? (async (ms: number) => await new Promise((resolve) => setTimeout(resolve, ms)));
   const { lockPath, configPath } = resolveGatewayLockPath(env, opts.lockDir);
+  console.log(`[lock] checking gateway lock at ${lockPath} (timeout ${timeoutMs}ms)`);
   await fs.mkdir(path.dirname(lockPath), { recursive: true });
 
   const startedAt = now();
@@ -220,13 +221,16 @@ export async function acquireGatewayLock(
 
       lastPayload = await readLockPayload(lockPath);
       const ownerPid = lastPayload?.pid;
+      console.log(`[lock] lock busy (owner pid ${ownerPid ?? "unknown"}), resolving status...`);
       const ownerStatus = ownerPid
         ? await resolveGatewayOwnerStatus(ownerPid, lastPayload, platform, port)
         : "unknown";
       if (ownerStatus === "dead" && ownerPid) {
+        console.log(`[lock] owner pid ${ownerPid} is dead, removing stale lock file`);
         await fs.rm(lockPath, { force: true });
         continue;
       }
+      console.log(`[lock] owner pid ${ownerPid} status: ${ownerStatus}`);
       if (ownerStatus !== "alive") {
         let stale = false;
         if (lastPayload?.createdAt) {

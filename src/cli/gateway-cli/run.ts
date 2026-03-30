@@ -275,6 +275,7 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
       if (bindWaitMs > 0) {
         gatewayLog.info(`force: waited ${bindWaitMs}ms for port ${port} to become bindable`);
       }
+      gatewayLog.info(`force: port ${port} is bindable`);
     } catch (err) {
       defaultRuntime.error(`Force: ${String(err)}`);
       defaultRuntime.exit(1);
@@ -436,6 +437,7 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
         }),
     });
 
+  gatewayLog.info(`run-gateway: entering main loop on port ${port}`);
   try {
     const supervisor = detectRespawnSupervisor(process.env);
     while (true) {
