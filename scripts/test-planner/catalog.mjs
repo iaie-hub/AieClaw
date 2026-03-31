@@ -61,6 +61,7 @@ export function loadTestCatalog() {
       ...walkTestFiles("src"),
       ...walkTestFiles(BUNDLED_PLUGIN_ROOT_DIR),
       ...walkTestFiles("packages"),
+      ...walkTestFiles("aiemas"),
       ...walkTestFiles("test"),
       ...walkTestFiles(path.join("ui", "src", "ui")),
     ]),

@@ -8,7 +8,9 @@ export interface AppShellHandlers {
   onLogout: () => void;
   onNavChange: (e: CustomEvent<{ nav: NavItem }>) => void;
   onSessionSelect: (e: CustomEvent<{ sessionKey: string }>) => void;
-  onSessionCreate: (e: CustomEvent<{ label: string }>) => void;
+  onSessionCreate: (
+    e: CustomEvent<{ label: string; agentId?: string; reasoningLevel?: "stream" | "on" | "off" }>,
+  ) => void;
   onSessionRename: (e: CustomEvent<{ sessionKey: string; label: string }>) => void;
   onSessionDelete: (e: CustomEvent<{ sessionKey: string }>) => void;
   onSessionRefresh: (e: Event) => void;
@@ -80,6 +82,7 @@ export function renderMain(
       ? html`
           <session-sidebar
             .sessions=${store.sessions}
+            .agents=${store.agents}
             .activeSessionKey=${store.activeSessionUuid ?? ""}
             @session-select=${h.onSessionSelect}
             @session-create=${h.onSessionCreate}

@@ -21,17 +21,23 @@ export class SessionController {
   constructor(private readonly store: AppStore) {}
 
   onSessionCreate = async (
-    e: CustomEvent<{ label: string; reasoningLevel?: "stream" | "on" | "off" }>,
+    e: CustomEvent<{
+      label: string;
+      agentId?: string;
+      reasoningLevel?: "stream" | "on" | "off";
+    }>,
   ) => {
     console.debug(
-      "[mas4s:session] create → label=%s reasoningLevel=%s",
+      "[mas4s:session] create → label=%s agentId=%s reasoningLevel=%s",
       e.detail.label,
+      e.detail.agentId,
       e.detail.reasoningLevel,
     );
     const client = getClient();
     try {
       const session = await createSession(client, {
         label: e.detail.label,
+        agentId: e.detail.agentId,
         reasoningLevel: e.detail.reasoningLevel,
       });
       // 创建成功后刷新完整会话列表，确保 label 等字段与 gateway 存储一致

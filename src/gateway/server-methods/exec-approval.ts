@@ -158,25 +158,25 @@ export function createExecApprovalHandlers(
           typeof p.turnSourceAccountId === "string" ? p.turnSourceAccountId.trim() || null : null,
         turnSourceThreadId: p.turnSourceThreadId ?? null,
       };
-      const record = manager.create(request, timeoutMs, explicitId);
+      let record = manager.findPendingByCommand(request.command, request.sessionKey);
+      let isNew = false;
+      if (!record) {
+        record = manager.create(request, timeoutMs, explicitId);
+        isNew = true;
+      } else {
+        context.logGateway?.info?.(
+          `[exec.approval.request] reusing existing record id=${record.id} for command="${request.command}" sessionKey=${request.sessionKey}`,
+        );
+      }
       record.requestedByConnId = client?.connId ?? null;
       record.requestedByDeviceId = client?.connect?.device?.id ?? null;
       record.requestedByClientId = client?.connect?.client?.id ?? null;
 
       // Log every incoming approval request for duplicate/loop diagnosis
       const pendingCount = manager.pendingCount;
-      const pendingCommands = manager.listPendingCommands();
-      const duplicates = pendingCommands.filter(
-        (p) => p.command === request.command && p.sessionKey === request.sessionKey,
-      );
       console.log(
-        `[exec.approval.request] id=${record.id} command="${request.command}" sessionKey=${request.sessionKey} agentId=${request.agentId} connId=${record.requestedByConnId} pendingTotal=${pendingCount} duplicatesForSession=${duplicates.length}`,
+        `[exec.approval.request] id=${record.id} command="${request.command}" sessionKey=${request.sessionKey} agentId=${request.agentId} connId=${record.requestedByConnId} pendingTotal=${pendingCount} isNew=${isNew}`,
       );
-      if (duplicates.length > 0) {
-        console.log(
-          `[exec.approval.request] WARNING: duplicate approval for same command+session: ${JSON.stringify(duplicates.map((d) => ({ id: d.id, createdAtMs: d.createdAtMs })))}`,
-        );
-      }
 
       // Use register() to synchronously add to pending map before sending any response.
       // This ensures the approval ID is valid immediately after the "accepted" response.
@@ -193,16 +193,19 @@ export function createExecApprovalHandlers(
         );
         return;
       }
-      context.broadcast(
-        "exec.approval.requested",
-        {
-          id: record.id,
-          request: record.request,
-          createdAtMs: record.createdAtMs,
-          expiresAtMs: record.expiresAtMs,
-        },
-        { dropIfSlow: true },
-      );
+
+      if (isNew) {
+        context.broadcast(
+          "exec.approval.requested",
+          {
+            id: record.id,
+            request: record.request,
+            createdAtMs: record.createdAtMs,
+            expiresAtMs: record.expiresAtMs,
+          },
+          { dropIfSlow: true },
+        );
+      }
       const hasExecApprovalClients = context.hasExecApprovalClients?.(client?.connId) ?? false;
       let forwarded = false;
       if (opts?.forwarder) {

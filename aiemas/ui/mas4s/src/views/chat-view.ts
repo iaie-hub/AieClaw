@@ -34,6 +34,7 @@ export class ChatView extends LitElement {
   @state() private _loadingMore = false;
   private _eventsBound = false;
   private _wheelAccumulator = 0;
+  private _isAtBottom = true;
 
   @query(".chat-container")
   private _container!: HTMLElement;
@@ -51,7 +52,6 @@ export class ChatView extends LitElement {
       flex: 1;
       overflow-y: auto;
       padding: 30px;
-      scroll-behavior: smooth;
       overscroll-behavior-y: contain;
     }
 
@@ -215,10 +215,28 @@ export class ChatView extends LitElement {
 
   override willUpdate(changed: Map<string, unknown>) {
     if (changed.has("messages") && this._container) {
+      this._anchorRestore = false;
       const prev = changed.get("messages") as ChatMessage[] | undefined;
-      // Only lock anchor for history prepend (non-empty prev list), not initial load.
-      // Prevents first-load from being misidentified as a history page load.
+
+      // 在更新前判断用户是否已经处于底部（或非常接近底部）
+      // 阈值设为 150px，容忍轻微偏差
+      const threshold = 150;
+      const wasAtBottom =
+        this._container.scrollTop + this._container.clientHeight >=
+        this._container.scrollHeight - threshold;
+
+      // 如果是用户刚发送了消息（消息数量增加且最后一条是 user），强制视为处于底部
+      const lastMsg = this.messages[this.messages.length - 1];
+      const isUserSent =
+        prev &&
+        prev.length < this.messages.length &&
+        (lastMsg?.role === "user" || lastMsg?.role === "User");
+
+      this._isAtBottom = wasAtBottom || !!isUserSent;
+
+      // History prepend logic: 只有在明确触发了 _loadingMore 且 scrollTop 接近顶部时才启动锚点恢复
       if (
+        this._loadingMore &&
         prev &&
         prev.length > 0 &&
         prev.length < this.messages.length &&
@@ -242,27 +260,30 @@ export class ChatView extends LitElement {
       this._eventsBound = true;
     }
 
-    if (changed.has("messages")) {
+    if (changed.has("messages") || changed.has("session")) {
       if (this._anchorRestore && this._container) {
         // 前插消息后：补偿新增高度，使用户视口保持不动
         const delta = this._container.scrollHeight - this._prevScrollHeight;
         this._container.scrollTop = this._prevScrollTop + delta;
-        // 延迟 1000ms 释放锁，彻底吸收触控板/滚轮物理惯性，防止连发请求
+        // 延迟 1200ms 释放锁，由于 history 可能分批返回，这里给足缓冲期
         setTimeout(() => {
           this._loadingMore = false;
         }, 1200);
-      } else if (this._loadingMore) {
-        // 消息更新但未触发锚点恢复（用户已滚离顶部），同样延迟释放
-        setTimeout(() => {
-          this._loadingMore = false;
-        }, 1200);
-      } else {
-        // 实时新消息追加到末尾：滚动到底部
+      } else if (this._isAtBottom || (changed.has("session") && !this._anchorRestore)) {
+        // 实时新消息追加、Streaming 或 切换会话：
+        // 如果更新前在底部，或者刚切换会话且不是在加载历史，则更新后吸附到底部
         requestAnimationFrame(() => {
           if (this._container) {
             this._container.scrollTop = this._container.scrollHeight;
           }
         });
+      }
+
+      // 如果 _loadingMore 被开启但最终没有进入锚点逻辑（例如新消息插到了末尾），也需要重置加载状态
+      if (!this._anchorRestore && this._loadingMore) {
+        setTimeout(() => {
+          this._loadingMore = false;
+        }, 500);
       }
     }
   }
@@ -375,6 +396,7 @@ export class ChatView extends LitElement {
       }),
     );
     this._inputText = "";
+    this._isAtBottom = true;
   };
 
   // ── 摘要弹窗 ──────────────────────────────────────────────────────────────

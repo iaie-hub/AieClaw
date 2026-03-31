@@ -216,6 +216,27 @@ export class ExecApprovalManager<TPayload = ExecApprovalRequestPayload> {
     return result;
   }
 
+  findPendingByCommand(
+    command: string,
+    sessionKey: string | null,
+  ): ExecApprovalRecord<TPayload> | null {
+    for (const entry of this.pending.values()) {
+      if (entry.record.resolvedAtMs !== undefined) {
+        continue;
+      }
+      const req = entry.record.request as { command?: unknown; sessionKey?: unknown };
+      if (
+        typeof req.command === "string" &&
+        req.command === command &&
+        (sessionKey === null ||
+          (typeof req.sessionKey === "string" && req.sessionKey === sessionKey))
+      ) {
+        return entry.record;
+      }
+    }
+    return null;
+  }
+
   lookupPendingId(input: string): ExecApprovalIdLookupResult {
     const normalized = input.trim();
     if (!normalized) {

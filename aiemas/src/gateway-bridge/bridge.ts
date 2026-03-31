@@ -133,22 +133,24 @@ export class GatewayAuthBridge {
     }
 
     const memberUuids = new Set(sessionManager.listSessionsForUser(this.db, masAuth.userId));
+    const seenUuids = new Set<string>();
+    const result: unknown[] = [];
 
-    return sessions
-      .filter((session) => {
-        if (typeof session === "object" && session !== null) {
-          const s = session as Record<string, unknown>;
-          const key = (s["key"] ?? s["sessionKey"]) as string | undefined;
-          if (typeof key === "string") {
-            const uuid = extractUuidFromKey(key);
-            return memberUuids.has(uuid);
+    for (const session of sessions) {
+      if (typeof session === "object" && session !== null) {
+        const s = session as Record<string, unknown>;
+        const key = (s["key"] ?? s["sessionKey"]) as string | undefined;
+        if (typeof key === "string") {
+          const uuid = extractUuidFromKey(key);
+          if (memberUuids.has(uuid) && !seenUuids.has(uuid)) {
+            seenUuids.add(uuid);
+            result.push(enrichSessionRow(this.db, s, masAuth.userId));
           }
         }
-        return false;
-      })
-      .map((session) =>
-        enrichSessionRow(this.db, session as Record<string, unknown>, masAuth.userId!),
-      );
+      }
+    }
+
+    return result;
   }
 
   /**

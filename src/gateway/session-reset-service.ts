@@ -237,21 +237,48 @@ export async function cleanupSessionBeforeMutation(params: {
   canonicalKey?: string;
   reason: "session-reset" | "session-delete";
 }) {
-  const cleanupError = await ensureSessionRuntimeCleanup({
-    cfg: params.cfg,
-    key: params.key,
-    target: params.target,
-    sessionId: params.entry?.sessionId,
-  });
-  if (cleanupError) {
-    return cleanupError;
+  const isDelete = params.reason === "session-delete";
+  const acpSessionKey =
+    params.legacyKey ?? params.canonicalKey ?? params.target.canonicalKey ?? params.key;
+
+  const runCleanup = async () => {
+    const [ensureError, closeAcpError] = await Promise.all([
+      ensureSessionRuntimeCleanup({
+        cfg: params.cfg,
+        key: params.key,
+        target: params.target,
+        sessionId: params.entry?.sessionId,
+      }),
+      closeAcpRuntimeForSession({
+        cfg: params.cfg,
+        sessionKey: acpSessionKey,
+        entry: params.entry,
+        reason: params.reason,
+      }),
+    ]);
+    return ensureError || closeAcpError;
+  };
+
+  if (isDelete) {
+    // For session-delete, we prioritize responsiveness. We allow a short grace
+    // period for graceful shutdown, but proceed with store deletion even if
+    // cleanup is still pending. The pending cleanup continues in the background.
+    const cleanupPromise = runCleanup();
+    const timeoutPromise = new Promise<undefined>((resolve) => setTimeout(resolve, 2000));
+
+    const result = await Promise.race([cleanupPromise, timeoutPromise]);
+
+    if (result) {
+      // If cleanup explicitly returned an error during the grace period, report it.
+      // Otherwise (including timeout), return success to allow store deletion.
+      return result;
+    }
+    return undefined;
   }
-  return await closeAcpRuntimeForSession({
-    cfg: params.cfg,
-    sessionKey: params.legacyKey ?? params.canonicalKey ?? params.target.canonicalKey ?? params.key,
-    entry: params.entry,
-    reason: params.reason,
-  });
+
+  // For session-reset, we must ensure full cleanup before mutation to avoid
+  // conflicting state or resource leaks in the new session.
+  return await runCleanup();
 }
 
 export async function performGatewaySessionReset(params: {

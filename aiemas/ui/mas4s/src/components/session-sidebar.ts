@@ -1,6 +1,8 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { MasSession } from "../types/session-types.js";
+import "./session-name-dialog.js";
+import "./session-create-control.js";
 
 /**
  * 会话列表侧边栏（280px 宽）。
@@ -9,12 +11,14 @@ import type { MasSession } from "../types/session-types.js";
 @customElement("session-sidebar")
 export class SessionSidebar extends LitElement {
   @property({ attribute: false }) sessions: MasSession[] = [];
+  @property({ attribute: false }) agents: import("../store/app-store.js").AgentInfo[] = [];
   @property({ type: String }) activeSessionKey: string | null = null;
 
   @state() private _nameDialog: {
     mode: "create" | "rename";
     sessionKey?: string;
     value: string;
+    agentId?: string;
     reasoningLevel: "stream" | "on" | "off";
   } | null = null;
 
@@ -133,23 +137,6 @@ export class SessionSidebar extends LitElement {
       to {
         transform: rotate(360deg);
       }
-    }
-
-    .add-btn {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
-      border: none;
-      color: white;
-      font-size: 18px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-      box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
-      transition: all 0.2s;
     }
 
     .add-btn:hover {
@@ -429,7 +416,7 @@ export class SessionSidebar extends LitElement {
     .confirm-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.25);
+      background: rgba(0, 0, 0, 0.4);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -439,43 +426,58 @@ export class SessionSidebar extends LitElement {
     .confirm-dialog {
       background: white;
       border-radius: 12px;
-      padding: 20px 24px;
+      padding: 24px;
       width: 320px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+      animation: dialog-appear 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    @keyframes dialog-appear {
+      from {
+        opacity: 0;
+        transform: scale(0.95);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
     }
 
     .confirm-dialog h3 {
-      margin: 0;
-      font-size: 15px;
+      margin: 0 0 12px;
+      font-size: 16px;
       font-weight: 600;
       color: #1e293b;
     }
 
     .confirm-dialog p {
-      margin: 0;
-      font-size: 13px;
+      margin: 0 0 24px;
+      font-size: 14px;
       color: #64748b;
       line-height: 1.5;
     }
 
     .confirm-dialog-actions {
       display: flex;
-      gap: 8px;
       justify-content: flex-end;
+      gap: 10px;
     }
 
     .confirm-dialog-actions button {
-      padding: 6px 16px;
+      padding: 8px 16px;
       border-radius: 8px;
-      font-size: 13px;
+      font-size: 14px;
+      font-weight: 500;
       cursor: pointer;
       border: 1px solid #e2e8f0;
       background: white;
       color: #64748b;
       transition: all 0.15s;
+    }
+
+    .confirm-dialog-actions button:hover {
+      background: #f8fafc;
+      color: #1e293b;
     }
 
     .confirm-dialog-actions button.danger {
@@ -484,147 +486,11 @@ export class SessionSidebar extends LitElement {
       border-color: #ef4444;
     }
 
-    .confirm-dialog-actions button:hover {
-      opacity: 0.85;
-    }
-
-    /* 创建/重命名弹层 */
-    .name-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.25);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-    }
-
-    .name-dialog {
-      background: white;
-      border-radius: 12px;
-      padding: 20px 24px;
-      width: 320px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-
-    .name-dialog h3 {
-      margin: 0;
-      font-size: 15px;
-      font-weight: 600;
-      color: #1e293b;
-    }
-
-    .name-dialog input {
-      width: 100%;
-      padding: 8px 10px;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      font-size: 14px;
-      outline: none;
-      box-sizing: border-box;
-      transition: border-color 0.15s;
-    }
-
-    .name-dialog input:focus {
-      border-color: #3b82f6;
-    }
-
-    .name-dialog-actions {
-      display: flex;
-      gap: 8px;
-      justify-content: flex-end;
-    }
-
-    .name-dialog-actions button {
-      padding: 6px 16px;
-      border-radius: 8px;
-      font-size: 13px;
-      cursor: pointer;
-      border: 1px solid #e2e8f0;
-      background: white;
-      color: #64748b;
-      transition: all 0.15s;
-    }
-
-    .name-dialog-actions button.primary {
-      background: #3b82f6;
-      color: white;
-      border-color: #3b82f6;
-    }
-
-    .name-dialog-actions button:hover {
-      opacity: 0.85;
-    }
-
-    .reasoning-toggle {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-size: 13px;
-      color: #475569;
-    }
-
-    .reasoning-toggle span {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .reasoning-toggle small {
-      font-size: 11px;
-      color: #94a3b8;
-    }
-
-    .toggle-switch {
-      position: relative;
-      width: 36px;
-      height: 20px;
-      flex-shrink: 0;
-    }
-
-    .toggle-switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-      position: absolute;
-    }
-
-    .toggle-track {
-      position: absolute;
-      inset: 0;
-      background: #cbd5e1;
-      border-radius: 10px;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    .toggle-track::after {
-      content: "";
-      position: absolute;
-      top: 3px;
-      left: 3px;
-      width: 14px;
-      height: 14px;
-      background: white;
-      border-radius: 50%;
-      transition: transform 0.2s;
-    }
-
-    .toggle-switch input:checked + .toggle-track {
-      background: #3b82f6;
-    }
-
-    .toggle-switch input:checked + .toggle-track::after {
-      transform: translateX(16px);
+    .confirm-dialog-actions button.danger:hover {
+      background: #dc2626;
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
     }
   `;
-
-  private _onCreate() {
-    this._nameDialog = { mode: "create", value: "", reasoningLevel: "stream" };
-  }
 
   private _onRefresh() {
     if (this._refreshing) {
@@ -685,28 +551,18 @@ export class SessionSidebar extends LitElement {
     this._deleteConfirm = null;
   }
 
-  private _onNameInput(e: Event) {
-    const input = e.target as HTMLInputElement;
-    if (this._nameDialog) {
-      this._nameDialog = { ...this._nameDialog, value: input.value };
-    }
-  }
-
-  private _onNameConfirm() {
+  private _onNameConfirm(detail: {
+    label: string;
+    agentId?: string;
+    reasoningLevel: "stream" | "on" | "off";
+  }) {
     if (!this._nameDialog) {
       return;
     }
-    const { mode, sessionKey, value, reasoningLevel } = this._nameDialog;
-    const label = value.trim();
-    if (!label) {
-      return;
-    }
+    const { mode, sessionKey } = this._nameDialog;
+    const { label, reasoningLevel } = detail;
 
-    if (mode === "create") {
-      this.dispatchEvent(
-        new CustomEvent("session-create", { detail: { label, reasoningLevel }, bubbles: true }),
-      );
-    } else if (mode === "rename" && sessionKey) {
+    if (mode === "rename" && sessionKey) {
       this.dispatchEvent(
         new CustomEvent("session-rename", {
           detail: { sessionKey, label, reasoningLevel },
@@ -715,15 +571,6 @@ export class SessionSidebar extends LitElement {
       );
     }
     this._nameDialog = null;
-  }
-
-  private _onNameKeydown(e: KeyboardEvent) {
-    if (e.key === "Enter" && !e.isComposing) {
-      this._onNameConfirm();
-    }
-    if (e.key === "Escape") {
-      this._nameDialog = null;
-    }
   }
 
   private _onSessionClick(key: string) {
@@ -872,48 +719,17 @@ export class SessionSidebar extends LitElement {
     if (!this._nameDialog) {
       return nothing;
     }
-    const { mode, value, reasoningLevel } = this._nameDialog;
-    const title = mode === "create" ? "新建会话" : "重命名会话";
-    const streamEnabled = reasoningLevel === "stream";
+    const { mode, value, agentId, reasoningLevel } = this._nameDialog;
     return html`
-      <div class="name-overlay" @click=${() => (this._nameDialog = null)}>
-        <div class="name-dialog" @click=${(e: Event) => e.stopPropagation()}>
-          <h3>${title}</h3>
-          <input
-            type="text"
-            .value=${value}
-            placeholder="输入会话名称"
-            @input=${(e: Event) => this._onNameInput(e)}
-            @keydown=${(e: KeyboardEvent) => this._onNameKeydown(e)}
-            autofocus
-          />
-          <div class="reasoning-toggle">
-            <span>
-              启用思考过程
-              <small>开启后 AI 会实时输出推理内容</small>
-            </span>
-            <label class="toggle-switch">
-              <input
-                type="checkbox"
-                .checked=${streamEnabled}
-                @change=${(e: Event) => {
-                  if (this._nameDialog) {
-                    this._nameDialog = {
-                      ...this._nameDialog,
-                      reasoningLevel: (e.target as HTMLInputElement).checked ? "stream" : "off",
-                    };
-                  }
-                }}
-              />
-              <span class="toggle-track"></span>
-            </label>
-          </div>
-          <div class="name-dialog-actions">
-            <button @click=${() => (this._nameDialog = null)}>取消</button>
-            <button class="primary" @click=${() => this._onNameConfirm()}>确认</button>
-          </div>
-        </div>
-      </div>
+      <session-name-dialog
+        .mode=${mode}
+        .initialValue=${value}
+        .initialAgentId=${agentId}
+        .initialReasoningLevel=${reasoningLevel}
+        .agents=${this.agents}
+        @confirm=${(e: CustomEvent) => this._onNameConfirm(e.detail)}
+        @cancel=${() => (this._nameDialog = null)}
+      ></session-name-dialog>
     `;
   }
 
@@ -963,14 +779,7 @@ export class SessionSidebar extends LitElement {
               <path d="M8 16H3v5" />
             </svg>
           </button>
-          <button
-            class="add-btn"
-            @click=${() => this._onCreate()}
-            aria-label="发起新会话"
-            title="发起新会话"
-          >
-            +
-          </button>
+          <session-create-control .agents=${this.agents}></session-create-control>
           <button
             class="toggle-sidebar-btn"
             @click=${() => this._toggleSidebar()}

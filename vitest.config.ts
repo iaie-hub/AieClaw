@@ -78,6 +78,7 @@ export default defineConfig({
     include: [
       "src/**/*.test.ts",
       BUNDLED_PLUGIN_TEST_GLOB,
+      "aiemas/**/*.test.ts",
       "packages/**/*.test.ts",
       "test/**/*.test.ts",
       "ui/src/ui/app-chat.test.ts",
@@ -111,7 +112,6 @@ export default defineConfig({
       reporter: ["text", "lcov"],
       // Keep coverage stable without an ever-growing exclude list:
       // only count files actually exercised by the test suite.
-      all: false,
       thresholds: {
         lines: 70,
         functions: 70,
