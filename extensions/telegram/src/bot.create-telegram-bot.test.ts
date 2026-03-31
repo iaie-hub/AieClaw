@@ -345,6 +345,43 @@ describe("createTelegramBot", () => {
     expect(payload.Body).toContain("cmd:option_a");
     expect(answerCallbackQuerySpy).toHaveBeenCalledWith("cbq-1");
   });
+  it("preserves native command source for prefixed callback_query payloads", async () => {
+    loadConfig.mockReturnValue({
+      commands: { text: false, native: true },
+      channels: {
+        telegram: {
+          dmPolicy: "open",
+          allowFrom: ["*"],
+        },
+      },
+    });
+
+    createTelegramBot({ token: "tok" });
+    const callbackHandler = getOnHandler("callback_query") as (
+      ctx: Record<string, unknown>,
+    ) => Promise<void>;
+
+    await callbackHandler({
+      callbackQuery: {
+        id: "cbq-native-1",
+        data: "tgcmd:/fast status",
+        from: { id: 9, first_name: "Ada", username: "ada_bot" },
+        message: {
+          chat: { id: 1234, type: "private" },
+          date: 1736380800,
+          message_id: 10,
+        },
+      },
+      me: { username: "openclaw_bot" },
+      getFile: async () => ({ download: async () => new Uint8Array() }),
+    });
+
+    expect(replySpy).toHaveBeenCalledTimes(1);
+    const payload = replySpy.mock.calls[0][0];
+    expect(payload.CommandBody).toBe("/fast status");
+    expect(payload.CommandSource).toBe("native");
+    expect(answerCallbackQuerySpy).toHaveBeenCalledWith("cbq-native-1");
+  });
   it("reloads callback model routing bindings without recreating the bot", async () => {
     const buildModelsProviderDataMock =
       telegramBotDepsForTest.buildModelsProviderData as unknown as ReturnType<typeof vi.fn>;
@@ -527,6 +564,37 @@ describe("createTelegramBot", () => {
             from: { id: 7, is_bot: true, first_name: "OpenClaw", username: "openclaw_bot" },
             text: "Binding: Review pull request 54118 (openclaw)",
           },
+        },
+        me: { id: 7, is_bot: true, first_name: "OpenClaw", username: "openclaw_bot" },
+        getFile: async () => ({ download: async () => new Uint8Array() }),
+      });
+
+      expect(upsertChannelPairingRequest).not.toHaveBeenCalled();
+      expect(sendMessageSpy).not.toHaveBeenCalled();
+      expect(replySpy).not.toHaveBeenCalled();
+    });
+  });
+
+  it("ignores group self-authored message updates instead of re-processing bot output", async () => {
+    await withIsolatedStateDirAsync(async () => {
+      loadConfig.mockReturnValue({
+        channels: { telegram: { dmPolicy: "pairing" } },
+      });
+      readChannelAllowFromStore.mockResolvedValue([]);
+      upsertChannelPairingRequest.mockClear();
+      sendMessageSpy.mockClear();
+      replySpy.mockClear();
+
+      createTelegramBot({ token: "tok" });
+      const handler = getOnHandler("message") as (ctx: Record<string, unknown>) => Promise<void>;
+
+      await handler({
+        message: {
+          chat: { id: -1001234, type: "supergroup", title: "OpenClaw Ops" },
+          message_id: 1884,
+          date: 1736380800,
+          from: { id: 7, is_bot: true, first_name: "OpenClaw", username: "openclaw_bot" },
+          text: "approval card update",
         },
         me: { id: 7, is_bot: true, first_name: "OpenClaw", username: "openclaw_bot" },
         getFile: async () => ({ download: async () => new Uint8Array() }),

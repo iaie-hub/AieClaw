@@ -1,3 +1,4 @@
+import { hasApprovalTurnSourceRoute } from "../../infra/approval-turn-source.js";
 import { sanitizeExecApprovalDisplayText } from "../../infra/exec-approval-command-display.js";
 import type { ExecApprovalForwarder } from "../../infra/exec-approval-forwarder.js";
 import {
@@ -207,6 +208,10 @@ export function createExecApprovalHandlers(
         );
       }
       const hasExecApprovalClients = context.hasExecApprovalClients?.(client?.connId) ?? false;
+      const hasTurnSourceRoute = hasApprovalTurnSourceRoute({
+        turnSourceChannel: record.request.turnSourceChannel,
+        turnSourceAccountId: record.request.turnSourceAccountId,
+      });
       let forwarded = false;
       if (opts?.forwarder) {
         try {
@@ -221,7 +226,7 @@ export function createExecApprovalHandlers(
         }
       }
 
-      if (!hasExecApprovalClients && !forwarded) {
+      if (!hasExecApprovalClients && !forwarded && !hasTurnSourceRoute) {
         manager.expire(record.id, "no-approval-route");
         respond(
           true,
