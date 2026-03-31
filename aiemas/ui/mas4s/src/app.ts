@@ -139,6 +139,7 @@ export class Mas4sApp extends LitElement {
       onSessionAgentUpdate: (e: CustomEvent<{ sessionKey: string; agentId: string }>) =>
         this._session.onSessionAgentUpdate(e),
       onSendMessage: (e) => this._message.onSendMessage(e),
+      onAbortChat: () => void this._message.onAbortChat(),
 
       onResolveApproval: (e) => this._message.onResolveApproval(e),
       onInviteOpen: () => this._ui.onInviteOpen(),

@@ -44,7 +44,8 @@ function authorizeGatewayMethod(method: string, client: GatewayRequestOptions["c
     method === "health" ||
     method === "system.status" ||
     method === "auth.login" ||
-    method === "auth.verify"
+    method === "auth.verify" ||
+    method === "auth.refresh"
   ) {
     return null;
   }

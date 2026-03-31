@@ -158,6 +158,22 @@ export class AppStore {
     this.notify();
   }
 
+  // ── 聊天状态跟踪 ──────────────────────────────────
+  /** sessionUuid -> whether agent is running */
+  isChattingBySession: Map<string, boolean> = new Map();
+  /** sessionUuid -> current active runId (for abort) */
+  activeRunIdBySession: Map<string, string> = new Map();
+
+  setIsChatting(sessionUuid: string, isChatting: boolean, runId?: string): void {
+    this.isChattingBySession.set(sessionUuid, isChatting);
+    if (runId) {
+      this.activeRunIdBySession.set(sessionUuid, runId);
+    } else if (!isChatting) {
+      this.activeRunIdBySession.delete(sessionUuid);
+    }
+    this.notify();
+  }
+
   // ── Skills 状态管理 ───────────────────────────────
   skillsReport: SkillStatusReport | null = null;
   skillsLoading: boolean = false;

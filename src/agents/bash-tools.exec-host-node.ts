@@ -21,12 +21,15 @@ import {
   buildExecApprovalTurnSourceContext,
   registerExecApprovalRequestForHostOrThrow,
 } from "./bash-tools.exec-approval-request.js";
-import * as execHostShared from "./bash-tools.exec-host-shared.js";
 import {
-  DEFAULT_NOTIFY_TAIL_CHARS,
-  createApprovalSlug,
-  normalizeNotifyOutput,
-} from "./bash-tools.exec-runtime.js";
+  buildDefaultExecApprovalRequestArgs,
+  buildExecApprovalPendingToolResult,
+  createExecApprovalDecisionState,
+  createAndRegisterDefaultExecApprovalRequest,
+  resolveApprovalDecisionOrUndefined,
+  resolveExecHostApprovalContext,
+} from "./bash-tools.exec-host-shared.js";
+import { createApprovalSlug } from "./bash-tools.exec-runtime.js";
 import type { ExecToolDetails } from "./bash-tools.exec-types.js";
 import { callGatewayTool } from "./tools/gateway.js";
 import { listNodes, resolveNodeIdFromList } from "./tools/nodes-utils.js";
@@ -58,7 +61,7 @@ export type ExecuteNodeHostCommandParams = {
 export async function executeNodeHostCommand(
   params: ExecuteNodeHostCommandParams,
 ): Promise<AgentToolResult<ExecToolDetails>> {
-  const { hostSecurity, hostAsk, askFallback } = execHostShared.resolveExecHostApprovalContext({
+  const { hostSecurity, hostAsk, askFallback } = resolveExecHostApprovalContext({
     agentId: params.agentId,
     security: params.security,
     ask: params.ask,
@@ -233,7 +236,7 @@ export async function executeNodeHostCommand(
     }) satisfies Record<string, unknown>;
 
   if (requiresAsk) {
-    const requestArgs = execHostShared.buildDefaultExecApprovalRequestArgs({
+    const requestArgs = buildDefaultExecApprovalRequestArgs({
       warnings: params.warnings,
       approvalRunningNoticeMs: params.approvalRunningNoticeMs,
       createApprovalSlug,
@@ -265,116 +268,106 @@ export async function executeNodeHostCommand(
       initiatingSurface,
       sentApproverDms,
       unavailableReason,
-    } = await execHostShared.createAndRegisterDefaultExecApprovalRequest({
+    } = await createAndRegisterDefaultExecApprovalRequest({
       ...requestArgs,
       register: registerNodeApproval,
     });
-    const followupTarget = execHostShared.buildExecApprovalFollowupTarget({
+
+    const decision = await resolveApprovalDecisionOrUndefined({
       approvalId,
-      sessionKey: params.notifySessionKey,
-      turnSourceChannel: params.turnSourceChannel,
-      turnSourceTo: params.turnSourceTo,
-      turnSourceAccountId: params.turnSourceAccountId,
-      turnSourceThreadId: params.turnSourceThreadId,
+      preResolvedDecision,
+      onFailure: () => {},
     });
-
-    void (async () => {
-      const decision = await execHostShared.resolveApprovalDecisionOrUndefined({
+    if (decision === undefined) {
+      return buildExecApprovalPendingToolResult({
+        host: "node",
+        command: params.command,
+        cwd: params.workdir,
+        warningText,
         approvalId,
-        preResolvedDecision,
-        onFailure: () =>
-          void execHostShared.sendExecApprovalFollowupResult(
-            followupTarget,
-            `Exec denied (node=${nodeId} id=${approvalId}, approval-request-failed): ${params.command}`,
-          ),
+        approvalSlug,
+        expiresAtMs,
+        initiatingSurface,
+        sentApproverDms,
+        unavailableReason: unavailableReason ?? "no-approval-route",
+        nodeId,
       });
-      if (decision === undefined) {
-        return;
-      }
+    }
 
-      const {
-        baseDecision,
-        approvedByAsk: initialApprovedByAsk,
-        deniedReason: initialDeniedReason,
-      } = execHostShared.createExecApprovalDecisionState({
-        decision,
-        askFallback,
-        obfuscationDetected: obfuscation.detected,
-      });
-      let approvedByAsk = initialApprovedByAsk;
-      let approvalDecision: "allow-once" | "allow-always" | null = null;
-      let deniedReason = initialDeniedReason;
+    const {
+      baseDecision,
+      approvedByAsk: initialApprovedByAsk,
+      deniedReason: initialDeniedReason,
+    } = createExecApprovalDecisionState({
+      decision,
+      askFallback,
+      obfuscationDetected: obfuscation.detected,
+    });
+    let approvedByAsk = initialApprovedByAsk;
+    let approvalDecision: "allow-once" | "allow-always" | null = null;
+    let deniedReason = initialDeniedReason;
 
-      if (baseDecision.timedOut && askFallback === "full" && approvedByAsk) {
-        approvalDecision = "allow-once";
-      } else if (decision === "allow-once") {
-        approvedByAsk = true;
-        approvalDecision = "allow-once";
-      } else if (decision === "allow-always") {
-        approvedByAsk = true;
-        approvalDecision = "allow-always";
-      }
+    if (baseDecision.timedOut && askFallback === "full" && approvedByAsk) {
+      approvalDecision = "allow-once";
+    } else if (decision === "allow-once") {
+      approvedByAsk = true;
+      approvalDecision = "allow-once";
+    } else if (decision === "allow-always") {
+      approvedByAsk = true;
+      approvalDecision = "allow-always";
+    }
 
-      if (deniedReason) {
-        await execHostShared.sendExecApprovalFollowupResult(
-          followupTarget,
-          `Exec denied (node=${nodeId} id=${approvalId}, ${deniedReason}): ${params.command}`,
-        );
-        return;
-      }
+    if (deniedReason) {
+      throw new Error(
+        `exec denied (node=${nodeId} id=${approvalId}, ${deniedReason}): ${params.command}`,
+      );
+    }
 
-      try {
-        const raw = await callGatewayTool<{
-          payload?: {
+    const startedAt = Date.now();
+    const raw = await callGatewayTool<{
+      payload?: {
+        stdout?: string;
+        stderr?: string;
+        error?: string | null;
+        exitCode?: number | null;
+        timedOut?: boolean;
+      };
+    }>(
+      "node.invoke",
+      { timeoutMs: invokeTimeoutMs },
+      buildInvokeParams(approvedByAsk, approvalDecision, approvalId, true),
+    );
+    const payload =
+      raw?.payload && typeof raw.payload === "object"
+        ? (raw.payload as {
             stdout?: string;
             stderr?: string;
             error?: string | null;
             exitCode?: number | null;
             timedOut?: boolean;
-          };
-        }>(
-          "node.invoke",
-          { timeoutMs: invokeTimeoutMs },
-          buildInvokeParams(approvedByAsk, approvalDecision, approvalId, true),
-        );
-        const payload =
-          raw?.payload && typeof raw.payload === "object"
-            ? (raw.payload as {
-                stdout?: string;
-                stderr?: string;
-                error?: string | null;
-                exitCode?: number | null;
-                timedOut?: boolean;
-              })
-            : {};
-        const combined = [payload.stdout, payload.stderr, payload.error].filter(Boolean).join("\n");
-        const output = normalizeNotifyOutput(combined.slice(-DEFAULT_NOTIFY_TAIL_CHARS));
-        const exitLabel = payload.timedOut ? "timeout" : `code ${payload.exitCode ?? "?"}`;
-        const summary = output
-          ? `Exec finished (node=${nodeId} id=${approvalId}, ${exitLabel})\n${output}`
-          : `Exec finished (node=${nodeId} id=${approvalId}, ${exitLabel})`;
-        await execHostShared.sendExecApprovalFollowupResult(followupTarget, summary);
-      } catch {
-        await execHostShared.sendExecApprovalFollowupResult(
-          followupTarget,
-          `Exec denied (node=${nodeId} id=${approvalId}, invoke-failed): ${params.command}`,
-        );
-      }
-    })();
+          })
+        : {};
+    const stdout = typeof payload.stdout === "string" ? payload.stdout : "";
+    const stderr = typeof payload.stderr === "string" ? payload.stderr : "";
+    const errorText = typeof payload.error === "string" ? payload.error : "";
+    const exitCode = typeof payload.exitCode === "number" ? payload.exitCode : null;
+    const success = payload.exitCode === 0;
 
-    return execHostShared.buildExecApprovalPendingToolResult({
-      host: "node",
-      command: params.command,
-      cwd: params.workdir,
-      warningText,
-      approvalId,
-      approvalSlug,
-      expiresAtMs,
-      initiatingSurface,
-      sentApproverDms,
-      unavailableReason,
-      nodeId,
-    });
+    return {
+      content: [
+        {
+          type: "text",
+          text: [stdout, stderr, errorText].filter(Boolean).join("\n"),
+        },
+      ],
+      details: {
+        status: success ? "completed" : "failed",
+        exitCode,
+        durationMs: Date.now() - startedAt,
+        aggregated: [stdout, stderr, errorText].filter(Boolean).join("\n"),
+        cwd: params.workdir,
+      } satisfies ExecToolDetails,
+    };
   }
 
   const startedAt = Date.now();

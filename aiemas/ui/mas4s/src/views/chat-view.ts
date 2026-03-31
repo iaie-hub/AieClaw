@@ -28,6 +28,8 @@ export class ChatView extends LitElement {
   @property({ type: Boolean }) truncated = false;
   /** 是否还有更早的历史页可加载（page < totalPages） */
   @property({ type: Boolean }) hasMoreHistory = false;
+  /** 是否正在聊天（Agent 运行中） */
+  @property({ type: Boolean }) isChatting = false;
 
   @state() private _inputText = "";
   @state() private _summaryOpen = false;
@@ -120,27 +122,51 @@ export class ChatView extends LitElement {
     }
 
     .send-btn {
-      padding: 8px 20px;
+      width: 38px;
+      height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
       color: white;
       border: none;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 500;
+      border-radius: 12px;
       cursor: pointer;
       transition: all 0.2s;
       box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
+      flex-shrink: 0;
     }
 
-    .send-btn:hover {
+    .send-btn:hover:not(:disabled) {
       transform: translateY(-1px);
       box-shadow: 0 6px 15px rgba(59, 130, 246, 0.4);
     }
 
     .send-btn:disabled {
-      opacity: 0.5;
+      opacity: 0.4;
       cursor: not-allowed;
-      transform: none;
+      filter: grayscale(0.5);
+    }
+
+    .abort-btn {
+      width: 38px;
+      height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #fef2f2;
+      color: #ef4444;
+      border: 1px solid #fee2e2;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+
+    .abort-btn:hover {
+      background: #fee2e2;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 10px rgba(239, 68, 68, 0.1);
     }
 
     .no-session {
@@ -385,7 +411,7 @@ export class ChatView extends LitElement {
 
   private _onSend = () => {
     const text = this._inputText.trim();
-    if (!text || !this.session || this._isArchived) {
+    if (!text || !this.session || this._isArchived || this.isChatting) {
       return;
     }
     this.dispatchEvent(
@@ -397,6 +423,15 @@ export class ChatView extends LitElement {
     );
     this._inputText = "";
     this._isAtBottom = true;
+  };
+
+  private _onAbort = () => {
+    this.dispatchEvent(
+      new CustomEvent("abort-chat", {
+        bubbles: true,
+        composed: true,
+      }),
+    );
   };
 
   // ── 摘要弹窗 ──────────────────────────────────────────────────────────────
@@ -481,13 +516,45 @@ export class ChatView extends LitElement {
           ></textarea>
           <div class="input-toolbar">
             <span class="input-hint">Shift+Enter 换行</span>
-            <button
-              class="send-btn"
-              ?disabled=${this._isArchived || !this._inputText.trim()}
-              @click=${this._onSend}
-            >
-              发送
-            </button>
+            ${this.isChatting
+              ? html`
+                  <button class="abort-btn" @click=${this._onAbort} title="中止生成">
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+                    </svg>
+                  </button>
+                `
+              : html`
+                  <button
+                    class="send-btn"
+                    ?disabled=${this._isArchived || !this._inputText.trim()}
+                    @click=${this._onSend}
+                    title="发送消息"
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <line x1="22" y1="2" x2="11" y2="13"></line>
+                      <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    </svg>
+                  </button>
+                `}
           </div>
         </div>
       </div>

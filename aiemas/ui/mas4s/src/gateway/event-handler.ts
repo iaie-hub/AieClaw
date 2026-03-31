@@ -248,6 +248,12 @@ function handleChatEvent(store: AppStore, payload: unknown): void {
   // run 结束，清理 thinking 缓存
   if (state === "final" && runId) {
     _thinkingByRun.delete(runId);
+    store.setIsChatting(uuid, false);
+  } else if (state === "delta" && runId) {
+    // 收到 delta 表示正在聊天，确保 UI 状态同步（即便不是由当前客户端发起的 run）
+    if (!store.isChattingBySession.get(uuid)) {
+      store.setIsChatting(uuid, true, runId);
+    }
   }
 
   updateChatStream(store, sessionKey, chatMsg, state === "final");

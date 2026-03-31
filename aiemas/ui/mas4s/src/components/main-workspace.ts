@@ -23,6 +23,7 @@ export class MainWorkspace extends LitElement {
   @property({ type: Boolean }) hasSummary = false;
   @property({ type: Boolean }) truncated = false;
   @property({ type: Boolean }) hasMoreHistory = false;
+  @property({ type: Boolean }) isChatting = false;
 
   static styles = css`
     :host {
@@ -103,8 +104,10 @@ export class MainWorkspace extends LitElement {
                 .hasSummary=${this.hasSummary}
                 .truncated=${this.truncated}
                 .hasMoreHistory=${this.hasMoreHistory}
+                .isChatting=${this.isChatting}
                 @resolve=${this._onResolve}
                 @load-more-history=${this._onLoadMoreHistory}
+                @abort-chat=${this._onAbortChat}
               ></chat-view>
             </div>
           `
@@ -132,11 +135,16 @@ export class MainWorkspace extends LitElement {
     this.dispatchEvent(new CustomEvent("session-unarchive", { detail: e.detail, bubbles: true }));
   };
 
-  private _onLoadMoreHistory = (e: CustomEvent) => {
+  private _onLoadMoreHistory = (e: CustomEvent<{ sessionKey: string }>) => {
     e.stopPropagation();
     this.dispatchEvent(
       new CustomEvent("load-more-history", { detail: e.detail, bubbles: true, composed: true }),
     );
+  };
+
+  private _onAbortChat = (e: Event) => {
+    e.stopPropagation();
+    this.dispatchEvent(new CustomEvent("abort-chat", { bubbles: true, composed: true }));
   };
 }
 

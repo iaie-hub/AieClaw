@@ -17,7 +17,6 @@ import {
 import { detectCommandObfuscation } from "../infra/exec-obfuscation-detect.js";
 import type { SafeBinProfile } from "../infra/exec-safe-bin-policy.js";
 import { logInfo } from "../logger.js";
-import { markBackgrounded, tail } from "./bash-process-registry.js";
 import {
   buildExecApprovalRequesterContext,
   buildExecApprovalTurnSourceContext,
@@ -25,20 +24,13 @@ import {
 } from "./bash-tools.exec-approval-request.js";
 import {
   buildDefaultExecApprovalRequestArgs,
-  buildExecApprovalFollowupTarget,
   buildExecApprovalPendingToolResult,
   createExecApprovalDecisionState,
   createAndRegisterDefaultExecApprovalRequest,
   resolveApprovalDecisionOrUndefined,
   resolveExecHostApprovalContext,
-  sendExecApprovalFollowupResult,
 } from "./bash-tools.exec-host-shared.js";
-import {
-  DEFAULT_NOTIFY_TAIL_CHARS,
-  createApprovalSlug,
-  normalizeNotifyOutput,
-  runExecProcess,
-} from "./bash-tools.exec-runtime.js";
+import { createApprovalSlug } from "./bash-tools.exec-runtime.js";
 import type { ExecToolDetails } from "./bash-tools.exec-types.js";
 
 export type ProcessGatewayAllowlistParams = {
@@ -73,7 +65,7 @@ export type ProcessGatewayAllowlistParams = {
 
 export type ProcessGatewayAllowlistResult = {
   execCommandOverride?: string;
-  pendingResult?: AgentToolResult<ExecToolDetails>;
+  toolResult?: AgentToolResult<ExecToolDetails>;
 };
 
 export async function processGatewayAllowlist(
@@ -225,16 +217,6 @@ export async function processGatewayAllowlist(
       allowlistEval.segments[0]?.resolution ?? null,
       params.workdir,
     );
-    const effectiveTimeout =
-      typeof params.timeoutSec === "number" ? params.timeoutSec : params.defaultTimeoutSec;
-    const followupTarget = buildExecApprovalFollowupTarget({
-      approvalId,
-      sessionKey: params.notifySessionKey,
-      turnSourceChannel: params.turnSourceChannel,
-      turnSourceTo: params.turnSourceTo,
-      turnSourceAccountId: params.turnSourceAccountId,
-      turnSourceThreadId: params.turnSourceThreadId,
-    });
 
     console.log(
       `[exec-host-gateway] approval registered: id=${approvalId}, command=${params.command}, sessionKey=${params.notifySessionKey}, channel=${params.turnSourceChannel}, to=${params.turnSourceTo}`,
@@ -244,132 +226,77 @@ export async function processGatewayAllowlist(
     const stackLines = stack.split("\n").slice(2, 6).join(" | ");
     console.log(`[exec-host-gateway] approval registered stack (id=${approvalId}): ${stackLines}`);
 
-    void (async () => {
-      const decision = await resolveApprovalDecisionOrUndefined({
-        approvalId,
-        preResolvedDecision,
-        onFailure: () =>
-          void sendExecApprovalFollowupResult(
-            followupTarget,
-            `Exec denied (gateway id=${approvalId}, approval-request-failed): ${params.command}`,
-          ),
-      });
-      console.log(
-        `[exec-host-gateway] approval decision resolved: id=${approvalId}, decision=${decision}`,
-      );
-      if (decision === undefined) {
-        console.log(`[exec-host-gateway] approval decision is undefined, returning`);
-        return;
+    const decision = await resolveApprovalDecisionOrUndefined({
+      approvalId,
+      preResolvedDecision,
+      onFailure: () => {},
+    });
+
+    if (decision === undefined) {
+      return {
+        toolResult: buildExecApprovalPendingToolResult({
+          host: "gateway",
+          command: params.command,
+          cwd: params.workdir,
+          warningText,
+          approvalId,
+          approvalSlug,
+          expiresAtMs,
+          initiatingSurface,
+          sentApproverDms,
+          unavailableReason: unavailableReason ?? "no-approval-route",
+        }),
+      };
+    }
+
+    const {
+      baseDecision,
+      approvedByAsk: initialApprovedByAsk,
+      deniedReason: initialDeniedReason,
+    } = createExecApprovalDecisionState({
+      decision,
+      askFallback,
+      obfuscationDetected: obfuscation.detected,
+    });
+    let approvedByAsk = initialApprovedByAsk;
+    let deniedReason = initialDeniedReason;
+
+    if (baseDecision.timedOut && askFallback === "allowlist") {
+      if (!analysisOk || !allowlistSatisfied) {
+        deniedReason = "approval-timeout (allowlist-miss)";
+      } else {
+        approvedByAsk = true;
       }
-
-      const {
-        baseDecision,
-        approvedByAsk: initialApprovedByAsk,
-        deniedReason: initialDeniedReason,
-      } = createExecApprovalDecisionState({
-        decision,
-        askFallback,
-        obfuscationDetected: obfuscation.detected,
-      });
-      let approvedByAsk = initialApprovedByAsk;
-      let deniedReason = initialDeniedReason;
-
-      if (baseDecision.timedOut && askFallback === "allowlist") {
-        if (!analysisOk || !allowlistSatisfied) {
-          deniedReason = "approval-timeout (allowlist-miss)";
-        } else {
-          approvedByAsk = true;
-        }
-      } else if (decision === "allow-once") {
-        approvedByAsk = true;
-      } else if (decision === "allow-always") {
-        approvedByAsk = true;
-        if (hostSecurity === "allowlist" && !requiresInlineEvalApproval) {
-          const patterns = resolveAllowAlwaysPatterns({
-            segments: allowlistEval.segments,
-            cwd: params.workdir,
-            env: params.env,
-            platform: process.platform,
-          });
-          for (const pattern of patterns) {
-            if (pattern) {
-              addAllowlistEntry(approvals.file, params.agentId, pattern);
-            }
+    } else if (decision === "allow-once") {
+      approvedByAsk = true;
+    } else if (decision === "allow-always") {
+      approvedByAsk = true;
+      if (hostSecurity === "allowlist" && !requiresInlineEvalApproval) {
+        const patterns = resolveAllowAlwaysPatterns({
+          segments: allowlistEval.segments,
+          cwd: params.workdir,
+          env: params.env,
+          platform: process.platform,
+        });
+        for (const pattern of patterns) {
+          if (pattern) {
+            addAllowlistEntry(approvals.file, params.agentId, pattern);
           }
         }
       }
+    }
 
-      if (hostSecurity === "allowlist" && (!analysisOk || !allowlistSatisfied) && !approvedByAsk) {
-        deniedReason = deniedReason ?? "allowlist-miss";
-      }
+    if (hostSecurity === "allowlist" && (!analysisOk || !allowlistSatisfied) && !approvedByAsk) {
+      deniedReason = deniedReason ?? "allowlist-miss";
+    }
 
-      if (deniedReason) {
-        await sendExecApprovalFollowupResult(
-          followupTarget,
-          `Exec denied (gateway id=${approvalId}, ${deniedReason}): ${params.command}`,
-        );
-        return;
-      }
+    if (deniedReason) {
+      throw new Error(`exec denied (gateway id=${approvalId}, ${deniedReason}): ${params.command}`);
+    }
 
-      recordMatchedAllowlistUse(resolvedPath ?? undefined);
+    recordMatchedAllowlistUse(resolvedPath ?? undefined);
 
-      let run: Awaited<ReturnType<typeof runExecProcess>> | null = null;
-      try {
-        run = await runExecProcess({
-          command: params.command,
-          execCommand: enforcedCommand,
-          workdir: params.workdir,
-          env: params.env,
-          sandbox: undefined,
-          containerWorkdir: null,
-          usePty: params.pty,
-          warnings: params.warnings,
-          maxOutput: params.maxOutput,
-          pendingMaxOutput: params.pendingMaxOutput,
-          notifyOnExit: false,
-          notifyOnExitEmptySuccess: false,
-          scopeKey: params.scopeKey,
-          sessionKey: params.notifySessionKey,
-          timeoutSec: effectiveTimeout,
-        });
-      } catch {
-        await sendExecApprovalFollowupResult(
-          followupTarget,
-          `Exec denied (gateway id=${approvalId}, spawn-failed): ${params.command}`,
-        );
-        return;
-      }
-
-      markBackgrounded(run.session);
-
-      const outcome = await run.promise;
-      const output = normalizeNotifyOutput(
-        tail(outcome.aggregated || "", DEFAULT_NOTIFY_TAIL_CHARS),
-      );
-      const exitLabel = outcome.timedOut ? "timeout" : `code ${outcome.exitCode ?? "?"}`;
-      const summary = output
-        ? `Exec finished (gateway id=${approvalId}, session=${run.session.id}, ${exitLabel})\n${output}`
-        : `Exec finished (gateway id=${approvalId}, session=${run.session.id}, ${exitLabel})`;
-      console.log(
-        `[exec-host-gateway] exec completed, sending followup: id=${approvalId}, sessionKey=${followupTarget.sessionKey}, channel=${followupTarget.turnSourceChannel}`,
-      );
-      await sendExecApprovalFollowupResult(followupTarget, summary);
-    })();
-
-    return {
-      pendingResult: buildExecApprovalPendingToolResult({
-        host: "gateway",
-        command: params.command,
-        cwd: params.workdir,
-        warningText,
-        approvalId,
-        approvalSlug,
-        expiresAtMs,
-        initiatingSurface,
-        sentApproverDms,
-        unavailableReason,
-      }),
-    };
+    return { execCommandOverride: enforcedCommand };
   }
 
   if (

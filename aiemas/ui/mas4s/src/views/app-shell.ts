@@ -22,6 +22,7 @@ export interface AppShellHandlers {
   onMemberRemove: (e: CustomEvent<{ sessionKey: string; userId: string }>) => void;
   onSessionAgentUpdate: (e: CustomEvent<{ sessionKey: string; agentId: string }>) => void;
   onSendMessage: (e: CustomEvent<{ text: string }>) => void;
+  onAbortChat: () => void;
   onResolveApproval: (e: CustomEvent<{ id: string; decision: string }>) => void;
   onInviteOpen: () => void;
   onDialogClose: () => void;
@@ -107,6 +108,9 @@ export function renderMain(
                 : []}
               .pendingApprovals=${store.pendingApprovals}
               .resolvedApprovals=${store.resolvedApprovals}
+              .isChatting=${store.activeSessionUuid
+                ? (store.isChattingBySession.get(store.activeSessionUuid) ?? false)
+                : false}
               .hasSummary=${store.activeSessionUuid
                 ? store.getHistoryMeta(store.activeSessionUuid).hasSummary
                 : false}
@@ -125,6 +129,7 @@ export function renderMain(
                 return meta.page < meta.totalPages;
               })()}
               @send-message=${h.onSendMessage}
+              @abort-chat=${h.onAbortChat}
               @resolve-approval=${h.onResolveApproval}
               @invite-open=${h.onInviteOpen}
               @session-archive=${h.onSessionArchive}

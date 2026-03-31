@@ -764,8 +764,8 @@ export function createExecTool(
           pendingMaxOutput,
           trustedSafeBinDirs,
         });
-        if (gatewayResult.pendingResult) {
-          return gatewayResult.pendingResult;
+        if (gatewayResult.toolResult) {
+          return gatewayResult.toolResult;
         }
         execCommandOverride = gatewayResult.execCommandOverride;
       }

@@ -36,6 +36,9 @@ export class MessageController {
       subType: undefined,
     });
 
+    // 开始聊天状态跟踪
+    this.store.setIsChatting(session.sessionUuid!, true, clientRunId);
+
     const client = getClient();
     try {
       await client.request(
@@ -73,6 +76,64 @@ export class MessageController {
       console.debug("[mas4s:message] resolveApproval ← ok");
     } catch (err) {
       console.error("[mas4s:message] exec.approval.resolve failed:", err);
+    }
+  };
+
+  onAbortChat = async () => {
+    const session = this.store.activeSession;
+    if (!session || !session.sessionUuid) {
+      return;
+    }
+    const runId = this.store.activeRunIdBySession.get(session.sessionUuid);
+
+    // 需求：中止聊天时，如果有待审核任务，直接拒绝
+    const sessionKey = session.key;
+    const pendingForSession = this.store.pendingApprovals.filter(
+      (a) => a.request.sessionKey === sessionKey,
+    );
+
+    if (pendingForSession.length > 0) {
+      console.debug(
+        "[mas4s:message] abort → rejecting %d pending approvals",
+        pendingForSession.length,
+      );
+      const client = getClient();
+      for (const app of pendingForSession) {
+        // 乐观更新
+        this.store.resolveApproval(app.id, {
+          id: app.id,
+          decision: "deny",
+          ts: Date.now(),
+        });
+        // 发回 gateway
+        void client
+          .request("exec.approval.resolve", { id: app.id, decision: "deny" })
+          .catch((err) => {
+            console.error("[mas4s:message] abort: auto-deny approval failed:", err);
+          });
+      }
+    }
+
+    if (!runId) {
+      console.warn("[mas4s:message] abort ← no active runId for session");
+      // Fallback: reset UI state even if no runId found
+      this.store.setIsChatting(session.sessionUuid, false);
+      return;
+    }
+
+    console.debug("[mas4s:message] abort → sessionKey=%s runId=%s", sessionKey, runId);
+    const client = getClient();
+    try {
+      await client.request("chat.abort", {
+        sessionKey,
+        runId,
+      });
+      console.debug("[mas4s:message] abort ← chat.abort ok");
+    } catch (err) {
+      console.error("[mas4s:message] chat.abort failed:", err);
+    } finally {
+      // Reset local state regardless of result
+      this.store.setIsChatting(session.sessionUuid, false);
     }
   };
 }
