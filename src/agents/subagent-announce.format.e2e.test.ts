@@ -358,6 +358,7 @@ describe("subagent announce formatting", () => {
         message?: string;
         sessionKey?: string;
         internalEvents?: Array<{ type?: string; taskLabel?: string }>;
+        role?: string;
       };
     };
     const msg = call?.params?.message as string;
@@ -376,6 +377,7 @@ describe("subagent announce formatting", () => {
     expect(msg).toContain("Keep this internal context private");
     expect(call?.params?.internalEvents?.[0]?.type).toBe("task_completion");
     expect(call?.params?.internalEvents?.[0]?.taskLabel).toBe("do thing");
+    expect(call?.params?.role).toBe("system");
   });
 
   it("includes success status when outcome is ok", async () => {
@@ -463,6 +465,7 @@ describe("subagent announce formatting", () => {
     expect(call?.params?.idempotencyKey).toBe(
       "announce:v1:agent:main:subagent:worker:run-direct-idem",
     );
+    expect(call?.params?.role).toBe("system");
   });
 
   it.each([
@@ -608,6 +611,7 @@ describe("subagent announce formatting", () => {
     });
     expect(msg).toContain("final answer: 2");
     expect(msg).not.toContain("✅ Subagent");
+    expect(call?.params?.role).toBe("system");
   });
 
   it("keeps completion delivery enabled for extension channels captured from requester origin", async () => {

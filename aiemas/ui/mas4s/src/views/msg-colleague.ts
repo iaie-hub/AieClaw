@@ -161,7 +161,9 @@ export class MsgColleague extends LitElement {
         <div class="message-avatar">${avatarChar}</div>
         <div class="message-content">
           <div class="message-name">${name}</div>
-          ${text.trim() ? html`<div class="message-bubble">${markdownMath(text)}</div>` : nothing}
+          ${text.trim()
+            ? html`<div class="message-bubble">${markdownMath(text.trim())}</div>`
+            : nothing}
         </div>
       </div>
     `;

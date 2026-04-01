@@ -1,10 +1,10 @@
 # aiemas 会话消息持久化实现方案 v3
 
-> 在 v2 基础上新增 **exec.approval 事件持久化**和**审批卡片历史回放**能力，实现完整的非流式对话回放。
+> 在 v2 基础上新增 **exec.approval 事件持久化**和**审批卡片历史回放**能力，实现完整的非流式对话回放。同时新增 **`role="system"` 消息**支持，用于持久化 Compaction 合并标记和跨 session 的 agent 间通知消息。
 
 ## 1. v2 → v3 变更概述
 
-v2 已覆盖 user 消息、assistant 消息（含 thinking + toolCall）、tool 调用事件的持久化。v3 补齐最后两块拼图：
+v2 已覆盖 user 消息、assistant 消息（含 thinking + toolCall）、tool 调用事件的持久化。v3 补齐最后两块拼图，并新增 system 消息支持：
 
 | 事件类型                                  | v2 状态            | v3 状态                |
 | ----------------------------------------- | ------------------ | ---------------------- |
@@ -14,6 +14,8 @@ v2 已覆盖 user 消息、assistant 消息（含 thinking + toolCall）、tool 
 | exec.approval.requested                   | ❌ 仅前端内存      | ✅ recordApprovalEvent |
 | 用户发出的 exec.approval.resolve 请求     | ❌ 未覆盖          | ✅ recordApprovalEvent |
 | exec.approval.resolved                    | ❌ 仅前端内存      | ✅ recordApprovalEvent |
+| Compaction 合并标记 (role=system)         | ❌ 未覆盖          | ✅ handleUpdate 透传   |
+| 子 agent 通知消息 (role=system)           | ❌ 未覆盖          | ✅ handleUpdate 透传   |
 
 v3 后，`session_messages` 表完整记录了一次对话中的所有事件，历史回放时能以非流式方式还原实时对话的完整视图。
 
@@ -98,7 +100,7 @@ session.history.range 返回 StoredMessage[]（ASC 顺序）
 
 ### 3.1 session_messages.role 扩展
 
-`role` 列的 CHECK 约束新增 `'approval'` 值：
+`role` 列的 CHECK 约束新增 `'approval'` 和 `'system'` 值：
 
 ```sql
 CREATE TABLE IF NOT EXISTS session_messages (
@@ -108,7 +110,7 @@ CREATE TABLE IF NOT EXISTS session_messages (
   userId      TEXT    NULL,
   tenantId    TEXT    NULL,
   role        TEXT    NOT NULL
-              CHECK(role IN ('user','assistant','tool','approval')),  -- ⭐ 新增 'approval'
+              CHECK(role IN ('user','assistant','tool','approval','system')),  -- ⭐ 新增 'approval' 和 'system'
   content     TEXT    NOT NULL,
   timestamp   INTEGER NOT NULL,
   seq         INTEGER NOT NULL DEFAULT 0,
@@ -124,14 +126,17 @@ CREATE TABLE IF NOT EXISTS session_messages (
 
 ```typescript
 // aiemas/src/session-history/session-transcript-store.ts
-role: "user" | "assistant" | "tool" | "approval";
+role: "user" | "assistant" | "tool" | "approval" | "system";
 ```
 
-`normaliseRole` 函数新增 `'approval'` 分支：
+`normaliseRole` 函数新增 `'approval'` 和 `'system'` 分支：
 
 ```typescript
 if (raw === "approval") {
   return "approval";
+}
+if (raw === "system") {
+  return "system";
 }
 ```
 
@@ -471,11 +476,106 @@ return html`<msg-agent .message=${msg}></msg-agent>`;
 
 ---
 
-## 7. 实时对话 vs 历史回放对照
+## 7. system role 消息
+
+### 7.1 来源与作用
+
+`role="system"` 消息有两类来源，均通过 `handleUpdate` 路径 A 写入 `session_messages`：
+
+#### 7.1.1 Compaction 合并标记
+
+**来源文件**：`src/gateway/session-utils.fs.ts`
+
+当 gateway 对 JSONL transcript 执行上下文压缩（Compaction）时，会在 transcript 文件中写入一条 `type: "compaction"` 记录（非 `message` 记录）。`readSessionMessages` 读取 transcript 时，将其转换为一条合成的 `role="system"` 消息：
+
+```typescript
+// src/gateway/session-utils.fs.ts
+if (parsed?.type === "compaction") {
+  messages.push({
+    role: "system",
+    content: [{ type: "text", text: "Compaction" }],
+    timestamp,
+    __openclaw: { kind: "compaction", id: ..., seq: messageSeq },
+  });
+}
+```
+
+该合成消息随后经由 `onSessionTranscriptUpdate` 事件总线传入 `handleUpdate`，以 `role="system"`、`content="Compaction"` 写入 `session_messages`。
+
+**作用**：在历史回放中标记上下文压缩发生的时间点。前端渲染时，`message-list` 检测到 `__openclaw.kind === "compaction"` 标记，将其渲染为一条分割线（divider），而非普通消息气泡，与实时视图中的 Compaction 分割线保持一致。
+
+#### 7.1.2 子 agent 跨 session 通知消息
+
+**来源文件**：`src/agents/subagent-announce.ts`、`src/agents/subagent-announce-delivery.ts`
+
+当子 agent 完成任务后，需要通知父 agent（requester session）时，系统通过 `callGateway({ method: "agent", params: { role: "system", ... } })` 向目标 session 注入一条 `role="system"` 的触发消息。这类消息有两种场景：
+
+1. **子 agent 唤醒消息**（`subagent-announce.ts`）：父 agent 等待子 agent 完成时，子 agent 向父 session 发送唤醒消息，触发父 agent 继续执行。
+2. **子 agent 完成通知**（`subagent-announce-delivery.ts`）：子 agent 完成后，向 requester session 发送任务完成通知，内容为任务摘要或触发消息（`triggerMessage`）。
+
+```typescript
+// src/agents/subagent-announce-delivery.ts（路径 D 类似）
+await callGateway({
+  method: "agent",
+  params: {
+    sessionKey: canonicalRequesterSessionKey,
+    message: params.triggerMessage,
+    role: "system",          // ← 标记为系统注入，不来自真实用户
+    deliver: deliveryTarget.deliver,
+    inputProvenance: {
+      kind: "inter_session",
+      sourceSessionKey: ...,
+      sourceTool: "subagent_announce",
+    },
+  },
+});
+```
+
+**作用**：`role="system"` 在此处作为 inter-session 消息的标识，区别于真实用户输入（`role="user"`）。gateway 收到后将其作为新的 agent run 输入，触发父 agent 继续处理。该消息同样经由 `onSessionTranscriptUpdate` 写入 `session_messages`，历史回放时可还原子 agent 通知的完整时间线。
+
+### 7.2 与纯前端 system 消息的区别
+
+以下两类 `role="system"` 消息**仅存在于前端内存**，不写入 `session_messages`，历史回放中不可见：
+
+| 来源                                | 内容示例                                     | 说明                                                              |
+| ----------------------------------- | -------------------------------------------- | ----------------------------------------------------------------- |
+| `app-chat.ts` `injectCommandResult` | slash 命令执行结果（如 `/reset` 的反馈文本） | 纯 UI 反馈，不经过 gateway transcript，不持久化                   |
+| `ui/views/chat.ts` 历史截断提示     | `Showing last 200 messages (50 hidden).`     | 渲染层虚拟消息，仅在消息数超过 `CHAT_HISTORY_RENDER_LIMIT` 时注入 |
+
+### 7.3 前端渲染
+
+历史回放时，`role="system"` 消息的渲染逻辑：
+
+```
+role="system"
+  ├── content 含 __openclaw.kind === "compaction"
+  │     → 渲染为 <divider>（Compaction 分割线）
+  └── 其他（子 agent 通知等）
+        → 渲染为系统提示气泡（msg-system 或类似组件）
+```
+
+### 7.4 数据库记录示例
+
+以一次包含 Compaction 和子 agent 通知的会话为例：
+
+| seq | role      | content                                                  | timestamp     | 写入路径 |
+| --- | --------- | -------------------------------------------------------- | ------------- | -------- |
+| 1   | user      | `帮我分析这份报告`                                       | 1774530000000 | A        |
+| 2   | assistant | `[thinking] ...\n[text] 我来分析这份报告。`              | 1774530002000 | A        |
+| 3   | system    | `Compaction`                                             | 1774530010000 | A        |
+| 4   | user      | `继续`                                                   | 1774530020000 | A        |
+| 5   | system    | `子任务已完成：数据提取完毕，共 42 条记录。`             | 1774530030000 | A        |
+| 6   | assistant | `[thinking] ...\n[text] 数据提取完成，以下是分析结果...` | 1774530032000 | A        |
+
+seq=3 为 Compaction 标记，前端渲染为分割线；seq=5 为子 agent 完成通知，前端渲染为系统提示气泡。
+
+---
+
+## 8. 实时对话 vs 历史回放对照
 
 以 WebSocket 消息流为例，展示实时对话事件与 `session_messages` 记录的对应关系：
 
-### 7.1 实时对话事件流（WebSocket）
+### 8.1 实时对话事件流（WebSocket）
 
 ```
 1. → req  chat.send { message: "删除/tmp/123.txt" }
@@ -492,7 +592,7 @@ return html`<msg-agent .message=${msg}></msg-agent>`;
 12. ← event chat  { state: "final", message: { role: "assistant", content: [...] } }
 ```
 
-### 7.2 session_messages 持久化记录
+### 8.2 session_messages 持久化记录
 
 | seq | role      | content                                                                                           | timestamp     | 写入路径                    |
 | --- | --------- | ------------------------------------------------------------------------------------------------- | ------------- | --------------------------- |
@@ -503,7 +603,7 @@ return html`<msg-agent .message=${msg}></msg-agent>`;
 | 5   | approval  | `[approval:user-resolve] {"id":"31ef2104-...","decision":"allow-once","resolvedBy":"管理员",...}` | 1774529155900 | 路径 D: interceptRequest    |
 | 6   | approval  | `[approval:resolved] {"id":"31ef2104-...","decision":"allow-once","resolvedBy":"管理员",...}`     | 1774529155912 | 路径 C: recordApprovalEvent |
 
-### 7.3 历史回放渲染
+### 8.3 历史回放渲染
 
 加载历史消息后，前端按 seq/timestamp 顺序渲染：
 
@@ -517,32 +617,36 @@ return html`<msg-agent .message=${msg}></msg-agent>`;
 
 ---
 
-## 8. 涉及文件
+## 9. 涉及文件
 
-| 文件                                                     | 变更类型 | 说明                                                                                                                                                                                                                                                       |
-| -------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `aiemas/src/store/database.ts`                           | 修改     | `session_messages.role` CHECK 约束新增 `'approval'`                                                                                                                                                                                                        |
-| `aiemas/src/session-history/session-transcript-store.ts` | 修改     | `StoredMessage.role` 新增 `'approval'`；`normaliseRole` 新增 `'approval'` 分支；新增 `recordApprovalEvent()` 方法；`handleUpdate` 新增 assistant 消息写入后回填 `triggeredByMsgId` 到同 session 最近 `[approval:requested]` 的逻辑（§5.4）                 |
-| `src/gateway/mas4s-integration.ts`                       | 修改     | `Mas4sIntegration` 接口新增 `_setExecApprovalManager`；`filterBroadcast` 新增 `exec.approval.requested` 和 `exec.approval.resolved` 旁路捕获（路径 C）；`interceptRequest` 新增 `exec.approval.resolve` 用户请求记录（路径 D）                             |
-| `src/gateway/server.impl.ts`                             | 修改     | 启动后调用 `_setExecApprovalManager` 注入 manager                                                                                                                                                                                                          |
-| `aiemas/ui/mas4s/src/lib/chat-types.ts`                  | 修改     | `MessageContentItem.type` 新增 `approval_requested` / `approval_resolved`                                                                                                                                                                                  |
-| `aiemas/ui/mas4s/src/lib/message-normalizer.ts`          | 修改     | 新增 `[approval:requested]` / `[approval:resolved]` / `[approval:user-resolve]` 行前缀解析                                                                                                                                                                 |
-| `aiemas/ui/mas4s/src/views/message-list.ts`              | 修改     | `_buildHistoryResolvedMap` 同时收集 `triggeredByMsgId` 到 `_cachedApprovalTriggeredMsgIds`；渲染 assistant 消息时按 id 精确过滤触发审批的消息（§6.3.3）；新增 `role="approval"` 消息渲染：重建 `ApprovalRequest`、构建历史 resolved 索引、渲染只读审批卡片 |
+| 文件                                                     | 变更类型 | 说明                                                                                                                                                                                                                                                      |
+| -------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `aiemas/src/store/database.ts`                           | 修改     | `session_messages.role` CHECK 约束新增 `'approval'` 和 `'system'`                                                                                                                                                                                         |
+| `aiemas/src/session-history/session-transcript-store.ts` | 修改     | `StoredMessage.role` 新增 `'approval'` 和 `'system'`；`normaliseRole` 新增对应分支；新增 `recordApprovalEvent()` 方法；`handleUpdate` 新增 assistant 消息写入后回填 `triggeredByMsgId` 到同 session 最近 `[approval:requested]` 的逻辑（§5.4）            |
+| `src/gateway/mas4s-integration.ts`                       | 修改     | `Mas4sIntegration` 接口新增 `_setExecApprovalManager`；`filterBroadcast` 新增 `exec.approval.requested` 和 `exec.approval.resolved` 旁路捕获（路径 C）；`interceptRequest` 新增 `exec.approval.resolve` 用户请求记录（路径 D）                            |
+| `src/gateway/server.impl.ts`                             | 修改     | 启动后调用 `_setExecApprovalManager` 注入 manager                                                                                                                                                                                                         |
+| `src/gateway/session-utils.fs.ts`                        | 只读参考 | `readSessionMessages` 将 JSONL 中的 `type: "compaction"` 条目转换为 `role="system"` 合成消息，经 `onSessionTranscriptUpdate` 写入 `session_messages`（§7.1.1）                                                                                            |
+| `src/agents/subagent-announce.ts`                        | 只读参考 | 子 agent 唤醒消息以 `role: "system"` 注入父 session，经 `handleUpdate` 写入 `session_messages`（§7.1.2）                                                                                                                                                  |
+| `src/agents/subagent-announce-delivery.ts`               | 只读参考 | 子 agent 完成通知以 `role: "system"` 注入 requester session，经 `handleUpdate` 写入 `session_messages`（§7.1.2）                                                                                                                                          |
+| `aiemas/ui/mas4s/src/lib/chat-types.ts`                  | 修改     | `MessageContentItem.type` 新增 `approval_requested` / `approval_resolved`                                                                                                                                                                                 |
+| `aiemas/ui/mas4s/src/lib/message-normalizer.ts`          | 修改     | 新增 `[approval:requested]` / `[approval:resolved]` / `[approval:user-resolve]` 行前缀解析                                                                                                                                                                |
+| `aiemas/ui/mas4s/src/views/message-list.ts`              | 修改     | `_buildHistoryResolvedMap` 同时收集 `triggeredByMsgId` 到 `_cachedApprovalTriggeredMsgIds`；渲染 assistant 消息时按 id 精确过滤触发审批的消息（§6.3.3）；新增 `role="approval"` 消息渲染；`role="system"` 消息按 `__openclaw.kind` 渲染为分割线或系统提示 |
 
 ---
 
-## 9. 与 v2 的兼容性
+## 10. 与 v2 的兼容性
 
-- 数据库 schema：原表已删除重建，`CREATE TABLE IF NOT EXISTS` 直接使用新 CHECK 约束
-- 写入路径：路径 A（handleUpdate）和路径 B（recordToolEvent）不变，路径 C 为纯新增
+- 数据库 schema：原表已删除重建，`CREATE TABLE IF NOT EXISTS` 直接使用新 CHECK 约束（含 `'system'`）
+- 写入路径：路径 A（handleUpdate）和路径 B（recordToolEvent）不变，路径 C 为纯新增；`role="system"` 消息通过路径 A 透传，无需新增路径
 - 前端解析：`normalizeMessage` 对不含 `[approval:*]` 前缀的旧消息无影响，作为普通文本处理
-- 渲染层：`message-list` 对 `role` 非 `"approval"` 的消息走原有分支，不影响现有渲染
+- 渲染层：`message-list` 对 `role` 非 `"approval"` / `"system"` 的消息走原有分支，不影响现有渲染
+- 纯前端 system 消息（`injectCommandResult`、历史截断提示）不经过 gateway，不写入 DB，与持久化的 `role="system"` 消息无冲突
 
 ---
 
-## 10. 实时对话消息示例与回放分析
+## 11. 实时对话消息示例与回放分析
 
-### 10.1 原始 WebSocket 消息流
+### 11.1 原始 WebSocket 消息流
 
 以下为一次完整的"删除 /tmp/123.txt"对话的 WebSocket 消息，包含用户请求、agent 流式输出、工具调用、审批请求和审批决策。
 
@@ -786,7 +890,7 @@ return html`<msg-agent .message=${msg}></msg-agent>`;
 
 ---
 
-### 10.2 逐条持久化分析
+### 11.2 逐条持久化分析
 
 | #   | 事件                              | 持久化         | 写入路径                        | 说明                                                                                                |
 | --- | --------------------------------- | -------------- | ------------------------------- | --------------------------------------------------------------------------------------------------- |
@@ -806,7 +910,7 @@ return html`<msg-agent .message=${msg}></msg-agent>`;
 
 ---
 
-### 10.3 session_messages 最终记录
+### 11.3 session_messages 最终记录
 
 | seq | role      | content 摘要                                                                                                     | timestamp     | 写入路径   |
 | --- | --------- | ---------------------------------------------------------------------------------------------------------------- | ------------- | ---------- |
@@ -822,7 +926,7 @@ return html`<msg-agent .message=${msg}></msg-agent>`;
 
 ---
 
-### 10.4 非流式回放渲染结果
+### 11.4 非流式回放渲染结果
 
 历史加载后，`fetchSessionHistoryRange` 返回 ASC 顺序的消息，前端依次渲染：
 
@@ -840,7 +944,7 @@ return html`<msg-agent .message=${msg}></msg-agent>`;
 
 ---
 
-### 10.5 待确认问题：seq=2 是否包含 tool_use block
+### 11.5 待确认问题：seq=2 是否包含 tool_use block
 
 seq=2（路径 A，handleUpdate）来自 JSONL transcript 的 assistant 消息。若 JSONL 写入时机在 agent run 结束后，assistant 消息的 content 数组可能同时包含 `thinking + text + tool_use` block。
 

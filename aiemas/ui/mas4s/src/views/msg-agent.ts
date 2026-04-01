@@ -5,13 +5,37 @@ import { markdownMath } from "../lib/markdown-directive.js";
 import "./msg-tool-card.js";
 import type { ChatMessage, MessageContentItem } from "../types/chat-types.js";
 
+/** 检测文本末尾是否为疑问句（中英文问号），用于推断是否需要快捷回复按钮 */
+function endsWithQuestion(text: string): boolean {
+  const trimmed = text.trimEnd();
+  return trimmed.endsWith("?") || trimmed.endsWith("？");
+}
+
+/** 根据问句内容推断合适的快捷回复选项 */
+function inferQuickReplies(text: string): string[] {
+  const t = text.toLowerCase();
+  // 跳过/停止类
+  if (t.includes("跳过") || t.includes("skip")) {
+    return ["继续", "跳过", "停止"];
+  }
+  // 分析类
+  if (t.includes("分析") || t.includes("analyz") || t.includes("deep")) {
+    return ["继续分析", "跳过分析", "停止"];
+  }
+  // 默认：继续 / 停止
+  return ["继续", "停止"];
+}
+
 /**
  * Agent 消息气泡（左对齐，绿色渐变头像）。
  * 渲染文本内容 + tool_call / tool_result 卡片。
+ * isLatest=true 时，若末尾为疑问句则在气泡下方渲染快捷回复按钮。
  */
 @customElement("msg-agent")
 export class MsgAgent extends LitElement {
   @property({ attribute: false }) message!: ChatMessage;
+  /** 是否为当前会话最新的 agent 消息（由 message-list 传入） */
+  @property({ type: Boolean }) isLatest = false;
   @state() private _thinkingExpanded = false;
 
   static styles = css`
@@ -56,7 +80,7 @@ export class MsgAgent extends LitElement {
     }
 
     .message-content {
-      max-width: 65%;
+      max-width: calc(100% - 80px);
       display: flex;
       flex-direction: column;
     }
@@ -162,14 +186,17 @@ export class MsgAgent extends LitElement {
       border: 1px solid #e2e8f0;
       border-radius: 8px;
       padding: 10px 14px;
-      overflow-x: auto;
       margin: 0.6em 0;
+      white-space: pre-wrap;
+      word-break: break-all;
     }
     .message-bubble pre code {
       background: none;
       border: none;
       padding: 0;
       font-size: 0.85em;
+      white-space: pre-wrap;
+      word-break: break-all;
     }
     .message-bubble blockquote {
       border-left: 3px solid #10b981;
@@ -216,6 +243,38 @@ export class MsgAgent extends LitElement {
       flex-direction: column;
       gap: 4px;
       margin-top: 8px;
+    }
+
+    .quick-replies {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .quick-reply-btn {
+      padding: 6px 16px;
+      border-radius: 20px;
+      border: 1.5px solid #10b981;
+      background: #ffffff;
+      color: #059669;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+      line-height: 1.4;
+    }
+
+    .quick-reply-btn:hover {
+      background: #ecfdf5;
+      border-color: #059669;
+      transform: translateY(-1px);
+      box-shadow: 0 3px 8px rgba(16, 185, 129, 0.2);
+    }
+
+    .quick-reply-btn:active {
+      transform: translateY(0);
     }
 
     .thinking-block {
@@ -379,7 +438,7 @@ export class MsgAgent extends LitElement {
         if (!text.trim()) {
           return nothing;
         }
-        return html`<div class="message-bubble">${markdownMath(text)}</div>`;
+        return html`<div class="message-bubble">${markdownMath(text.trim())}</div>`;
       }
 
       if (item.type === "tool_call") {
@@ -392,6 +451,40 @@ export class MsgAgent extends LitElement {
 
       return nothing;
     })}`;
+  }
+
+  private _onQuickReply(text: string) {
+    this.dispatchEvent(
+      new CustomEvent("quick-reply", {
+        detail: { text },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  private _renderQuickReplies() {
+    if (!this.isLatest) {
+      return nothing;
+    }
+
+    // 找最后一条 text 类型 content item
+    const textItems = this.message.content.filter((c) => c.type === "text" && c.text?.trim());
+    const lastText = textItems[textItems.length - 1]?.text ?? "";
+    if (!endsWithQuestion(lastText)) {
+      return nothing;
+    }
+
+    const replies = inferQuickReplies(lastText);
+    return html`
+      <div class="quick-replies">
+        ${replies.map(
+          (r) => html`
+            <button class="quick-reply-btn" @click=${() => this._onQuickReply(r)}>${r}</button>
+          `,
+        )}
+      </div>
+    `;
   }
 
   render() {
@@ -443,7 +536,7 @@ export class MsgAgent extends LitElement {
             Agent: ${agentName}
             ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
           </div>
-          ${this._renderContent(this.message.content)}
+          ${this._renderContent(this.message.content)} ${this._renderQuickReplies()}
         </div>
       </div>
     `;

@@ -317,11 +317,13 @@ export class ChatView extends LitElement {
   override connectedCallback(): void {
     super.connectedCallback();
     this.addEventListener("summary-click", this._onSummaryClick as EventListener);
+    this.addEventListener("quick-reply", this._onQuickReply as EventListener);
   }
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
     this.removeEventListener("summary-click", this._onSummaryClick as EventListener);
+    this.removeEventListener("quick-reply", this._onQuickReply as EventListener);
     if (this._container) {
       this._container.removeEventListener("scroll", this._onScroll);
       this._container.removeEventListener("wheel", this._onWheel);
@@ -401,6 +403,9 @@ export class ChatView extends LitElement {
   private _onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
+      e.stopPropagation();
+      // Ensure we have the latest value from the textarea
+      this._inputText = (e.target as HTMLTextAreaElement).value;
       this._onSend();
     }
   };
@@ -411,7 +416,7 @@ export class ChatView extends LitElement {
 
   private _onSend = () => {
     const text = this._inputText.trim();
-    if (!text || !this.session || this._isArchived || this.isChatting) {
+    if (!text || !this.session || this._isArchived) {
       return;
     }
     this.dispatchEvent(
@@ -434,7 +439,18 @@ export class ChatView extends LitElement {
     );
   };
 
-  // ── 摘要弹窗 ──────────────────────────────────────────────────────────────
+  private _onQuickReply = (e: CustomEvent<{ text: string }>) => {
+    if (!this.session || this._isArchived) {
+      return;
+    }
+    this.dispatchEvent(
+      new CustomEvent("send-message", {
+        detail: { sessionKey: this.session.key, text: e.detail.text },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  };
 
   private _onSummaryClick = (e: CustomEvent) => {
     e.stopPropagation();
@@ -516,7 +532,7 @@ export class ChatView extends LitElement {
           ></textarea>
           <div class="input-toolbar">
             <span class="input-hint">Shift+Enter 换行</span>
-            ${this.isChatting
+            ${this.isChatting && !this._inputText.trim()
               ? html`
                   <button class="abort-btn" @click=${this._onAbort} title="中止生成">
                     <svg

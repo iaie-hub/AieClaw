@@ -26,6 +26,12 @@ export class MessageController {
     const rawText = e.detail.text;
     const clientRunId = crypto.randomUUID();
 
+    // 需求：如果当前正在聊天，则先中止
+    if (session.sessionUuid && this.store.isChattingBySession.get(session.sessionUuid)) {
+      console.debug("[mas4s:message] send → interrupting active run before sending");
+      await this.onAbortChat();
+    }
+
     // 乐观追加用户消息，立即显示在聊天列表中
     this.store.appendMessage(session.sessionUuid!, {
       role: "user",

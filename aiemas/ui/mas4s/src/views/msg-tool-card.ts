@@ -65,9 +65,8 @@ export class MsgToolCard extends LitElement {
       font-family: "SF Mono", "Fira Code", monospace;
       font-size: 12px;
       color: #1d4ed8;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      white-space: normal;
+      word-break: break-all;
     }
 
     .tool-card--result .tool-name {
@@ -162,11 +161,9 @@ export class MsgToolCard extends LitElement {
       line-height: 1.6;
       color: #334155;
       word-break: break-word;
-      white-space: pre-wrap;
     }
     .tool-result-body p {
       margin: 0 0 0.4em;
-      white-space: pre-wrap;
     }
     .tool-result-body p:last-child {
       margin-bottom: 0;
@@ -322,7 +319,7 @@ export class MsgToolCard extends LitElement {
               <div class="tool-body">
                 ${isCall
                   ? html`<pre>${bodyText}</pre>`
-                  : html`<div class="tool-result-body">${markdownMath(bodyText)}</div>`}
+                  : html`<div class="tool-result-body">${markdownMath(bodyText.trim())}</div>`}
               </div>
             `
           : nothing}

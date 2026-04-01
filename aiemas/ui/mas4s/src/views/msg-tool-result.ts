@@ -53,7 +53,7 @@ export class MsgToolResult extends LitElement {
     }
 
     .message-content {
-      max-width: 65%;
+      max-width: calc(100% - 80px);
       display: flex;
       flex-direction: column;
     }
@@ -113,7 +113,7 @@ export class MsgToolResult extends LitElement {
         `;
       }
       if (item.type === "text") {
-        return html`<div class="message-bubble">${markdownMath(item.text ?? "")}</div>`;
+        return html`<div class="message-bubble">${markdownMath((item.text ?? "").trim())}</div>`;
       }
       return nothing;
     })}`;

@@ -13,6 +13,7 @@ import * as Sanitizer from "../../../../../vendor/a2ui/renderers/lit/src/0.8/ui/
 
 const createMd = () => {
   const md = MarkdownIt({
+    breaks: true,
     highlight: (str, lang) => {
       if (lang === "html") {
         const iframe = document.createElement("iframe");

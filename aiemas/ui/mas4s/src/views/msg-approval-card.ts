@@ -55,7 +55,7 @@ export class MsgApprovalCard extends LitElement {
     .content {
       flex: 1;
       min-width: 0;
-      max-width: 80%;
+      max-width: 90%;
     }
 
     .sender-line {
@@ -141,6 +141,7 @@ export class MsgApprovalCard extends LitElement {
       font-family: "SF Mono", "Fira Code", monospace;
       font-size: 13px;
       line-height: 1.5;
+      white-space: pre-wrap;
       word-break: break-all;
       margin-bottom: 12px;
     }
@@ -162,9 +163,8 @@ export class MsgApprovalCard extends LitElement {
     .meta-value {
       color: #334155;
       font-family: "SF Mono", "Fira Code", monospace;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      white-space: pre-wrap;
+      word-break: break-all;
     }
 
     .ask-block {

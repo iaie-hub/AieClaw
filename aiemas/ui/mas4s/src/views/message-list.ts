@@ -79,7 +79,7 @@ export class MessageList extends LitElement {
    */
   private _cachedApprovalTriggeredMsgIds: Set<string> = new Set();
 
-  private _renderMessage(msg: ChatMessage) {
+  private _renderMessage(msg: ChatMessage, isLatestAgent: boolean) {
     if (msg.subType === "colleague") {
       return html`<msg-colleague .message=${msg}></msg-colleague>`;
     }
@@ -177,7 +177,7 @@ export class MessageList extends LitElement {
       if (msg.id && this._cachedApprovalTriggeredMsgIds.has(msg.id)) {
         return html``;
       }
-      return html`<msg-agent .message=${msg}></msg-agent>`;
+      return html`<msg-agent .message=${msg} .isLatest=${isLatestAgent}></msg-agent>`;
     }
     if (msg.role === "tool" || msg.role === "toolResult") {
       return html`<msg-tool-result .message=${msg}></msg-tool-result>`;
@@ -189,7 +189,18 @@ export class MessageList extends LitElement {
   render() {
     // Build the history resolved map once per render cycle
     this._cachedHistoryResolved = this._buildHistoryResolvedMap();
-    return html`${this.messages.map((msg) => this._renderMessage(msg))}`;
+
+    // Find the id of the last visible assistant message (for quick-reply buttons)
+    const lastAgentMsg = [...this.messages]
+      .toReversed()
+      .find(
+        (m) => m.role === "assistant" && !(m.id && this._cachedApprovalTriggeredMsgIds.has(m.id)),
+      );
+    const lastAgentId = lastAgentMsg?.id;
+
+    return html`${this.messages.map((msg) =>
+      this._renderMessage(msg, !!(lastAgentId && msg.id === lastAgentId)),
+    )}`;
   }
 }
 

@@ -266,6 +266,7 @@ async function wakeSubagentRunAfterDescendants(params: {
           params: {
             sessionKey: params.childSessionKey,
             message: wakeMessage,
+            role: "system",
             deliver: false,
             inputProvenance: {
               kind: "inter_session",

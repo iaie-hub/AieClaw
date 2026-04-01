@@ -311,6 +311,7 @@ async function sendAnnounce(item: AnnounceQueueItem) {
     params: {
       sessionKey: item.sessionKey,
       message: item.prompt,
+      role: "system",
       channel: requesterIsSubagent ? undefined : origin?.channel,
       accountId: requesterIsSubagent ? undefined : origin?.accountId,
       to: requesterIsSubagent ? undefined : origin?.to,
@@ -517,6 +518,7 @@ async function sendSubagentAnnounceDirectly(params: {
           params: {
             sessionKey: canonicalRequesterSessionKey,
             message: params.triggerMessage,
+            role: "system",
             deliver: deliveryTarget.deliver,
             bestEffortDeliver: params.bestEffortDeliver,
             internalEvents: params.internalEvents,

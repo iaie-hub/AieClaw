@@ -32,7 +32,7 @@ export class MsgUser extends LitElement {
     }
 
     .message-content {
-      max-width: 65%;
+      max-width: calc(100% - 80px);
       display: flex;
       flex-direction: column;
       align-items: flex-end;
@@ -66,6 +66,7 @@ export class MsgUser extends LitElement {
       font-size: 14px;
       line-height: 1.6;
       word-break: break-word;
+      overflow-wrap: break-word;
       background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
       color: #fff;
       box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
@@ -92,12 +93,15 @@ export class MsgUser extends LitElement {
       background: rgba(0, 0, 0, 0.2);
       border-radius: 8px;
       padding: 10px 14px;
-      overflow-x: auto;
       margin: 0.5em 0;
+      white-space: pre-wrap;
+      word-break: break-all;
     }
     .message-bubble pre code {
       background: none;
       padding: 0;
+      white-space: pre-wrap;
+      word-break: break-all;
     }
     .message-bubble ul,
     .message-bubble ol {
@@ -154,7 +158,9 @@ export class MsgUser extends LitElement {
           <div class="message-name">
             ${name} ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
           </div>
-          ${text.trim() ? html`<div class="message-bubble">${markdownMath(text)}</div>` : nothing}
+          ${text.trim()
+            ? html`<div class="message-bubble">${markdownMath(text.trim())}</div>`
+            : nothing}
         </div>
         <div class="message-avatar">👤</div>
       </div>
