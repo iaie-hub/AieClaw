@@ -84,7 +84,7 @@ export function renderMain(
           <session-sidebar
             .sessions=${store.sessions}
             .agents=${store.agents}
-            .activeSessionKey=${store.activeSessionUuid ?? ""}
+            .activeSessionKey=${store.activeSessionKey ?? ""}
             @session-select=${h.onSessionSelect}
             @session-create=${h.onSessionCreate}
             @session-rename=${h.onSessionRename}

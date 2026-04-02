@@ -43,7 +43,10 @@ export class SessionController {
       // 创建成功后刷新完整会话列表，确保 label 等字段与 gateway 存储一致
       const sessions = await fetchSessions(client);
       this.store.setSessions(sessions);
-      this.store.setActiveSession(session.sessionUuid!);
+      // The locally-constructed MasSession lacks sessionUuid; derive the UUID
+      // from the key so the store can resolve the active session correctly.
+      const uuid = session.key.split(":").pop()!;
+      this.store.setActiveSession(uuid);
       console.debug("[mas4s:session] create ← key=%s sessions=%d", session.key, sessions.length);
     } catch (err) {
       console.error("[mas4s:session] createSession failed:", err);

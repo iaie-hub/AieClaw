@@ -134,10 +134,71 @@ Skill 脚本通过 `lib.progress.ProgressReporter` 写入 JSONL 文件：
 
 ### 4.2 ProgressWatcher (`aiemas/src/sop-tracker/progress-watcher.ts`)
 
-- `startWatch()` 开始轮询指定 progress.jsonl 文件
-- 每 2 秒读取文件新增字节，逐行解析 JSON
-- 通过回调通知调用方
-- `stopWatch()` 停止轮询并清理
+ProgressWatcher 采用字节偏移量轮询（而非 `fs.watch`）来可靠地跟踪 progress.jsonl 文件的增量写入。
+
+核心机制：
+
+1. `startWatch()` 注册一个 `WatchEntry`，记录 `filePath`、`offset`（初始为 0）和 `remainder`（跨轮询的不完整行缓冲）
+2. 每 2 秒（`pollIntervalMs`，可配置）执行一次 `poll()`：
+   - `statSync` 获取文件大小，与 `offset` 比较；若文件被截断则重置 offset
+   - 仅读取 `[offset, fileSize)` 区间的新增字节（`openSync` + `readSync` + 指定 position）
+   - 将新内容与上次 `remainder` 拼接，按 `\n` 分割；最后一个不完整行保留到下次轮询
+   - 逐行 `JSON.parse`，校验 `type` 和 `skill` 字段后通过 `onProgress` 回调推送
+   - 遇到 `type: "done"` 时自动调用 `stopWatch()` 结束轮询
+3. `stopWatch()` 清除 `setInterval` 定时器并从 `watches` Map 中移除条目
+4. 解析失败的行不会中断轮询，仅 `console.error` 记录
+
+以 `pdf_to_markdown` 为例，一次典型的 5 篇论文转换会产生如下 progress.jsonl 内容（ProgressWatcher 逐行解析并推送）：
+
+```jsonl
+{"type":"start","skill":"pdf_to_markdown","total":5,"label":"PDF 转 Markdown (5 篇)","ts":1719900000000}
+{"type":"item","skill":"pdf_to_markdown","index":0,"pct":0,"label":"2603.xxx","status":"running","message":"开始转换 2603.xxx","ts":1719900001000}
+{"type":"log","skill":"pdf_to_markdown","message":"2603.xxx 页 1/42 转换完成","level":"info","ts":1719900005000}
+{"type":"log","skill":"pdf_to_markdown","message":"2603.xxx 页 2/42 转换完成","level":"info","ts":1719900008000}
+...
+{"type":"item","skill":"pdf_to_markdown","index":0,"pct":100,"label":"2603.xxx","status":"completed","message":"转换完成 2603.xxx","ts":1719900120000}
+{"type":"item","skill":"pdf_to_markdown","index":1,"pct":0,"label":"2604.yyy","status":"running","message":"开始转换 2604.yyy","ts":1719900121000}
+{"type":"log","skill":"pdf_to_markdown","message":"2604.yyy 页 1/28 转换完成","level":"info","ts":1719900125000}
+...
+{"type":"log","skill":"pdf_to_markdown","message":"2603.xxx 页 5 转换失败","level":"error","ts":1719900200000}
+...
+{"type":"done","skill":"pdf_to_markdown","succeeded":5,"failed":0,"elapsed_ms":360000,"ts":1719900360000}
+```
+
+对应 `pdf_to_markdown.py` 中的日志记录调用链：
+
+```python
+# 初始化（main 函数入口）
+_init_progress(run_id)          # 创建 ProgressReporter 实例
+_progress.start(total=total, label=f"PDF 转 Markdown ({total} 篇)")
+
+# 每篇论文开始（convert_one）
+_progress.update(index=paper_index, pct=0, label=p_id,
+                 status="running", message=f"开始转换 {p_id}")
+
+# 页级日志（process_page，线程安全，_progress_lock 保护）
+_progress.log(f"{p_id} 页 {page_index+1}/{total_pages} 转换完成")
+# 失败时
+_progress.log(f"{p_id} 页 {page_index+1} 转换失败", level="error")
+
+# 每篇论文完成（convert_one）
+_progress.update(index=paper_index, pct=100, label=p_id,
+                 status="completed", message=f"转换完成 {p_id}")
+# 失败时
+_progress.update(index=paper_index, pct=100, label=p_id,
+                 status="failed", message=f"转换失败 {p_id}: {e}")
+
+# 全部完成（main finally 块）
+_progress.done(succeeded=len(results["success"]),
+               failed=len(results["failed"]),
+               elapsed_ms=elapsed_ms)
+```
+
+关键实现细节：
+
+- `pdf_to_markdown.py` 使用 `threading.Lock`（`_progress_lock`）保护页级日志写入，因为页级转换通过 `ThreadPoolExecutor(max_workers=16)` 并发执行
+- `ProgressReporter._write()` 每次调用都 `flush()`，确保 ProgressWatcher 的下一次轮询能读到最新行
+- 论文级并发（默认 3）× 页级并发（16）意味着日志行可能交错出现不同论文的页进度，ProgressWatcher 不关心顺序，逐行解析即可
 
 ### 4.3 Gateway 集成 (`src/gateway/mas4s-integration.ts`)
 
@@ -262,20 +323,44 @@ app-shell.ts (从 store 读取 SOP 状态)
 
 ### 6.1 Python 进度工具库
 
-`tools/lib/progress.py` 提供 `ProgressReporter` 类：
+`tools/lib/progress.py` 提供 `ProgressReporter` 类，核心职责是将结构化进度行追加写入 JSONL 文件供 ProgressWatcher 轮询消费。
+
+内部实现要点：
+
+- 构造时根据 `skill_name` 和可选 `run_id` 确定文件路径（`~/.openclaw/agents/<agentId>/workspace/progress/[run_id_]<skill>.progress.jsonl`），自动创建目录
+- `_write(data)` 是所有方法的底层：自动注入 `skill` 和 `ts`（毫秒时间戳），`json.dumps` 后追加 `\n`，立即 `flush()` 确保 ProgressWatcher 下次轮询可读
+- `done()` 写入完成行后自动 `close()` 文件句柄
+
+以 `pdf_to_markdown.py` 为例的完整调用模式：
 
 ```python
 from lib.progress import ProgressReporter
 
-reporter = ProgressReporter("pdf_to_markdown", run_id="optional-uuid")
-reporter.start(total=10, label="PDF 转 Markdown (10 篇)")
-reporter.update(index=1, pct=0, label="2603.xxx", status="running")
-reporter.log("开始转换 2603.xxx (共 42 页)")
-reporter.update(index=1, pct=100, label="2603.xxx", status="completed")
-reporter.done(succeeded=10, failed=0, elapsed_ms=3600000)
+# 1. 初始化（main 入口，接收 run_id 隔离不同次执行）
+reporter = ProgressReporter("pdf_to_markdown", run_id=run_id)
+
+# 2. 声明总量（触发前端进度条初始化）
+reporter.start(total=5, label="PDF 转 Markdown (5 篇)")
+
+# 3. 论文级状态更新（convert_one 函数）
+reporter.update(index=0, pct=0, label="2603.xxx",
+                status="running", message="开始转换 2603.xxx")
+
+# 4. 页级日志（process_page 函数，需 threading.Lock 保护）
+#    成功：
+reporter.log("2603.xxx 页 5/42 转换完成")           # level 默认 "info"
+#    失败：
+reporter.log("2603.xxx 页 5 转换失败", level="error")
+
+# 5. 论文完成
+reporter.update(index=0, pct=100, label="2603.xxx",
+                status="completed", message="转换完成 2603.xxx")
+
+# 6. 全部完成（main finally 块，自动关闭文件）
+reporter.done(succeeded=5, failed=0, elapsed_ms=360000)
 ```
 
-内部实现：追加写入 `progress.jsonl`，每次 `flush()`。
+线程安全注意事项：`ProgressReporter` 自身不加锁，`pdf_to_markdown.py` 通过外部 `_progress_lock`（`threading.Lock`）保护所有 `_progress.log()` 和 `_progress.update()` 调用，因为页级转换使用 `ThreadPoolExecutor(max_workers=16)` 并发。其他 Skill 如果也使用多线程，需自行加锁。
 
 ### 6.2 已改造的脚本
 
@@ -406,6 +491,24 @@ Gateway 动态解析 SOP 定义的路径：
 2. **构造工作区路径**：构建路径：`~/.openclaw/workspace-${agentId}/SOP.json`。
    - 对于 Researcher，这映射到 `~/.openclaw/workspace-researcher/SOP.json`。
 
+以 Researcher Agent 的 `SOP.json` 为例：
+
+```json
+{
+  "name": "research_pipeline",
+  "label": "学术论文研究流程",
+  "steps": [
+    { "skill": "search_arxiv", "label": "检索论文", "icon": "🔍" },
+    { "skill": "download_papers", "label": "下载 PDF", "icon": "📥" },
+    { "skill": "pdf_to_markdown", "label": "PDF 转 Markdown", "icon": "📄" },
+    { "skill": "summary_paper", "label": "生成摘要", "icon": "📝" },
+    { "skill": "analyze_paper", "label": "精读分析", "icon": "🔬" }
+  ]
+}
+```
+
+其中 `skill` 字段必须与 Skill 脚本文件名（去掉 `.py` 后缀）一致，SOPTracker 通过该字段将工具调用匹配到对应步骤。
+
 #### C. Tracker 加载
 
 `SOPTracker`（位于 `aiemas/src/sop-tracker/sop-tracker.ts`）处理文件操作：
@@ -436,13 +539,13 @@ Gateway 动态解析 SOP 定义的路径：
 
 #### 扩展性检查清单
 
-| 特性           | 状态        | 扩展要求                                                                        |
-| :------------- | :---------- | :------------------------------------------------------------------------------ |
-| **工作区隔离** | ✅ 支持     | Agent ID 必须匹配目录后缀（例如 `workspace-X`）。                               |
-| **步骤定义**   | ✅ 支持     | 遵循 `SOPDefinition` 架构（名称、标签、步骤）。                                 |
-| **UI 渲染**    | ✅ 支持     | 前端 `sop-pipeline` 是通用的，直接渲染后端发送的数据。                          |
-| **进度轮询**   | ✅ 支持     | 如果需要项级进度，其他 Agent 必须写入 `progress.jsonl` 文件。                   |
-| **工具提取**   | ⚠️ 部分支持 | 当前针对 `exec` 的正则针对 Python (`.py`)。非 Python 脚本可能需要完善提取逻辑。 |
+| 特性           | 状态        | 扩展要求                                                                                                     |
+| :------------- | :---------- | :----------------------------------------------------------------------------------------------------------- |
+| **工作区隔离** | ✅ 支持     | Agent ID 必须匹配目录后缀（例如 `workspace-X`）。                                                            |
+| **步骤定义**   | ✅ 支持     | 遵循 `SOPDefinition` 架构（名称、标签、步骤）。                                                              |
+| **UI 渲染**    | ✅ 支持     | 前端 `sop-pipeline` 是通用的，直接渲染后端发送的数据。                                                       |
+| **进度轮询**   | ✅ 支持     | 如果需要项级进度，其他 Agent 必须写入 `<skill>.progress.jsonl`（或 `<run_id>_<skill>.progress.jsonl`）文件。 |
+| **工具提取**   | ⚠️ 部分支持 | 当前针对 `exec` 的正则针对 Python (`.py`)。非 Python 脚本可能需要完善提取逻辑。                              |
 
 #### 总结建议
 
