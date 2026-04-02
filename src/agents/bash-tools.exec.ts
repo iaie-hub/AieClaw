@@ -594,14 +594,18 @@ export function createExecTool(
       });
       const host: ExecHost = target.effectiveHost;
 
-      const configuredSecurity = defaults?.security ?? (host === "sandbox" ? "deny" : "allowlist");
+      const approvalDefaults = loadExecApprovals().defaults;
+      const configuredSecurity =
+        defaults?.security ??
+        approvalDefaults?.security ??
+        (host === "sandbox" ? "deny" : "allowlist");
       const requestedSecurity = normalizeExecSecurity(params.security);
       let security = minSecurity(configuredSecurity, requestedSecurity ?? configuredSecurity);
       if (elevatedRequested && elevatedMode === "full") {
         security = "full";
       }
-      // Keep local exec defaults in sync with exec-approvals.json when tools.exec.ask is unset.
-      const configuredAsk = defaults?.ask ?? loadExecApprovals().defaults?.ask ?? "on-miss";
+      // Keep local exec defaults in sync with exec-approvals.json when tools.exec.* is unset.
+      const configuredAsk = defaults?.ask ?? approvalDefaults?.ask ?? "on-miss";
       const requestedAsk = normalizeExecAsk(params.ask);
       let ask = maxAsk(configuredAsk, requestedAsk ?? configuredAsk);
       const bypassApprovals = elevatedRequested && elevatedMode === "full";
@@ -726,6 +730,7 @@ export function createExecTool(
           security,
           ask,
           strictInlineEval: defaults?.strictInlineEval,
+          trigger: defaults?.trigger,
           timeoutSec: params.timeout,
           defaultTimeoutSec,
           approvalRunningNoticeMs,
@@ -749,9 +754,9 @@ export function createExecTool(
           safeBins,
           safeBinProfiles,
           strictInlineEval: defaults?.strictInlineEval,
+          trigger: defaults?.trigger,
           agentId,
           sessionKey: defaults?.sessionKey,
-          runId: defaults?.runId,
           turnSourceChannel: defaults?.messageProvider,
           turnSourceTo: defaults?.currentChannelId,
           turnSourceAccountId: defaults?.accountId,
@@ -764,10 +769,13 @@ export function createExecTool(
           pendingMaxOutput,
           trustedSafeBinDirs,
         });
-        if (gatewayResult.toolResult) {
-          return gatewayResult.toolResult;
+        if (gatewayResult.pendingResult) {
+          return gatewayResult.pendingResult;
         }
         execCommandOverride = gatewayResult.execCommandOverride;
+        if (gatewayResult.allowWithoutEnforcedCommand) {
+          execCommandOverride = undefined;
+        }
       }
 
       const explicitTimeoutSec = typeof params.timeout === "number" ? params.timeout : null;

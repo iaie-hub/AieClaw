@@ -1,10 +1,13 @@
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import {
+  addDurableCommandApproval,
   addAllowlistEntry,
   type ExecAsk,
+  resolveExecApprovalAllowedDecisions,
   type ExecSecurity,
   buildEnforcedShellCommand,
   evaluateShellAllowlist,
+  hasDurableExecApproval,
   recordAllowlistUse,
   resolveApprovalAuditCandidatePath,
   requiresExecApproval,
@@ -17,6 +20,7 @@ import {
 import { detectCommandObfuscation } from "../infra/exec-obfuscation-detect.js";
 import type { SafeBinProfile } from "../infra/exec-safe-bin-policy.js";
 import { logInfo } from "../logger.js";
+import { markBackgrounded, tail } from "./bash-process-registry.js";
 import {
   buildExecApprovalRequesterContext,
   buildExecApprovalTurnSourceContext,
@@ -24,13 +28,22 @@ import {
 } from "./bash-tools.exec-approval-request.js";
 import {
   buildDefaultExecApprovalRequestArgs,
+  buildHeadlessExecApprovalDeniedMessage,
+  buildExecApprovalFollowupTarget,
   buildExecApprovalPendingToolResult,
   createExecApprovalDecisionState,
   createAndRegisterDefaultExecApprovalRequest,
   resolveApprovalDecisionOrUndefined,
   resolveExecHostApprovalContext,
+  sendExecApprovalFollowupResult,
+  shouldResolveExecApprovalUnavailableInline,
 } from "./bash-tools.exec-host-shared.js";
-import { createApprovalSlug } from "./bash-tools.exec-runtime.js";
+import {
+  DEFAULT_NOTIFY_TAIL_CHARS,
+  createApprovalSlug,
+  normalizeNotifyOutput,
+  runExecProcess,
+} from "./bash-tools.exec-runtime.js";
 import type { ExecToolDetails } from "./bash-tools.exec-types.js";
 
 export type ProcessGatewayAllowlistParams = {
@@ -46,10 +59,9 @@ export type ProcessGatewayAllowlistParams = {
   safeBins: Set<string>;
   safeBinProfiles: Readonly<Record<string, SafeBinProfile>>;
   strictInlineEval?: boolean;
+  trigger?: string;
   agentId?: string;
   sessionKey?: string;
-  /** The agent run ID that triggered this exec, used to detect followup-loop re-runs. */
-  runId?: string;
   turnSourceChannel?: string;
   turnSourceTo?: string;
   turnSourceAccountId?: string;
@@ -65,24 +77,13 @@ export type ProcessGatewayAllowlistParams = {
 
 export type ProcessGatewayAllowlistResult = {
   execCommandOverride?: string;
-  toolResult?: AgentToolResult<ExecToolDetails>;
+  allowWithoutEnforcedCommand?: boolean;
+  pendingResult?: AgentToolResult<ExecToolDetails>;
 };
 
 export async function processGatewayAllowlist(
   params: ProcessGatewayAllowlistParams,
 ): Promise<ProcessGatewayAllowlistResult> {
-  // Hard guard: exec-approval-followup turns must never trigger new exec commands.
-  // The followup is a summary-only notification; if the agent calls exec anyway,
-  // deny it immediately to break the approval loop.
-  if (params.runId?.startsWith("exec-approval-followup:")) {
-    console.warn(
-      `[exec-host-gateway] BLOCKED exec in followup turn: runId=${params.runId}, command=${params.command}`,
-    );
-    throw new Error(
-      "exec denied: tool calls are not allowed in exec-approval followup turns (summary-only).",
-    );
-  }
-
   const { approvals, hostSecurity, hostAsk, askFallback } = resolveExecHostApprovalContext({
     agentId: params.agentId,
     security: params.security,
@@ -103,6 +104,12 @@ export async function processGatewayAllowlist(
   const analysisOk = allowlistEval.analysisOk;
   const allowlistSatisfied =
     hostSecurity === "allowlist" && analysisOk ? allowlistEval.allowlistSatisfied : false;
+  const durableApprovalSatisfied = hasDurableExecApproval({
+    analysisOk,
+    segmentAllowlistEntries: allowlistEval.segmentAllowlistEntries,
+    allowlist: approvals.allowlist,
+    commandText: params.command,
+  });
   const inlineEvalHit =
     params.strictInlineEval === true
       ? (allowlistEval.segments
@@ -119,6 +126,7 @@ export async function processGatewayAllowlist(
     );
   }
   let enforcedCommand: string | undefined;
+  let allowlistPlanUnavailableReason: string | null = null;
   if (hostSecurity === "allowlist" && analysisOk && allowlistSatisfied) {
     const enforced = buildEnforcedShellCommand({
       command: params.command,
@@ -126,14 +134,13 @@ export async function processGatewayAllowlist(
       platform: process.platform,
     });
     if (!enforced.ok || !enforced.command) {
-      throw new Error(`exec denied: allowlist execution plan unavailable (${enforced.reason})`);
+      allowlistPlanUnavailableReason = enforced.reason ?? "unsupported platform";
+    } else {
+      enforcedCommand = enforced.command;
     }
-    enforcedCommand = enforced.command;
   }
-  const isInternalManagementCommand =
-    params.command.trim().startsWith("/approve ") || params.command.trim().startsWith("/deny ");
   const obfuscation = detectCommandObfuscation(params.command);
-  if (obfuscation.detected && !isInternalManagementCommand) {
+  if (obfuscation.detected) {
     logInfo(`exec: obfuscation detected (gateway): ${obfuscation.reasons.join(", ")}`);
     params.warnings.push(`⚠️ Obfuscated command detected: ${obfuscation.reasons.join("; ")}`);
   }
@@ -156,20 +163,32 @@ export async function processGatewayAllowlist(
   const requiresHeredocApproval =
     hostSecurity === "allowlist" && analysisOk && allowlistSatisfied && hasHeredocSegment;
   const requiresInlineEvalApproval = inlineEvalHit !== null;
+  const requiresAllowlistPlanApproval =
+    hostSecurity === "allowlist" &&
+    analysisOk &&
+    allowlistSatisfied &&
+    !enforcedCommand &&
+    allowlistPlanUnavailableReason !== null;
   const requiresAsk =
-    !isInternalManagementCommand &&
-    (requiresExecApproval({
+    requiresExecApproval({
       ask: hostAsk,
       security: hostSecurity,
       analysisOk,
       allowlistSatisfied,
+      durableApprovalSatisfied,
     }) ||
-      requiresHeredocApproval ||
-      requiresInlineEvalApproval ||
-      obfuscation.detected);
+    requiresAllowlistPlanApproval ||
+    requiresHeredocApproval ||
+    requiresInlineEvalApproval ||
+    obfuscation.detected;
   if (requiresHeredocApproval) {
     params.warnings.push(
       "Warning: heredoc execution requires explicit approval in allowlist mode.",
+    );
+  }
+  if (requiresAllowlistPlanApproval) {
+    params.warnings.push(
+      `Warning: allowlist auto-execution is unavailable on ${process.platform}; explicit approval is required.`,
     );
   }
 
@@ -213,97 +232,191 @@ export async function processGatewayAllowlist(
       ...requestArgs,
       register: registerGatewayApproval,
     });
+    if (
+      shouldResolveExecApprovalUnavailableInline({
+        trigger: params.trigger,
+        unavailableReason,
+        preResolvedDecision,
+      })
+    ) {
+      const { approvedByAsk, deniedReason } = createExecApprovalDecisionState({
+        decision: preResolvedDecision,
+        askFallback,
+        obfuscationDetected: obfuscation.detected,
+      });
+
+      if (deniedReason || !approvedByAsk) {
+        throw new Error(
+          buildHeadlessExecApprovalDeniedMessage({
+            trigger: params.trigger,
+            host: "gateway",
+            security: hostSecurity,
+            ask: hostAsk,
+            askFallback,
+          }),
+        );
+      }
+
+      recordMatchedAllowlistUse(
+        resolveApprovalAuditCandidatePath(
+          allowlistEval.segments[0]?.resolution ?? null,
+          params.workdir,
+        ),
+      );
+      return {
+        execCommandOverride: enforcedCommand,
+        allowWithoutEnforcedCommand: enforcedCommand === undefined,
+      };
+    }
     const resolvedPath = resolveApprovalAuditCandidatePath(
       allowlistEval.segments[0]?.resolution ?? null,
       params.workdir,
     );
-
-    console.log(
-      `[exec-host-gateway] approval registered: id=${approvalId}, command=${params.command}, sessionKey=${params.notifySessionKey}, channel=${params.turnSourceChannel}, to=${params.turnSourceTo}`,
-    );
-    // Diagnostic: log call stack to trace which agent turn triggered this approval
-    const stack = new Error().stack ?? "";
-    const stackLines = stack.split("\n").slice(2, 6).join(" | ");
-    console.log(`[exec-host-gateway] approval registered stack (id=${approvalId}): ${stackLines}`);
-
-    const decision = await resolveApprovalDecisionOrUndefined({
+    const effectiveTimeout =
+      typeof params.timeoutSec === "number" ? params.timeoutSec : params.defaultTimeoutSec;
+    const followupTarget = buildExecApprovalFollowupTarget({
       approvalId,
-      preResolvedDecision,
-      onFailure: () => {},
+      sessionKey: params.notifySessionKey,
+      turnSourceChannel: params.turnSourceChannel,
+      turnSourceTo: params.turnSourceTo,
+      turnSourceAccountId: params.turnSourceAccountId,
+      turnSourceThreadId: params.turnSourceThreadId,
     });
 
-    if (decision === undefined) {
-      return {
-        toolResult: buildExecApprovalPendingToolResult({
-          host: "gateway",
-          command: params.command,
-          cwd: params.workdir,
-          warningText,
-          approvalId,
-          approvalSlug,
-          expiresAtMs,
-          initiatingSurface,
-          sentApproverDms,
-          unavailableReason: unavailableReason ?? "no-approval-route",
-        }),
-      };
-    }
-
-    const {
-      baseDecision,
-      approvedByAsk: initialApprovedByAsk,
-      deniedReason: initialDeniedReason,
-    } = createExecApprovalDecisionState({
-      decision,
-      askFallback,
-      obfuscationDetected: obfuscation.detected,
-    });
-    let approvedByAsk = initialApprovedByAsk;
-    let deniedReason = initialDeniedReason;
-
-    if (baseDecision.timedOut && askFallback === "allowlist") {
-      if (!analysisOk || !allowlistSatisfied) {
-        deniedReason = "approval-timeout (allowlist-miss)";
-      } else {
-        approvedByAsk = true;
+    void (async () => {
+      const decision = await resolveApprovalDecisionOrUndefined({
+        approvalId,
+        preResolvedDecision,
+        onFailure: () =>
+          void sendExecApprovalFollowupResult(
+            followupTarget,
+            `Exec denied (gateway id=${approvalId}, approval-request-failed): ${params.command}`,
+          ),
+      });
+      if (decision === undefined) {
+        return;
       }
-    } else if (decision === "allow-once") {
-      approvedByAsk = true;
-    } else if (decision === "allow-always") {
-      approvedByAsk = true;
-      if (hostSecurity === "allowlist" && !requiresInlineEvalApproval) {
-        const patterns = resolveAllowAlwaysPatterns({
-          segments: allowlistEval.segments,
-          cwd: params.workdir,
-          env: params.env,
-          platform: process.platform,
-        });
-        for (const pattern of patterns) {
-          if (pattern) {
-            addAllowlistEntry(approvals.file, params.agentId, pattern);
+
+      const {
+        baseDecision,
+        approvedByAsk: initialApprovedByAsk,
+        deniedReason: initialDeniedReason,
+      } = createExecApprovalDecisionState({
+        decision,
+        askFallback,
+        obfuscationDetected: obfuscation.detected,
+      });
+      let approvedByAsk = initialApprovedByAsk;
+      let deniedReason = initialDeniedReason;
+
+      if (baseDecision.timedOut && askFallback === "allowlist") {
+        if (!analysisOk || !allowlistSatisfied) {
+          deniedReason = "approval-timeout (allowlist-miss)";
+        } else {
+          approvedByAsk = true;
+        }
+      } else if (decision === "allow-once") {
+        approvedByAsk = true;
+      } else if (decision === "allow-always") {
+        approvedByAsk = true;
+        if (!requiresInlineEvalApproval) {
+          const patterns = resolveAllowAlwaysPatterns({
+            segments: allowlistEval.segments,
+            cwd: params.workdir,
+            env: params.env,
+            platform: process.platform,
+            strictInlineEval: params.strictInlineEval === true,
+          });
+          for (const pattern of patterns) {
+            if (pattern) {
+              addAllowlistEntry(approvals.file, params.agentId, pattern, {
+                source: "allow-always",
+              });
+            }
+          }
+          if (patterns.length === 0) {
+            addDurableCommandApproval(approvals.file, params.agentId, params.command);
           }
         }
       }
-    }
 
-    if (hostSecurity === "allowlist" && (!analysisOk || !allowlistSatisfied) && !approvedByAsk) {
-      deniedReason = deniedReason ?? "allowlist-miss";
-    }
+      if (
+        hostSecurity === "allowlist" &&
+        (!analysisOk || !allowlistSatisfied) &&
+        !approvedByAsk &&
+        !durableApprovalSatisfied
+      ) {
+        deniedReason = deniedReason ?? "allowlist-miss";
+      }
 
-    if (deniedReason) {
-      throw new Error(`exec denied (gateway id=${approvalId}, ${deniedReason}): ${params.command}`);
-    }
+      if (deniedReason) {
+        await sendExecApprovalFollowupResult(
+          followupTarget,
+          `Exec denied (gateway id=${approvalId}, ${deniedReason}): ${params.command}`,
+        );
+        return;
+      }
 
-    recordMatchedAllowlistUse(resolvedPath ?? undefined);
+      recordMatchedAllowlistUse(resolvedPath ?? undefined);
 
-    return { execCommandOverride: enforcedCommand };
+      let run: Awaited<ReturnType<typeof runExecProcess>> | null = null;
+      try {
+        run = await runExecProcess({
+          command: params.command,
+          execCommand: enforcedCommand,
+          workdir: params.workdir,
+          env: params.env,
+          sandbox: undefined,
+          containerWorkdir: null,
+          usePty: params.pty,
+          warnings: params.warnings,
+          maxOutput: params.maxOutput,
+          pendingMaxOutput: params.pendingMaxOutput,
+          notifyOnExit: false,
+          notifyOnExitEmptySuccess: false,
+          scopeKey: params.scopeKey,
+          sessionKey: params.notifySessionKey,
+          timeoutSec: effectiveTimeout,
+        });
+      } catch {
+        await sendExecApprovalFollowupResult(
+          followupTarget,
+          `Exec denied (gateway id=${approvalId}, spawn-failed): ${params.command}`,
+        );
+        return;
+      }
+
+      markBackgrounded(run.session);
+
+      const outcome = await run.promise;
+      const output = normalizeNotifyOutput(
+        tail(outcome.aggregated || "", DEFAULT_NOTIFY_TAIL_CHARS),
+      );
+      const exitLabel = outcome.timedOut ? "timeout" : `code ${outcome.exitCode ?? "?"}`;
+      const summary = output
+        ? `Exec finished (gateway id=${approvalId}, session=${run.session.id}, ${exitLabel})\n${output}`
+        : `Exec finished (gateway id=${approvalId}, session=${run.session.id}, ${exitLabel})`;
+      await sendExecApprovalFollowupResult(followupTarget, summary);
+    })();
+
+    return {
+      pendingResult: buildExecApprovalPendingToolResult({
+        host: "gateway",
+        command: params.command,
+        cwd: params.workdir,
+        warningText,
+        approvalId,
+        approvalSlug,
+        expiresAtMs,
+        initiatingSurface,
+        sentApproverDms,
+        unavailableReason,
+        allowedDecisions: resolveExecApprovalAllowedDecisions({ ask: hostAsk }),
+      }),
+    };
   }
 
-  if (
-    hostSecurity === "allowlist" &&
-    (!analysisOk || !allowlistSatisfied) &&
-    !isInternalManagementCommand
-  ) {
+  if (hostSecurity === "allowlist" && (!analysisOk || !allowlistSatisfied)) {
     throw new Error("exec denied: allowlist miss");
   }
 
