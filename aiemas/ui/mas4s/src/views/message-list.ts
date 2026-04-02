@@ -26,6 +26,7 @@ export class MessageList extends LitElement {
     { approval: ApprovalRequest; resolved: ApprovalResolved }
   > = new Map();
   @property({ type: Boolean }) isInitiator = false;
+  @property({ type: Boolean }) showToolMessages = true;
 
   // ── SOP state (fed from WebSocket events or history replay) ───────────────
   @property({ attribute: false }) sopSteps: SOPStepView[] = [];
@@ -92,6 +93,35 @@ export class MessageList extends LitElement {
   private _cachedApprovalTriggeredMsgIds: Set<string> = new Set();
 
   private _renderMessage(msg: ChatMessage, isLatestAgent: boolean) {
+    // ── 始终过滤无可见内容的 assistant 消息（空白气泡） ─────────────────────
+    if (msg.role === "assistant") {
+      const visibleTypes = this.showToolMessages
+        ? ["text", "thinking", "tool_call"]
+        : ["text", "thinking"];
+      const hasVisibleContent = msg.content.some((c) => {
+        if (!visibleTypes.includes(c.type)) {
+          return false;
+        }
+        if (c.type === "text") {
+          return !!c.text?.trim();
+        }
+        if (c.type === "thinking") {
+          return !!(c.thinking ?? c.text ?? "").trim();
+        }
+        return true; // tool_call
+      });
+      if (!hasVisibleContent) {
+        return html``;
+      }
+    }
+
+    // ── 隐藏工具调用/结果消息 ──────────────────────────────────────────────
+    if (!this.showToolMessages) {
+      if (msg.role === "tool" || msg.role === "toolResult") {
+        return html``;
+      }
+    }
+
     if (msg.subType === "colleague") {
       return html`<msg-colleague .message=${msg}></msg-colleague>`;
     }

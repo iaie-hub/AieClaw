@@ -23,6 +23,7 @@ export class MainHeader extends LitElement {
   @property({ attribute: false }) session: MasSession | undefined = undefined;
   @state() private _notifOpen = false;
   @state() private _confirmingAction: "none" | "archive" | "unarchive" = "none";
+  @property({ type: Boolean }) showToolMessages = true;
   @state() private _agentDialogOpen = false;
   @state() private _selectedAgentId = "default";
 
@@ -309,6 +310,63 @@ export class MainHeader extends LitElement {
       background: #0e7490;
     }
 
+    .tool-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+      background: white;
+      cursor: pointer;
+      font-size: 12px;
+      color: #64748b;
+      transition: all 0.2s;
+      user-select: none;
+      white-space: nowrap;
+    }
+
+    .tool-toggle:hover {
+      border-color: #94a3b8;
+      background: #f8fafc;
+    }
+
+    .tool-toggle.active {
+      color: #0891b2;
+      border-color: #0891b2;
+      background: #ecfeff;
+    }
+
+    .toggle-track {
+      position: relative;
+      width: 28px;
+      height: 16px;
+      border-radius: 8px;
+      background: #cbd5e1;
+      transition: background 0.2s;
+      flex-shrink: 0;
+    }
+
+    .tool-toggle.active .toggle-track {
+      background: #0891b2;
+    }
+
+    .toggle-thumb {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: white;
+      transition: transform 0.2s;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    }
+
+    .tool-toggle.active .toggle-thumb {
+      transform: translateX(12px);
+    }
+
     .right {
       display: flex;
       align-items: center;
@@ -567,6 +625,16 @@ export class MainHeader extends LitElement {
   private _onAgentClick = () => {
     this._selectedAgentId = this.session?.currentAgentId || "default";
     this._agentDialogOpen = true;
+  };
+
+  private _onToggleToolMessages = () => {
+    this.dispatchEvent(
+      new CustomEvent("toggle-tool-messages", {
+        detail: { show: !this.showToolMessages },
+        bubbles: true,
+        composed: true,
+      }),
+    );
   };
 
   private _onSelectAgentInList = (agentId: string) => {
@@ -843,6 +911,14 @@ export class MainHeader extends LitElement {
                     `
                   : nothing
               }
+              <span
+                class="tool-toggle ${this.showToolMessages ? "active" : ""}"
+                @click=${this._onToggleToolMessages}
+                title=${this.showToolMessages ? "隐藏工具调用消息" : "显示工具调用消息"}
+              >
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                工具消息
+              </span>
             `
           : nothing}
       </div>

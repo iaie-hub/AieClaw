@@ -49,13 +49,14 @@ function formatElapsed(ms: number): string {
 
 function formatTime(ts: number): string {
   const d = new Date(ts);
-  const hms = d.toLocaleTimeString("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  const Y = d.getFullYear();
+  const M = String(d.getMonth() + 1).padStart(2, "0");
+  const D = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const m = String(d.getMinutes()).padStart(2, "0");
+  const s = String(d.getSeconds()).padStart(2, "0");
   const ms = String(d.getMilliseconds()).padStart(3, "0");
-  return `${hms}.${ms}`;
+  return `${Y}:${M}:${D} ${h}:${m}:${s}.${ms}`;
 }
 
 /**
@@ -240,23 +241,40 @@ export class SOPPipeline extends LitElement {
     .compact-pct {
       font-size: 11px;
       color: #94a3b8;
-      min-width: 60px;
-      text-align: right;
+    }
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+    .status-spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 1.5px solid #e2e8f0;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      vertical-align: middle;
+      margin-right: 4px;
     }
   `;
 
-  private _statusIcon(status: string): string {
+  private _statusIcon(status: string) {
     switch (status) {
       case "completed":
-        return "✅";
+        return html`✅`;
       case "running":
-        return "🔄";
+        return html`<div class="status-spinner"></div>`;
       case "failed":
-        return "❌";
+        return html`❌`;
       case "skipped":
-        return "⏭️";
+        return html`⏭️`;
       default:
-        return "⏳";
+        return html`⏳`;
     }
   }
 
@@ -299,11 +317,11 @@ export class SOPPipeline extends LitElement {
               ${step.elapsed != null
                 ? html`<span class="step-elapsed">${formatElapsed(step.elapsed)}</span>`
                 : step.status === "running" && step.startedAt
-                  ? html`<span class="step-elapsed">⏱️</span>`
+                  ? html`<span class="step-elapsed">执行中</span>`
                   : html``}
             </div>
             ${step.status === "running" && this.activeProgress?.skill === step.skill
-              ? this._renderProgress()
+              ? html`<div style="margin-left: 30px;">${this._renderLogsForStep(step.skill)}</div>`
               : html``}
           `,
         )}
@@ -342,17 +360,14 @@ export class SOPPipeline extends LitElement {
       return html``;
     }
 
-    const p = this.activeProgress;
     const totalSteps = this.steps.length;
     const completedSteps = this.steps.filter((s) => s.status === "completed").length;
 
-    let overallPct = 0;
     if (totalSteps > 0) {
       if (this.completedAt) {
-        overallPct = 100;
+        // completed
       } else {
-        const currentSkillPct = p && p.total > 0 ? p.completed / p.total : 0;
-        overallPct = Math.round(((completedSteps + currentSkillPct) / totalSteps) * 100);
+        // in progress
       }
     }
 
@@ -365,43 +380,33 @@ export class SOPPipeline extends LitElement {
             ${this.completedAt
               ? "已完成"
               : currentStep.status === "running"
-                ? "执行中"
+                ? html`<div class="status-spinner"></div>
+                    执行中`
                 : currentStep.status === "completed"
                   ? "已完成"
                   : "等待中"}
+            <span class="compact-pct" style="margin-left: 8px;">
+              ${completedSteps}/${totalSteps}
+            </span>
           </span>
-        </div>
-        <div class="compact-progress-row">
-          <div class="compact-bar">
-            <div class="compact-fill" style="width: ${overallPct}%"></div>
-          </div>
-          <span class="compact-pct"> ${completedSteps}/${totalSteps} (${overallPct}%) </span>
         </div>
       </div>
     `;
   }
 
-  private _renderProgress() {
-    const p = this.activeProgress;
-    if (!p) {
+  private _renderLogsForStep(skill: string) {
+    const skillLogs = this.logs.filter((l) => l.skill === skill).slice(-3);
+    if (skillLogs.length === 0) {
       return html``;
     }
-    const overallPct = p.total > 0 ? Math.round((p.completed / p.total) * 100) : 0;
     return html`
-      <div class="progress-section">
-        <div>${p.completed}/${p.total}</div>
-        <div class="progress-bar-track">
-          <div class="progress-bar-fill" style="width:${overallPct}%"></div>
-        </div>
-        ${p.currentItem
-          ? html`
-              <div class="progress-detail">
-                当前: ${p.currentItem.label || `#${p.currentItem.index}`}
-                ${p.currentItem.pct != null ? `(${p.currentItem.pct}%)` : ""}
-                ${p.currentItem.message ? ` — ${p.currentItem.message}` : ""}
-              </div>
-            `
-          : html``}
+      <div style="font-size: 11px; color: #94a3b8; margin: 4px 0;">
+        ${skillLogs.map(
+          (l) =>
+            html`<div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              ${l.message}
+            </div>`,
+        )}
       </div>
     `;
   }

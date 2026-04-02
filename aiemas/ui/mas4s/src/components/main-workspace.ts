@@ -24,6 +24,7 @@ export class MainWorkspace extends LitElement {
   @property({ type: Boolean }) truncated = false;
   @property({ type: Boolean }) hasMoreHistory = false;
   @property({ type: Boolean }) isChatting = false;
+  @property({ type: Boolean }) showToolMessages = true;
 
   // ── SOP state (passed through to chat-view → message-list) ────────────────
   @property({ attribute: false }) sopSteps: unknown[] = [];
@@ -96,11 +97,13 @@ export class MainWorkspace extends LitElement {
               .pendingApprovals=${this.pendingApprovals}
               .showInvite=${hasSession}
               .session=${this.session}
+              .showToolMessages=${this.showToolMessages}
               @invite-click=${this._onInviteClick}
               @summary-click=${this._onSummaryClick}
               @resolve-approval=${this._onResolve}
               @session-archive=${this._onSessionArchive}
               @session-unarchive=${this._onSessionUnarchive}
+              @toggle-tool-messages=${this._onToggleToolMessages}
             ></main-header>
             <div class="workspace-content">
               <chat-view
@@ -113,6 +116,7 @@ export class MainWorkspace extends LitElement {
                 .truncated=${this.truncated}
                 .hasMoreHistory=${this.hasMoreHistory}
                 .isChatting=${this.isChatting}
+                .showToolMessages=${this.showToolMessages}
                 .sopSteps=${this.sopSteps}
                 .sopLabel=${this.sopLabel}
                 .activeProgress=${this.activeProgress}
@@ -159,6 +163,10 @@ export class MainWorkspace extends LitElement {
   private _onAbortChat = (e: Event) => {
     e.stopPropagation();
     this.dispatchEvent(new CustomEvent("abort-chat", { bubbles: true, composed: true }));
+  };
+
+  private _onToggleToolMessages = (e: CustomEvent<{ show: boolean }>) => {
+    this.showToolMessages = e.detail.show;
   };
 }
 

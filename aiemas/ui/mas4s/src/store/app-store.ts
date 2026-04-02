@@ -302,7 +302,6 @@ export class AppStore {
                 pct,
                 message: (progress["message"] as string) ?? undefined,
               };
-
         this.activeProgressBySession.set(sessionUuid, {
           skill,
           total,
@@ -312,11 +311,20 @@ export class AppStore {
       }
     } else if (type === "done") {
       this.activeProgressBySession.delete(sessionUuid);
+      // Optimistically mark the SOP step as completed
+      const sessionSOP = this.sopStepsBySession.get(sessionUuid);
+      if (sessionSOP) {
+        const stepIdx = sessionSOP.steps.findIndex((s) => s.skill === skill);
+        if (stepIdx >= 0 && sessionSOP.steps[stepIdx].status === "running") {
+          sessionSOP.steps[stepIdx].status = "completed";
+          this.sopStepsBySession.set(sessionUuid, { ...sessionSOP });
+        }
+      }
     }
 
     if (type === "log" || (type === "item" && progress["message"])) {
       const logs = this.progressLogsBySession.get(sessionUuid) ?? [];
-      const message = (progress["message"] as string) ?? "";
+      const message = ((progress["message"] as string) ?? "").trim();
       if (message) {
         logs.push({
           ts: (progress["ts"] as number) ?? Date.now(),
@@ -328,7 +336,7 @@ export class AppStore {
         if (logs.length > 500) {
           logs.splice(0, logs.length - 500);
         }
-        this.progressLogsBySession.set(sessionUuid, logs);
+        this.progressLogsBySession.set(sessionUuid, [...logs]);
       }
     }
 

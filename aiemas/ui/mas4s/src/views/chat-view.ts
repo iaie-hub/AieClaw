@@ -30,6 +30,8 @@ export class ChatView extends LitElement {
   @property({ type: Boolean }) hasMoreHistory = false;
   /** 是否正在聊天（Agent 运行中） */
   @property({ type: Boolean }) isChatting = false;
+  /** 是否显示工具调用/结果消息 */
+  @property({ type: Boolean }) showToolMessages = true;
 
   // ── SOP state (passed through to message-list) ────────────────────────────
   @property({ attribute: false }) sopSteps: unknown[] = [];
@@ -514,6 +516,7 @@ export class ChatView extends LitElement {
               .pendingApprovals=${this.pendingApprovals}
               .resolvedApprovals=${this.resolvedApprovals}
               .isInitiator=${this.isInitiator}
+              .showToolMessages=${this.showToolMessages}
               .sopSteps=${this.sopSteps}
               .sopLabel=${this.sopLabel}
               .activeProgress=${this.activeProgress}
