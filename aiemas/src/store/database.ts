@@ -112,6 +112,16 @@ export function ensureMas4sSchema(db: DatabaseSync): void {
       lastOfflineAt INTEGER
     );
   `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS session_run_state (
+      sessionUuid TEXT PRIMARY KEY,
+      runId       TEXT,
+      sopState    TEXT,
+      isChatting  INTEGER NOT NULL DEFAULT 0,
+      updatedAt   INTEGER NOT NULL
+    );
+  `);
 }
 
 /**

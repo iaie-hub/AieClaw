@@ -281,17 +281,52 @@ export async function initMas4sIntegration(
       }
     };
 
+    const { extractUuidFromKey: _extractUuidFromKey } =
+      await import("../../aiemas/src/utils/session-utils.js");
+
+    // Track toolCallId → skillName mapping for result phase (where args are not available)
+    const _toolCallSkillMap = new Map<string, string>();
+    // Track toolCallId → runId mapping
+    const _toolCallRunIdMap = new Map<string, string>();
+    // Track background sessionId → skillName mapping to stop watches later
+    const _backgroundSessionToSkillMap = new Map<string, string>();
+
     const sopTracker = new SOPTracker({
       onStateChange: (statePayload) => {
         log.info(
           `[mas4s:sop] state change: step=${statePayload.currentStepIndex} session=${statePayload.sessionKey}`,
         );
-        broadcastToAll("sop.state", statePayload);
+        // Inject the most recent runId from _toolCallRunIdMap before broadcast
+        const latestRunId =
+          _toolCallRunIdMap.size > 0
+            ? [..._toolCallRunIdMap.values()][_toolCallRunIdMap.size - 1]
+            : undefined;
+        const payloadWithRunId = latestRunId
+          ? { ...statePayload, runId: latestRunId }
+          : statePayload;
+        broadcastToAll("sop.state", payloadWithRunId);
+        // Persist minimal snapshot for reconnect recovery (no time-series fields)
+        try {
+          const uuid = _extractUuidFromKey(statePayload.sessionKey);
+          plugin.upsertRunState(uuid, {
+            runId: latestRunId,
+            sopSnapshot: {
+              sopName: statePayload.sopName,
+              sopLabel: statePayload.sopLabel,
+              stepStatuses: statePayload.steps.map((s) => s.status),
+              currentStepIndex: statePayload.currentStepIndex,
+              completedAt: statePayload.completedAt,
+            },
+            isChatting: true,
+          });
+        } catch (err) {
+          log.warn(`[mas4s:sop] upsertRunState failed: ${String(err)}`);
+        }
         // Persist to session_messages for history replay
         plugin.transcriptStore.recordProgressEvent({
           sessionKey: statePayload.sessionKey,
           type: "sop:state",
-          payload: statePayload,
+          payload: payloadWithRunId,
           timestamp: statePayload.ts,
         });
       },
@@ -317,13 +352,6 @@ export async function initMas4sIntegration(
         });
       },
     });
-
-    // Track toolCallId → skillName mapping for result phase (where args are not available)
-    const _toolCallSkillMap = new Map<string, string>();
-    // Track toolCallId → runId mapping
-    const _toolCallRunIdMap = new Map<string, string>();
-    // Track background sessionId → skillName mapping to stop watches later
-    const _backgroundSessionToSkillMap = new Map<string, string>();
 
     onAgentEvent((evt) => {
       const p = evt as Record<string, unknown>;
@@ -666,6 +694,25 @@ export async function initMas4sIntegration(
                 ...finalState,
                 ts: Date.now(),
               });
+            }
+          }
+
+          // chat final → mark isChatting=false; chat clear → clear run state entirely
+          if (event === "chat") {
+            const chatState = typeof p["state"] === "string" ? p["state"] : "";
+            if (chatState === "final" || chatState === "clear") {
+              try {
+                const uuid = _extractUuidFromKey(evtSessionKey);
+                if (chatState === "final") {
+                  // Finalize any still-running SOP steps — the agent run is done.
+                  sopTracker.finalizeRunningSteps(evtSessionKey, Date.now());
+                  plugin.upsertRunState(uuid, { isChatting: false });
+                } else {
+                  plugin.clearRunState(uuid);
+                }
+              } catch (err) {
+                log.warn(`[mas4s:sop] run-state chat update failed: ${String(err)}`);
+              }
             }
           }
         }
@@ -1095,6 +1142,14 @@ export async function initMas4sIntegration(
           } catch (err) {
             log.warn(`mas4s onSessionDeleted failed for session=${sessionKey}: ${String(err)}`);
           }
+          try {
+            const uuid = _extractUuidFromKey(sessionKey);
+            plugin.clearRunState(uuid);
+          } catch (err) {
+            log.warn(
+              `mas4s clearRunState (delete) failed for session=${sessionKey}: ${String(err)}`,
+            );
+          }
         }
       };
     }
@@ -1284,6 +1339,105 @@ export async function initMas4sIntegration(
         }
 
         opts.respond(true, { ok: true, key: resolvedKey }, undefined);
+      };
+    }
+
+    // Wrap session.run.state to enrich the minimal DB snapshot with label/icon
+    // from the live SOPTracker state (in-memory, most accurate).
+    const origRunState = extraHandlers["session.run.state"];
+    if (origRunState) {
+      extraHandlers["session.run.state"] = async (opts) => {
+        let runStateOk = false;
+        let runStatePayload: Record<string, unknown> | undefined;
+
+        await origRunState({
+          ...opts,
+          respond: (ok, payload, error, meta) => {
+            runStateOk = ok;
+            if (ok && payload && typeof payload === "object") {
+              runStatePayload = payload as Record<string, unknown>;
+            }
+            // Don't forward yet — we'll re-respond below with enriched data
+            if (!ok) {
+              opts.respond(ok, payload, error, meta);
+            }
+          },
+        });
+
+        if (!runStateOk || !runStatePayload) {
+          return;
+        }
+
+        const sessionKey =
+          typeof runStatePayload["sessionKey"] === "string" ? runStatePayload["sessionKey"] : "";
+        const snapshot = runStatePayload["sopSnapshot"] as
+          | {
+              sopName: string;
+              sopLabel: string;
+              stepStatuses: string[];
+              currentStepIndex: number;
+              completedAt?: number;
+            }
+          | null
+          | undefined;
+
+        if (!snapshot || !sessionKey) {
+          // No SOP data — forward as-is without sopState
+          opts.respond(
+            true,
+            { ...runStatePayload, sopSnapshot: undefined, sopState: null },
+            undefined,
+          );
+          return;
+        }
+
+        // Enrich stepStatuses with label/icon from live SOPTracker memory,
+        // falling back to the on-disk SOP.json when live state is unavailable
+        // (e.g. after gateway restart or WebSocket reconnect).
+        const liveState = sopTracker.getState(sessionKey);
+
+        // Fallback: load SOP definition from disk when no live state exists
+        let sopDef: { steps: { skill: string; label: string; icon?: string }[] } | null = null;
+        if (!liveState) {
+          const agentIdMatch = /^agent:([^:]+):/.exec(sessionKey);
+          const agentId = agentIdMatch?.[1];
+          if (agentId) {
+            const wsDir = _join(_homedir(), ".openclaw", `workspace-${agentId}`);
+            sopDef = sopTracker.loadSOP(wsDir, agentId);
+          }
+        }
+
+        const enrichedSteps = snapshot.stepStatuses.map((status, i) => {
+          const liveStep = liveState?.steps[i];
+          const defStep = sopDef?.steps[i];
+          return {
+            skill: liveStep?.skill ?? defStep?.skill ?? `step_${i}`,
+            label: liveStep?.label ?? defStep?.label ?? `Step ${i + 1}`,
+            icon: liveStep?.icon ?? defStep?.icon,
+            status,
+          };
+        });
+
+        opts.respond(
+          true,
+          {
+            sessionKey: runStatePayload["sessionKey"],
+            isChatting: runStatePayload["isChatting"],
+            runId: runStatePayload["runId"],
+            sopState:
+              enrichedSteps.length > 0
+                ? {
+                    sessionKey,
+                    sopName: snapshot.sopName,
+                    sopLabel: snapshot.sopLabel,
+                    steps: enrichedSteps,
+                    currentStepIndex: snapshot.currentStepIndex,
+                    completedAt: snapshot.completedAt,
+                  }
+                : null,
+          },
+          undefined,
+        );
       };
     }
 

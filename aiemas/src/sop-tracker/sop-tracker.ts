@@ -74,8 +74,7 @@ export class SOPTracker {
     isError?: boolean;
     timestamp: number;
   }): void {
-    const { sessionKey, agentId, workspaceDir, toolName, phase, status, isError, timestamp } =
-      params;
+    const { sessionKey, agentId, workspaceDir, toolName, phase, isError, timestamp } = params;
 
     const sop = this.loadSOP(workspaceDir, agentId);
     if (!sop) {
@@ -114,28 +113,53 @@ export class SOPTracker {
       return;
     }
 
-    // Auto-skip logic: mark previous pending steps as skipped
+    // Auto-complete/skip: when a later step starts, earlier pending → skipped,
+    // earlier running → completed (next step starting implies previous finished).
     for (let i = 0; i < stepIndex; i++) {
       if (state.steps[i].status === "pending") {
         state.steps[i].status = "skipped";
+      } else if (state.steps[i].status === "running") {
+        state.steps[i].status = "completed";
+        state.steps[i].completedAt = timestamp;
+        if (state.steps[i].startedAt) {
+          state.steps[i].elapsed = timestamp - state.steps[i].startedAt!;
+        }
       }
     }
 
     if (phase === "start") {
+      // New-round detection: if this step was already terminal (completed/failed/skipped)
+      // and we're starting it again, reset all steps from this index onward to pending.
+      // This handles the case where the user selects a new batch after step1 and re-runs
+      // step2-5, so stale terminal states from the previous round don't bleed through.
+      if (step.status === "completed" || step.status === "failed" || step.status === "skipped") {
+        for (let i = stepIndex; i < state.steps.length; i++) {
+          state.steps[i] = {
+            skill: state.steps[i].skill,
+            label: state.steps[i].label,
+            icon: state.steps[i].icon,
+            status: "pending",
+          };
+        }
+        // Clear overall completedAt since we're starting a new round
+        state.completedAt = undefined;
+      }
       step.status = "running";
       step.startedAt = timestamp;
       state.currentStepIndex = stepIndex;
     } else if (phase === "result") {
-      if (status === "running") {
-        // Keep as running if it's a background process
-        step.status = "running";
-      } else {
-        step.status = isError ? "failed" : "completed";
+      if (isError) {
+        step.status = "failed";
         step.completedAt = timestamp;
         if (step.startedAt) {
           step.elapsed = timestamp - step.startedAt;
         }
       }
+      // Non-error result: keep as "running". The step is only marked "completed"
+      // when skill.progress type=done arrives (via updateStepStatus), or when
+      // the next step starts (auto-skip marks previous pending steps, and the
+      // new-round detection handles re-runs). This avoids prematurely marking
+      // a step as completed while its progress.jsonl is still being written.
     }
 
     this.emitState(sessionKey, state, timestamp);
@@ -160,10 +184,16 @@ export class SOPTracker {
     }
     const step = state.steps[stepIndex];
 
-    // Auto-skip logic: mark previous pending steps as skipped
+    // Auto-complete/skip: earlier pending → skipped, earlier running → completed.
     for (let i = 0; i < stepIndex; i++) {
       if (state.steps[i].status === "pending") {
         state.steps[i].status = "skipped";
+      } else if (state.steps[i].status === "running") {
+        state.steps[i].status = "completed";
+        state.steps[i].completedAt = timestamp;
+        if (state.steps[i].startedAt) {
+          state.steps[i].elapsed = timestamp - state.steps[i].startedAt!;
+        }
       }
     }
 
@@ -180,6 +210,31 @@ export class SOPTracker {
   /** Get current SOP state for a session (for initial load / history). */
   getState(sessionKey: string): SOPState | undefined {
     return this.sessions.get(sessionKey);
+  }
+
+  /**
+   * Mark all still-running steps as completed. Called when the agent run
+   * finishes (chat final) to ensure no step is left in "running" state.
+   */
+  finalizeRunningSteps(sessionKey: string, timestamp: number): void {
+    const state = this.sessions.get(sessionKey);
+    if (!state) {
+      return;
+    }
+    let changed = false;
+    for (const step of state.steps) {
+      if (step.status === "running") {
+        step.status = "completed";
+        step.completedAt = timestamp;
+        if (step.startedAt) {
+          step.elapsed = timestamp - step.startedAt;
+        }
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.emitState(sessionKey, state, timestamp);
+    }
   }
 
   /** Clean up state for a session. */

@@ -561,3 +561,251 @@ _相关文件：_
 - [sop-tracker.ts](file:///Users/admin/Desktop/code/AieClaw/aiemas/src/sop-tracker/sop-tracker.ts)
 - [mas4s-integration.ts](file:///Users/admin/Desktop/code/AieClaw/src/gateway/mas4s-integration.ts)
 - [types.ts](file:///Users/admin/Desktop/code/AieClaw/aiemas/src/sop-tracker/types.ts)
+
+---
+
+## 10. WebSocket 重连后 SOP 状态恢复方案
+
+### 10.1 问题描述
+
+页面刷新或 WebSocket 断开重连后，前端 `AppStore` 内存状态全部丢失。此时：
+
+- `chat-view` 中 SOP 流程仍显示"执行中"（因为 gateway 仍在推送 `skill.progress`）
+- 但 `sop-pipeline` 进度面板不显示（`sopSteps` 为空）
+- 异地打开会话时同样无法恢复状态
+
+根本原因：SOP 状态（`sopStepsBySession`、`activeProgressBySession`）仅存在于前端内存，gateway 侧不持久化，重连后无法恢复。
+
+### 10.2 整体方案
+
+分两层解决：**gateway 侧持久化运行状态** + **前端重连后主动拉取恢复**。
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Gateway (mas4s-integration.ts)                             │
+│                                                             │
+│  sop.state 广播时 ──→ upsertRunState(sessionUuid, {        │
+│                          runId, sopState, isChatting:true}) │
+│                                                             │
+│  chat final 到来 ──→ upsertRunState(sessionUuid, {         │
+│                          isChatting:false})                 │
+│                                                             │
+│  sessions.reset/delete ──→ clearRunState(sessionUuid)      │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                    session.run.state RPC
+                              │
+┌─────────────────────────────────────────────────────────────┐
+│  前端 (gateway/client.ts + run-state-recovery.ts)           │
+│                                                             │
+│  重连成功 / 切换会话 ──→ fetchRunState(sessionKey)          │
+│                       ──→ store.updateSOPState()            │
+│                       ──→ store.setIsChatting()             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 10.3 Gateway 侧：持久化运行状态
+
+#### 新增表 `session_run_state`（`aiemas/src/store/database.ts`）
+
+```sql
+CREATE TABLE IF NOT EXISTS session_run_state (
+  sessionUuid TEXT PRIMARY KEY,
+  runId       TEXT,        -- 最近一次活跃 run 的 runId
+  sopState    TEXT,        -- JSON: SOPStateEventPayload（不含 sessionKey）
+  isChatting  INTEGER NOT NULL DEFAULT 0,
+  updatedAt   INTEGER NOT NULL
+);
+```
+
+说明：
+
+- 主键为 `sessionUuid`，不存 `sessionKey`（调用方传入后通过 `extractUuidFromKey` 转换）
+- 不需要 `parentSessionUuid`（SOP 状态是 per-session 的，无父子关系）
+- `sopState` 存储最后一次 `SOPStateEventPayload` 的 JSON 序列化（不含 `sessionKey` 字段，避免冗余）
+
+#### 新增文件 `aiemas/src/gateway-bridge/run-state-store.ts`
+
+```typescript
+export function upsertRunState(
+  db,
+  sessionUuid,
+  patch: {
+    runId?: string;
+    sopState?: SOPStateEventPayload;
+    isChatting?: boolean;
+  },
+): void;
+
+export function getRunState(db, sessionUuid): RunStateRow | null;
+
+export function clearRunState(db, sessionUuid): void;
+```
+
+#### 写入时机（`src/gateway/mas4s-integration.ts`）
+
+| 触发事件                                            | 操作                                                           |
+| --------------------------------------------------- | -------------------------------------------------------------- |
+| `sop.state` 广播（`SOPTracker.onStateChange`）      | `upsertRunState(uuid, { runId, sopState, isChatting: true })`  |
+| `chat` 事件 `state=final`（`filterBroadcast` 拦截） | `upsertRunState(uuid, { isChatting: false })`，保留 `sopState` |
+| `sessions.reset` / `sessions.delete`                | `clearRunState(uuid)`                                          |
+| `chat` 事件 `state=clear`                           | `clearRunState(uuid)`                                          |
+
+**runId 的获取**：`SOPTracker.onStateChange` 回调时，`_toolCallRunIdMap` 中已有当前活跃的 `toolCallId→runId` 映射，取最近一条即可。为此需在 `SOPStateEventPayload` 中新增可选字段 `runId?: string`，由 `mas4s-integration.ts` 在广播前注入。
+
+#### runId 变化时的处理
+
+runId 变化意味着新的 run 开始（新一轮 SOP 流程）。处理策略：
+
+- **直接覆盖**：新 run 的第一个 `sop.state` 到来时，`upsert` 以新 `runId` 覆盖旧记录
+- 旧 run 的 `sopState`（已 `completedAt`）被新 run 的初始状态替换，这是正确行为
+- `SOPTracker` 内存中 `emitState` 已自动处理：新步骤变为 `running` 时 `!allTerminal`，`completedAt` 被清除
+
+### 10.4 新增 RPC 方法：`session.run.state`
+
+客户端重连后主动拉取会话运行状态快照。
+
+**请求：**
+
+```json
+{
+  "type": "req",
+  "method": "session.run.state",
+  "params": { "sessionKey": "agent:researcher:uuid" }
+}
+```
+
+**响应：**
+
+```json
+{
+  "type": "res",
+  "result": {
+    "sessionKey": "agent:researcher:uuid",
+    "isChatting": true,
+    "runId": "run_abc123",
+    "sopState": {
+      "sopName": "research_pipeline",
+      "sopLabel": "学术论文研究流程",
+      "steps": [...],
+      "currentStepIndex": 2,
+      "completedAt": null,
+      "ts": 1711618000000
+    }
+  }
+}
+```
+
+**响应逻辑**（优先内存，回退持久化）：
+
+```typescript
+// 1. 优先从 sopTracker 内存取最新状态（最准确）
+const liveSopState = sopTracker.getState(sessionKey);
+
+// 2. 从 DB 取持久化快照
+const row = getRunState(db, sessionUuid);
+
+// 3. 判断 run 是否仍活跃
+//    内存有状态且未完成 → 仍在运行
+//    内存无状态（gateway 重启）→ 依赖 DB 的 isChatting 字段
+const isStillRunning = liveSopState ? liveSopState.completedAt == null : row?.isChatting === 1;
+
+return {
+  isChatting: isStillRunning,
+  runId: isStillRunning ? (row?.runId ?? undefined) : undefined,
+  sopState: liveSopState ?? (row?.sopState ? JSON.parse(row.sopState) : null),
+};
+```
+
+权限：复用 `checkSessionAccess`，兼容模式（`userId=null`）跳过权限检查。
+
+### 10.5 前端：重连后自动恢复
+
+#### 新增文件 `aiemas/ui/mas4s/src/gateway/run-state-recovery.ts`
+
+```typescript
+/**
+ * 在 session.history.range 成功返回后调用，恢复该会话的 SOP 运行状态。
+ * 适用场景：点击会话、手动刷新历史、WebSocket 重连后切换到活跃会话。
+ *
+ * 不做"已有状态则跳过"的短路：每次打开会话都重新拉取，
+ * 确保重连后状态与 gateway 侧同步（实时推送尚未到达时的兜底）。
+ */
+export async function restoreSessionRunState(
+  client: GatewayBrowserClient,
+  store: AppStore,
+  sessionKey: string,
+  sessionUuid: string,
+): Promise<void> {
+  try {
+    const result = await client.call("session.run.state", { sessionKey });
+    if (result.isChatting) {
+      store.setIsChatting(sessionUuid, true, result.runId);
+    } else {
+      // 明确标记为非运行中，避免残留旧的 isChatting=true
+      store.setIsChatting(sessionUuid, false);
+    }
+    if (result.sopState?.steps?.length > 0) {
+      store.updateSOPState(sessionUuid, {
+        ...result.sopState,
+        sessionKey,
+      });
+    }
+  } catch {
+    // 非关键路径：拉取失败不影响消息列表展示
+  }
+}
+```
+
+#### 触发时机
+
+`session.run.state` 必须在 `session.history.range` 成功返回后调用，确保消息列表已就绪再恢复 SOP 状态，避免 UI 渲染顺序错乱。
+
+调用链：
+
+```
+onSessionSelect(sessionKey)
+  └─ fetchSessionHistoryRange(...)       ← session.history.range
+       └─ [成功后] restoreSessionRunState(sessionKey, uuid)
+                    └─ session.run.state
+                         └─ store.updateSOPState()
+                         └─ store.setIsChatting()
+```
+
+| 场景               | 触发位置                                                                           | 调用                                     |
+| ------------------ | ---------------------------------------------------------------------------------- | ---------------------------------------- |
+| 点击/切换会话      | `SessionController.onSessionSelect` — `fetchSessionHistoryRange` 的 `.then()` 末尾 | `restoreSessionRunState`                 |
+| 手动刷新历史       | `SessionController.onSessionHistoryRefresh` — `fetchSessionHistoryRange` 成功后    | `restoreSessionRunState`                 |
+| WebSocket 重连成功 | `GatewayBrowserClient` 的 `onReconnect` 回调（仅对当前活跃会话）                   | `restoreSessionRunState`（当前活跃会话） |
+
+注意：重连场景下，非活跃会话的 SOP 状态延迟到用户点击该会话时（走 `onSessionSelect` 路径）自然恢复，无需在重连时批量拉取所有会话。
+
+### 10.6 涉及文件
+
+| 文件                                                    | 变更类型 | 说明                                                                                                             |
+| ------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------- |
+| `aiemas/src/store/database.ts`                          | 修改     | 新增 `session_run_state` 表                                                                                      |
+| `aiemas/src/gateway-bridge/run-state-store.ts`          | 新增     | `upsertRunState` / `getRunState` / `clearRunState`                                                               |
+| `aiemas/src/sop-tracker/types.ts`                       | 修改     | `SOPStateEventPayload` 新增可选字段 `runId?: string`                                                             |
+| `src/gateway/mas4s-integration.ts`                      | 修改     | `sop.state` 广播时写入 `session_run_state`；`chat final/clear` 时更新/清除                                       |
+| `aiemas/src/gateway-bridge/mas4s-gateway-plugin.ts`     | 修改     | 新增 `session.run.state` RPC handler                                                                             |
+| `aiemas/ui/mas4s/src/gateway/run-state-recovery.ts`     | 新增     | `restoreSessionRunState` 恢复逻辑                                                                                |
+| `aiemas/ui/mas4s/src/controllers/session-controller.ts` | 修改     | `onSessionSelect` 和 `onSessionHistoryRefresh` 的 `fetchSessionHistoryRange` 成功后调用 `restoreSessionRunState` |
+| `aiemas/docs/openclaw/websocket_api.md`                 | 修改     | 新增 `session.run.state` RPC 文档                                                                                |
+
+### 10.7 关键设计决策
+
+**为什么不持久化 `sessionKey`？**
+`session_run_state` 以 `sessionUuid` 为主键，与 `session_memberships` 保持一致。`sessionKey` 由调用方传入并通过 `extractUuidFromKey` 转换，不需要入表。
+
+**为什么不持久化 `parentSessionUuid`？**
+SOP 状态是 per-session 的，`SOPTracker` 以 `sessionKey` 为键独立维护，不存在父子继承关系。
+
+**为什么不持久化 `skill.progress` 日志？**
+日志条目量大且时效性强，重连后从空开始即可。只持久化 `sopState` 步骤快照（步骤状态、`currentStepIndex`、`completedAt`）。
+
+**runId 变化时旧状态如何处理？**
+直接覆盖。新 run 的第一个 `sop.state` 以新 `runId` upsert，旧 run 的已完成快照被替换。`SOPTracker` 内存中 `emitState` 已自动清除 `completedAt`（新步骤变为 `running` 时 `!allTerminal`），前端重连后看到的是当前正在执行的流程。
+
+**`agent.done` 事件为何不作为写入触发点？**
+`agent.done` 在 `filterBroadcast` 中被检查，但该事件名从未被 gateway 广播，是死代码。不依赖它。

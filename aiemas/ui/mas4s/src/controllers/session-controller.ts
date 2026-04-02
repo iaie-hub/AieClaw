@@ -1,4 +1,5 @@
 import { getClient } from "../gateway/client.js";
+import { restoreSessionRunState } from "../gateway/run-state-recovery.js";
 import { archiveSession, unarchiveSession } from "../gateway/session-archive.js";
 import { inviteUser, listSessionMembers, removeMember } from "../gateway/session-invite.js";
 import {
@@ -94,6 +95,8 @@ export class SessionController {
         "[mas4s:session] history-refresh ← re-loaded: count=%d",
         result.messages.length,
       );
+      // Restore SOP run state after history is ready
+      void restoreSessionRunState(client, this.store, sessionKey, uuid);
     } catch (err) {
       console.error("[mas4s:session] history-refresh failed:", err);
     }
@@ -157,6 +160,8 @@ export class SessionController {
           result.page,
           result.totalPages,
         );
+        // Restore SOP run state after history is ready
+        void restoreSessionRunState(client, this.store, sessionKey, uuid);
       })
       .catch((err) => {
         console.warn(

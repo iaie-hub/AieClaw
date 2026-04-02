@@ -47,6 +47,17 @@ export interface Mas4sGatewayPlugin {
   transcriptStore: import("../session-history/session-transcript-store.js").SessionTranscriptStore;
   /** Stop the session label lifecycle event subscription. */
   stopLabelSync: () => void;
+  /** Persist a minimal SOP snapshot for reconnect recovery. */
+  upsertRunState: (
+    sessionUuid: string,
+    patch: {
+      runId?: string;
+      sopSnapshot?: import("./run-state-store.js").SOPSnapshot;
+      isChatting?: boolean;
+    },
+  ) => void;
+  /** Clear run state for a session (on reset/delete/clear). */
+  clearRunState: (sessionUuid: string) => void;
 }
 
 function errorShape(code: string, message: string): { code: string; message: string } {
@@ -614,6 +625,51 @@ export async function createMas4sGatewayPlugin(
         respond(false, undefined, errorShape(e.code, e.message));
       }
     },
+
+    "session.run.state": async ({ params, client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        const sessionKey = str(params["sessionKey"]);
+        if (!sessionKey) {
+          respond(false, undefined, errorShape("INVALID_PARAMS", "sessionKey required"));
+          return;
+        }
+        // Permission check: verify access when userId is present (compat mode skips)
+        if (auth.userId) {
+          const access = bridge.checkSessionAccess(sessionKey, auth);
+          if (!access.allowed) {
+            respond(false, undefined, errorShape(access.code, access.message));
+            return;
+          }
+        }
+
+        const { extractUuidFromKey } = await import("../utils/session-utils.js");
+        const { getRunState } = await import("./run-state-store.js");
+        const sessionUuid = extractUuidFromKey(sessionKey);
+        const row = getRunState(db, sessionUuid);
+
+        const isChatting = row?.isChatting ?? false;
+        const runId = isChatting ? (row?.runId ?? undefined) : undefined;
+
+        // Return the minimal snapshot; mas4s-integration.ts wraps this handler
+        // to enrich stepStatuses with label/icon from live SOPTracker memory.
+        respond(
+          true,
+          {
+            sessionKey,
+            isChatting,
+            runId,
+            sopSnapshot: row?.sopSnapshot ?? null,
+          },
+          undefined,
+        );
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
+
     "session.agent.update": async ({ params, client, respond }) => {
       const auth = getCallerAuth(client);
       try {
@@ -657,6 +713,9 @@ export async function createMas4sGatewayPlugin(
     },
   };
 
+  const { upsertRunState: _upsertRunState, clearRunState: _clearRunState } =
+    await import("./run-state-store.js");
+
   const plugin: Mas4sGatewayPlugin = {
     bridge,
     tenantService,
@@ -665,6 +724,8 @@ export async function createMas4sGatewayPlugin(
     gatewayDispatch: null,
     transcriptStore,
     stopLabelSync,
+    upsertRunState: (sessionUuid, patch) => _upsertRunState(db, sessionUuid, patch),
+    clearRunState: (sessionUuid) => _clearRunState(db, sessionUuid),
   };
 
   return plugin;

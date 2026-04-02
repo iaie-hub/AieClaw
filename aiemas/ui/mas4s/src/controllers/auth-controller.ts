@@ -1,4 +1,5 @@
 import { getClient, resetClient } from "../gateway/client.js";
+import { restoreSessionRunState } from "../gateway/run-state-recovery.js";
 import { fetchSessions } from "../gateway/session-manager.js";
 import type { AppStore, CurrentUser } from "../store/app-store.js";
 
@@ -106,13 +107,23 @@ export class AuthController {
       token,
       onHello: () => {
         console.debug("[mas4s:auth] doConnect ← onHello: connected=true");
+        const isReconnect = this._everConnected;
         this._wasConnected = true;
+        this._everConnected = true;
         this.cb.setConnected(true);
         // 连接成功后立即拉取历史会话，恢复 gateway 重启前的会话列表
         void fetchSessions(getClient())
           .then((sessions) => {
             this.store.setSessions(sessions);
             console.debug("[mas4s:auth] doConnect ← sessions loaded: count=%d", sessions.length);
+            // On reconnect, restore SOP run state for the currently active session
+            if (isReconnect) {
+              const activeKey = this.store.activeSessionKey;
+              const activeUuid = this.store.activeSessionUuid;
+              if (activeKey && activeUuid) {
+                void restoreSessionRunState(getClient(), this.store, activeKey, activeUuid);
+              }
+            }
           })
           .catch((err) => {
             console.warn("[mas4s:auth] doConnect ← fetchSessions failed:", err);
@@ -175,6 +186,9 @@ export class AuthController {
 
   // onHello 触发前需要跟踪"是否曾经连接成功"，用于 onClose 判断
   private _wasConnected = false;
+  // Tracks whether we have ever successfully connected in this session.
+  // Unlike _wasConnected, this is never reset on close — used to detect reconnects.
+  private _everConnected = false;
   // Set during logout to suppress stale connectError from the async close event
   private _loggingOut = false;
 
@@ -198,6 +212,8 @@ export class AuthController {
     this.store.setSessions([]);
     // Flag to suppress the stale connectError from the async close event
     this._loggingOut = true;
+    // Reset _everConnected so the next login is treated as a fresh connection
+    this._everConnected = false;
     // Close the WebSocket immediately. The server-side onClientDisconnected
     // handler will mark the user offline, so a separate user.logout request
     // is unnecessary and avoids the race window where the still-alive

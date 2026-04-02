@@ -169,12 +169,14 @@ export class SOPPipeline extends LitElement {
       color: #e2e8f0;
       border-radius: 8px;
       padding: 8px 10px;
+      text-align: left;
     }
     .log-line {
-      padding: 2px 0;
+      padding: 0;
       white-space: pre-wrap;
       word-break: break-all;
       line-height: 1.4;
+      text-align: left;
     }
     .log-line .log-time {
       color: #64748b;
@@ -361,15 +363,11 @@ export class SOPPipeline extends LitElement {
     }
 
     const totalSteps = this.steps.length;
-    const completedSteps = this.steps.filter((s) => s.status === "completed").length;
-
-    if (totalSteps > 0) {
-      if (this.completedAt) {
-        // completed
-      } else {
-        // in progress
-      }
-    }
+    // Use currentStepIndex + 1 to show which step is active (1-based).
+    // "completed" count alone misses skipped steps and the running step.
+    const displayIndex = this.completedAt
+      ? totalSteps
+      : Math.min(this.currentStepIndex + 1, totalSteps);
 
     return html`
       <div class="compact-container" @click=${this._toggleExpanded}>
@@ -377,16 +375,8 @@ export class SOPPipeline extends LitElement {
           <span class="step-icon">${currentStep.icon || this._statusIcon(currentStep.status)}</span>
           <span class="compact-skill">${currentStep.label}</span>
           <span class="compact-status">
-            ${this.completedAt
-              ? "已完成"
-              : currentStep.status === "running"
-                ? html`<div class="status-spinner"></div>
-                    执行中`
-                : currentStep.status === "completed"
-                  ? "已完成"
-                  : "等待中"}
             <span class="compact-pct" style="margin-left: 8px;">
-              ${completedSteps}/${totalSteps}
+              ${displayIndex}/${totalSteps}
             </span>
           </span>
         </div>

@@ -98,6 +98,8 @@ export interface SOPStateEventPayload {
   currentStepIndex: number;
   completedAt?: number;
   ts: number;
+  /** Injected by mas4s-integration before broadcast: the active runId for this SOP run. */
+  runId?: string;
 }
 
 export interface SkillProgressEventPayload {

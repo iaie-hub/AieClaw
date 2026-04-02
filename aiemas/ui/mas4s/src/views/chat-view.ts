@@ -227,6 +227,32 @@ export class ChatView extends LitElement {
       opacity: 0.6;
       cursor: default;
     }
+
+    .scroll-bottom-btn {
+      position: absolute;
+      right: 50%;
+      transform: translateX(50%);
+      top: -44px;
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      transition: all 0.2s;
+      z-index: 20;
+      color: #64748b;
+    }
+    .scroll-bottom-btn:hover {
+      background: #f8fafc;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      color: #334155;
+    }
+
     .load-more-spinner {
       display: inline-block;
       width: 10px;
@@ -357,6 +383,11 @@ export class ChatView extends LitElement {
     if (this._container.scrollTop > 10) {
       this._wheelAccumulator = 0;
     }
+    // Track whether user is near the bottom for scroll-to-bottom button visibility
+    const threshold = 150;
+    this._isAtBottom =
+      this._container.scrollTop + this._container.clientHeight >=
+      this._container.scrollHeight - threshold;
   };
 
   /**
@@ -477,6 +508,13 @@ export class ChatView extends LitElement {
     this._summaryOpen = false;
   };
 
+  private _scrollToBottom = () => {
+    if (this._container) {
+      this._container.scrollTo({ top: this._container.scrollHeight, behavior: "smooth" });
+      this._isAtBottom = true;
+    }
+  };
+
   // ── render ────────────────────────────────────────────────────────────────
 
   render() {
@@ -532,7 +570,21 @@ export class ChatView extends LitElement {
       ></summary-dialog>
 
       <div class="chat-input-wrapper">
-        ${this.sopSteps.length > 0 && !this._isArchived
+        <button class="scroll-bottom-btn" @click=${this._scrollToBottom} title="滚动到最新消息">
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+        ${this.sopSteps.length > 0 && !this._isArchived && this.isChatting
           ? html`
               <div style="margin-bottom: 8px;">
                 <sop-pipeline

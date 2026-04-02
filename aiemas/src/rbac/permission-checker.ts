@@ -49,6 +49,7 @@ export const GLOBAL_ROLE_PERMISSIONS: Record<string, Set<GlobalRole>> = {
   "session.label.get": new Set(["admin", "member", "viewer"]),
   "session.label.list": new Set(["admin", "member", "viewer"]),
   "session.agent.update": new Set(["admin", "member"]),
+  "session.run.state": new Set(["admin", "member", "viewer"]),
 };
 
 /**
@@ -208,6 +209,7 @@ export const SESSION_ROLE_PERMISSIONS: Record<string, Set<SessionRole>> = {
   "session.summary.get": new Set(["owner", "participant"]),
   "session.history.range": new Set(["owner", "participant"]),
   "session.agent.update": new Set(["owner"]),
+  "session.run.state": new Set(["owner", "participant"]),
 };
 
 /**
