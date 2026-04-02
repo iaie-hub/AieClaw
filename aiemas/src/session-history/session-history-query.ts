@@ -80,6 +80,7 @@ function rowToStoredMessage(row: Record<string, unknown>): StoredMessage {
     archivedDate: (row["archivedDate"] as string | null) ?? null,
     toolCallId: (row["toolCallId"] as string | null) ?? null,
     toolName: (row["toolName"] as string | null) ?? null,
+    parentSessionUuid: (row["parentSessionUuid"] as string | null) ?? null,
   };
 }
 

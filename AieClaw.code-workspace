@@ -1,15 +1,16 @@
 {
-  "folders": [
-    {
-      "path": ".",
-    },
-    {
-      "path": "../../../.openclaw",
-    },
-  ],
-  "settings": {
-    "typescript.reportStyleChecksAsWarnings": false,
-    "typescript.tsdk": "node_modules/typescript/lib",
-    "typescript.experimental.useTsgo": true,
-  },
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../../.openclaw"
+		}
+	],
+	"settings": {
+		"typescript.reportStyleChecksAsWarnings": false,
+		"typescript.tsdk": "node_modules/typescript/lib",
+		"typescript.experimental.useTsgo": true,
+		"java.configuration.updateBuildConfiguration": "disabled"
+	}
 }
