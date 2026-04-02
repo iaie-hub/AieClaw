@@ -198,6 +198,25 @@ export function registerEventHandlers(): void {
         })();
         break;
       }
+      // ── SOP / Skill progress events ─────────────────────────────────────
+      case "sop.state": {
+        const data = evt.payload as Record<string, unknown>;
+        const sessionKey = data["sessionKey"] as string;
+        if (sessionKey) {
+          const sessionUuid = extractUuidFromKey(sessionKey);
+          store.updateSOPState(sessionUuid, data);
+        }
+        break;
+      }
+      case "skill.progress": {
+        const data = evt.payload as Record<string, unknown>;
+        const sessionKey = data["sessionKey"] as string;
+        if (sessionKey) {
+          const sessionUuid = extractUuidFromKey(sessionKey);
+          store.updateSkillProgress(sessionUuid, data);
+        }
+        break;
+      }
     }
   });
 }

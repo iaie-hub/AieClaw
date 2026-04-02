@@ -263,6 +263,209 @@ export async function initMas4sIntegration(
       }
     });
 
+    // ── SOP Tracker + Progress Watcher integration ──────────────────────────
+    // Broadcasts sop.state and skill.progress events to all connected clients.
+    const { SOPTracker, ProgressWatcher } = await import("../../aiemas/src/sop-tracker/index.js");
+    const { homedir: _homedir } = await import("node:os");
+    const { join: _join } = await import("node:path");
+
+    /** Broadcast an event to ALL connected WebSocket clients. */
+    const broadcastToAll = (event: string, payload: unknown) => {
+      const frame = JSON.stringify({ type: "event", event, payload });
+      for (const c of activeClients) {
+        try {
+          c.socket.send(frame);
+        } catch {
+          /* ignore dead sockets */
+        }
+      }
+    };
+
+    const sopTracker = new SOPTracker({
+      onStateChange: (statePayload) => {
+        log.info(
+          `[mas4s:sop] state change: step=${statePayload.currentStepIndex} session=${statePayload.sessionKey}`,
+        );
+        broadcastToAll("sop.state", statePayload);
+        // Persist to session_messages for history replay
+        plugin.transcriptStore.recordProgressEvent({
+          sessionKey: statePayload.sessionKey,
+          type: "sop:state",
+          payload: statePayload,
+          timestamp: statePayload.ts,
+        });
+      },
+    });
+
+    const progressWatcher = new ProgressWatcher({
+      pollIntervalMs: 2000,
+      onProgress: (progressPayload) => {
+        const p = progressPayload.progress;
+        const msg = (p as { message?: string }).message
+          ? ` msg="${(p as { message?: string }).message}"`
+          : "";
+        log.info(
+          `[mas4s:sop] skill progress: ${progressPayload.skill} type=${p.type}${msg} session=${progressPayload.sessionKey}`,
+        );
+        broadcastToAll("skill.progress", progressPayload);
+        // Persist to session_messages for history replay
+        plugin.transcriptStore.recordProgressEvent({
+          sessionKey: progressPayload.sessionKey,
+          type: "skill:progress",
+          payload: progressPayload,
+          timestamp: progressPayload.ts,
+        });
+      },
+    });
+
+    // Track toolCallId → skillName mapping for result phase (where args are not available)
+    const _toolCallSkillMap = new Map<string, string>();
+    // Track toolCallId → runId mapping
+    const _toolCallRunIdMap = new Map<string, string>();
+    // Track background sessionId → skillName mapping to stop watches later
+    const _backgroundSessionToSkillMap = new Map<string, string>();
+
+    onAgentEvent((evt) => {
+      const p = evt as Record<string, unknown>;
+      const evtSessionKey = typeof p["sessionKey"] === "string" ? p["sessionKey"] : "";
+      if (!evtSessionKey) {
+        return;
+      }
+
+      // Extract agentId from sessionKey: "agent:<agentId>:..."
+      const agentIdMatch = /^agent:([^:]+):/.exec(evtSessionKey);
+      const agentId = agentIdMatch?.[1] ?? "default";
+      const workspaceDir = _join(_homedir(), ".openclaw", `workspace-${agentId}`);
+
+      if (p["stream"] === "tool") {
+        const data = p["data"] as Record<string, unknown> | undefined;
+        const phase = typeof data?.["phase"] === "string" ? data["phase"] : "";
+        const toolName = typeof data?.["name"] === "string" ? data["name"] : "";
+        const toolCallId = typeof data?.["toolCallId"] === "string" ? data["toolCallId"] : "";
+
+        if (toolName && (phase === "start" || phase === "result")) {
+          // Detect skill name from exec args (the command contains the script name)
+          let skillName = toolName;
+          if (toolName === "exec" && phase === "start") {
+            const args = data?.["args"] as Record<string, unknown> | undefined;
+            const command = typeof args?.["command"] === "string" ? args["command"] : "";
+            // Extract skill name from command like "/path/to/tools/pdf_to_markdown.py ..."
+            const scriptMatch = /\/([a-z_]+)\.py/.exec(command);
+            // Also extract run_id if present in CLI JSON args
+            const runIdMatch = /"run_id":\s*"([^"]+)"/.exec(command);
+
+            if (scriptMatch?.[1]) {
+              skillName = scriptMatch[1];
+              // Remember this mapping for the result phase
+              if (toolCallId) {
+                _toolCallSkillMap.set(toolCallId, skillName);
+              }
+            }
+            if (runIdMatch?.[1] && toolCallId) {
+              _toolCallRunIdMap.set(toolCallId, runIdMatch[1]);
+            }
+            log.info(
+              `[mas4s:sop] exec start: command=${command} → skillName=${skillName} runId=${runIdMatch?.[1] ?? "none"} toolCallId=${toolCallId}`,
+            );
+          } else if (toolName === "exec" && phase === "result" && toolCallId) {
+            // Look up the skill name from the start phase
+            skillName = _toolCallSkillMap.get(toolCallId) ?? "exec";
+            _toolCallSkillMap.delete(toolCallId);
+            log.info(`[mas4s:sop] exec result: skillName=${skillName} toolCallId=${toolCallId}`);
+          }
+
+          // Skip if we couldn't determine a real skill name
+          if (
+            skillName === "exec" ||
+            skillName === "tool" ||
+            skillName === "read" ||
+            skillName === "process"
+          ) {
+            // Handle process tool result to potentially stop a background skill watch
+            if (skillName === "process" && phase === "result") {
+              const res = data?.["result"] as Record<string, unknown> | undefined;
+              const args = data?.["args"] as Record<string, unknown> | undefined;
+              const sessionId = (res?.["sessionId"] ?? args?.["sessionId"]) as string | undefined;
+              const status = res?.["status"] as string | undefined;
+
+              if (sessionId && (status === "completed" || status === "failed")) {
+                const backgroundSkill = _backgroundSessionToSkillMap.get(sessionId);
+                if (backgroundSkill) {
+                  log.info(
+                    `[mas4s:sop] background task finished: sessionId=${sessionId} skill=${backgroundSkill} status=${status}`,
+                  );
+                  _backgroundSessionToSkillMap.delete(sessionId);
+                  const isError = status === "failed";
+                  sopTracker.updateStepStatus(
+                    evtSessionKey,
+                    backgroundSkill,
+                    isError ? "failed" : "completed",
+                    typeof p["ts"] === "number" ? p["ts"] : Date.now(),
+                  );
+                  progressWatcher.stopWatch(`${evtSessionKey}:${backgroundSkill}`);
+                }
+              }
+            }
+            return;
+          }
+
+          const res = data?.["result"] as Record<string, unknown> | undefined;
+          const status = res?.["status"] as string | undefined;
+          const isError =
+            phase === "result" && (typeof res?.["error"] === "string" || status === "error");
+
+          // For backgrounded tasks, remember the sessionId -> skill relationship
+          if (phase === "result" && status === "running" && res?.["sessionId"]) {
+            const sid = res["sessionId"] as string;
+            _backgroundSessionToSkillMap.set(sid, skillName);
+            log.info(`[mas4s:sop] skill backgrounded: skill=${skillName} sessionId=${sid}`);
+          }
+
+          sopTracker.onToolEvent({
+            sessionKey: evtSessionKey,
+            agentId,
+            workspaceDir,
+            toolName: skillName,
+            phase: phase,
+            status,
+            isError,
+            timestamp: typeof p["ts"] === "number" ? p["ts"] : Date.now(),
+          });
+
+          // Start/stop progress watcher based on skill state
+          if (phase === "start") {
+            const runId = _toolCallRunIdMap.get(toolCallId);
+            const progressDir = _join(
+              _homedir(),
+              ".openclaw",
+              "agents",
+              agentId,
+              "workspace",
+              "progress",
+            );
+            const watchKey = `${evtSessionKey}:${skillName}`;
+            const fileName = runId
+              ? `${runId}_${skillName}.progress.jsonl`
+              : `${skillName}.progress.jsonl`;
+            const progressFile = _join(progressDir, fileName);
+            log.info(`[mas4s:sop] starting progress watch: key=${watchKey} file=${progressFile}`);
+            progressWatcher.startWatch({
+              key: watchKey,
+              sessionKey: evtSessionKey,
+              skill: skillName,
+              filePath: progressFile,
+            });
+          }
+          if (phase === "result") {
+            _toolCallRunIdMap.delete(toolCallId);
+            // Don't stop the watcher here — let it keep polling until:
+            // 1. A "done" line arrives in the progress file (self-cleanup in poll), or
+            // 2. Background task finished event triggers stopWatch as fallback.
+          }
+        }
+      }
+    });
+
     // Set the loadSessionRow callback so bridge can resolve sessionId from sessionKey.
     // This is critical for sessions.reset, which generates a new sessionId while keeping
     // the same sessionKey.
@@ -455,6 +658,16 @@ export async function initMas4sIntegration(
           // recordAssistantFinal is intentionally not called here to avoid double-writing,
           // since handleUpdate already captures the full assistant message (including
           // thinking + toolCall blocks) from the JSONL transcript event.
+
+          if (event === "agent.done") {
+            const finalState = sopTracker.getState(evtSessionKey);
+            if (finalState) {
+              broadcastToAll("sop.state", {
+                ...finalState,
+                ts: Date.now(),
+              });
+            }
+          }
         }
 
         // 3. Approval events → persist to session_messages for history replay

@@ -128,6 +128,24 @@ export function renderMain(
                 // causing loaded > totalMsgCount even when earlier pages still exist.
                 return meta.page < meta.totalPages;
               })()}
+              .sopSteps=${store.activeSessionUuid
+                ? (store.sopStepsBySession.get(store.activeSessionUuid)?.steps ?? [])
+                : []}
+              .sopLabel=${store.activeSessionUuid
+                ? (store.sopStepsBySession.get(store.activeSessionUuid)?.sopLabel ?? "")
+                : ""}
+              .activeProgress=${store.activeSessionUuid
+                ? (store.activeProgressBySession.get(store.activeSessionUuid) ?? null)
+                : null}
+              .progressLogs=${store.activeSessionUuid
+                ? (store.progressLogsBySession.get(store.activeSessionUuid) ?? [])
+                : []}
+              .currentStepIndex=${store.activeSessionUuid
+                ? (store.sopStepsBySession.get(store.activeSessionUuid)?.currentStepIndex ?? -1)
+                : -1}
+              .sopCompletedAt=${store.activeSessionUuid
+                ? store.sopStepsBySession.get(store.activeSessionUuid)?.completedAt
+                : undefined}
               @send-message=${h.onSendMessage}
               @abort-chat=${h.onAbortChat}
               @resolve-approval=${h.onResolveApproval}

@@ -1661,6 +1661,7 @@ export const chatHandlers: GatewayRequestHandlers = {
               savedImages: persistedImages,
               timestamp: now,
             }),
+            parentSessionKey: latestEntry?.parentSessionKey,
           });
         })();
         await userTranscriptUpdatePromise;

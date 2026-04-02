@@ -196,6 +196,152 @@ export class AppStore {
     this.notify();
   }
 
+  // ── SOP 状态管理 ──────────────────────────────────
+  /** sessionUuid → SOP step states */
+  sopStepsBySession: Map<
+    string,
+    {
+      steps: Array<{
+        skill: string;
+        label: string;
+        icon?: string;
+        status: string;
+        startedAt?: number;
+        completedAt?: number;
+        elapsed?: number;
+      }>;
+      sopLabel: string;
+      currentStepIndex: number;
+      completedAt?: number;
+    }
+  > = new Map();
+  /** sessionUuid → active skill progress */
+  activeProgressBySession: Map<
+    string,
+    {
+      skill: string;
+      total: number;
+      completed: number;
+      currentItem?: { index: number; label: string; pct: number; message?: string };
+    }
+  > = new Map();
+  /** sessionUuid → progress log entries */
+  progressLogsBySession: Map<
+    string,
+    Array<{ ts: number; skill: string; message: string; level: string }>
+  > = new Map();
+
+  updateSOPState(sessionUuid: string, data: Record<string, unknown>): void {
+    const steps = data["steps"] as Array<{
+      skill: string;
+      label: string;
+      icon?: string;
+      status: string;
+      startedAt?: number;
+      completedAt?: number;
+      elapsed?: number;
+    }>;
+    const sopLabel = (data["sopLabel"] as string) ?? "";
+    const currentStepIndex = (data["currentStepIndex"] as number) ?? -1;
+    const completedAt = typeof data["completedAt"] === "number" ? data["completedAt"] : undefined;
+    if (Array.isArray(steps)) {
+      this.sopStepsBySession.set(sessionUuid, { steps, sopLabel, currentStepIndex, completedAt });
+
+      // 清理已不再运行的技能进度
+      const active = this.activeProgressBySession.get(sessionUuid);
+      if (active) {
+        const currentStep = steps[currentStepIndex];
+        if (
+          !currentStep ||
+          currentStep.skill !== active.skill ||
+          currentStep.status !== "running"
+        ) {
+          this.activeProgressBySession.delete(sessionUuid);
+        }
+      }
+    }
+    this.notify();
+  }
+
+  updateSkillProgress(sessionUuid: string, data: Record<string, unknown>): void {
+    const skill = data["skill"] as string;
+    const progress = data["progress"] as Record<string, unknown>;
+    if (!skill || !progress) {
+      return;
+    }
+
+    const type = progress["type"] as string;
+
+    if (type === "start") {
+      this.activeProgressBySession.set(sessionUuid, {
+        skill,
+        total: (progress["total"] as number) ?? 0,
+        completed: 0,
+      });
+    } else if (type === "item") {
+      const existing = this.activeProgressBySession.get(sessionUuid);
+      // Relaxed check: allow update if either it's the same skill,
+      // or if we have no active progress, or if the current active
+      // progress is a management tool like 'process'.
+      const isSkillMatch = !existing || existing.skill === skill || existing.skill === "process";
+
+      if (isSkillMatch) {
+        const pct = (progress["pct"] as number) ?? 0;
+        const total = (progress["total"] as number) ?? existing?.total ?? 0;
+        const completed =
+          pct >= 100
+            ? ((progress["index"] as number) ?? (existing?.completed ?? 0) + 1)
+            : (existing?.completed ?? 0);
+
+        const currentItem =
+          pct >= 100
+            ? undefined
+            : {
+                index: (progress["index"] as number) ?? 0,
+                label: (progress["label"] as string) ?? "",
+                pct,
+                message: (progress["message"] as string) ?? undefined,
+              };
+
+        this.activeProgressBySession.set(sessionUuid, {
+          skill,
+          total,
+          completed,
+          currentItem,
+        });
+      }
+    } else if (type === "done") {
+      this.activeProgressBySession.delete(sessionUuid);
+    }
+
+    if (type === "log" || (type === "item" && progress["message"])) {
+      const logs = this.progressLogsBySession.get(sessionUuid) ?? [];
+      const message = (progress["message"] as string) ?? "";
+      if (message) {
+        logs.push({
+          ts: (progress["ts"] as number) ?? Date.now(),
+          skill,
+          message,
+          level: (progress["level"] as string) ?? "info",
+        });
+        // Keep last 500 entries
+        if (logs.length > 500) {
+          logs.splice(0, logs.length - 500);
+        }
+        this.progressLogsBySession.set(sessionUuid, logs);
+      }
+    }
+
+    this.notify();
+  }
+
+  clearSOPState(sessionUuid: string): void {
+    this.sopStepsBySession.delete(sessionUuid);
+    this.activeProgressBySession.delete(sessionUuid);
+    this.progressLogsBySession.delete(sessionUuid);
+    this.notify();
+  }
+
   // ── 响应式通知 ────────────────────────────────────
   private _hosts: Set<ReactiveControllerHost> = new Set();
 

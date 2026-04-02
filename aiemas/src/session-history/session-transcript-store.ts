@@ -25,13 +25,14 @@ export interface StoredMessage {
   sessionId: string;
   userId: string | null;
   tenantId: string | null;
-  role: "user" | "assistant" | "tool" | "approval" | "system";
+  role: "user" | "assistant" | "tool" | "approval" | "system" | "progress" | "summary";
   content: string;
   timestamp: number;
   seq: number;
   archivedDate: string | null;
   toolCallId: string | null;
   toolName: string | null;
+  parentSessionUuid: string | null;
 }
 
 export interface SessionTranscriptStoreOptions {
@@ -62,6 +63,7 @@ interface SessionState {
   firstMsgAt: number;
   lastMsgAt: number;
   msgCount: number;
+  parentSessionUuid: string | null;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -146,7 +148,9 @@ function extractContent(raw: unknown): string {
 }
 
 /** Normalise raw role strings to the allowed set. */
-function normaliseRole(raw: unknown): "user" | "assistant" | "tool" | "approval" | "system" {
+function normaliseRole(
+  raw: unknown,
+): "user" | "assistant" | "tool" | "approval" | "system" | "progress" {
   if (raw === "human" || raw === "user") {
     return "user";
   }
@@ -161,6 +165,9 @@ function normaliseRole(raw: unknown): "user" | "assistant" | "tool" | "approval"
   }
   if (raw === "system") {
     return "system";
+  }
+  if (raw === "progress") {
+    return "progress";
   }
   // Unknown roles fall back to "user" to satisfy the DB CHECK constraint.
   return "user";
@@ -230,6 +237,7 @@ function defaultSessionState(
     firstMsgAt: 0,
     lastMsgAt: 0,
     msgCount: 0,
+    parentSessionUuid: null,
   };
 }
 
@@ -294,7 +302,7 @@ export class SessionTranscriptStore {
     try {
       const rows = this.db
         .prepare(
-          "SELECT sessionUuid, sessionKey, sessionId, firstMsgAt, lastMsgAt, msgCount, lastSeq FROM session_msg_statistic",
+          "SELECT sessionUuid, sessionKey, sessionId, firstMsgAt, lastMsgAt, msgCount, lastSeq, parentSessionUuid FROM session_msg_statistic",
         )
         .all() as Array<{
         sessionUuid: string;
@@ -304,6 +312,7 @@ export class SessionTranscriptStore {
         lastMsgAt: number;
         msgCount: number;
         lastSeq: number;
+        parentSessionUuid: string | null;
       }>;
       for (const row of rows) {
         this.sessionStates.set(row.sessionUuid, {
@@ -315,6 +324,7 @@ export class SessionTranscriptStore {
           firstMsgAt: row.firstMsgAt,
           lastMsgAt: row.lastMsgAt,
           msgCount: row.msgCount,
+          parentSessionUuid: row.parentSessionUuid,
         });
         // Track the "latest" sessionId per sessionKey by picking the one with the highest sequence/timestamp.
         // This is a heuristic for startup; subsequent updates will keep this map current.
@@ -332,11 +342,24 @@ export class SessionTranscriptStore {
   // ── getOrInitState (private) ───────────────────────────────────────────────
 
   /** Return the SessionState for a key pair, creating a default entry if absent. */
-  private getOrInitState(sessionUuid: string, sessionKey: string, sessionId: string): SessionState {
+  private getOrInitState(
+    sessionUuid: string,
+    sessionKey: string,
+    sessionId: string,
+    parentSessionUuid?: string | null,
+  ): SessionState {
     let state = this.sessionStates.get(sessionUuid);
     if (!state) {
       state = defaultSessionState(sessionUuid, sessionKey, sessionId);
+      if (parentSessionUuid !== undefined) {
+        state.parentSessionUuid = parentSessionUuid;
+      }
       this.sessionStates.set(sessionUuid, state);
+    } else if (parentSessionUuid !== undefined && parentSessionUuid !== null) {
+      // Update parentSessionUuid if it was previously null but now known
+      if (state.parentSessionUuid === null) {
+        state.parentSessionUuid = parentSessionUuid;
+      }
     }
     // Update active mapping whenever we touch a session
     this.activeSessionIds.set(sessionKey, sessionId);
@@ -480,6 +503,29 @@ export class SessionTranscriptStore {
     });
   }
 
+  // ── recordProgressEvent ───────────────────────────────────────────────────
+
+  /**
+   * Persist an SOP/skill progress event to session_messages.
+   * Content format: `[sop:state] {...}` or `[skill:progress] {...}`
+   * so normalizeMessage can reconstruct the SOP pipeline on history replay.
+   */
+  recordProgressEvent(params: {
+    sessionKey: string;
+    type: "sop:state" | "skill:progress";
+    payload: unknown;
+    timestamp: number;
+  }): void {
+    const { sessionKey, type, payload, timestamp } = params;
+    const content = `[${type}] ${JSON.stringify(payload)}`;
+    this.pushToBuffer({
+      sessionKey,
+      role: "progress",
+      content,
+      timestamp,
+    });
+  }
+
   // ── persistSummary ────────────────────────────────────────────────────────
 
   /**
@@ -496,7 +542,12 @@ export class SessionTranscriptStore {
     generatedAt: number;
     generatedBy: string;
   }): void {
-    upsertSummary(this.db, params);
+    const state = this.sessionStates.get(params.sessionUuid);
+    const summaryParams = {
+      ...params,
+      parentSessionUuid: state?.parentSessionUuid ?? null,
+    };
+    upsertSummary(this.db, summaryParams);
     debugLog(
       `[mas4s:transcript-store] persisted summary for sessionUuid=${params.sessionUuid} sessionKey=${params.sessionKey} sessionId=${params.sessionId}`,
     );
@@ -542,19 +593,23 @@ export class SessionTranscriptStore {
     timestamp: number;
     toolCallId?: string | null;
     toolName?: string | null;
+    parentSessionKey?: string;
   }): void {
     const { sessionKey, role, content, timestamp, toolCallId, toolName } = params;
     let { sessionId } = params;
 
     const { extractUuidFromKey } = require("../utils/session-utils.js");
     const sessionUuid = extractUuidFromKey(sessionKey);
+    const parentSessionUuid = params.parentSessionKey
+      ? extractUuidFromKey(params.parentSessionKey)
+      : null;
 
     // Resolve sessionId if missing via the active mapping
     if (!sessionId) {
       sessionId = this.activeSessionIds.get(sessionKey) ?? sessionKey;
     }
 
-    const state = this.getOrInitState(sessionUuid, sessionKey, sessionId);
+    const state = this.getOrInitState(sessionUuid, sessionKey, sessionId, parentSessionUuid);
     const seq = state.lastSeq + 1;
     // Eagerly advance lastSeq so subsequent pushes in the same flush cycle get
     // monotonically increasing seq values without waiting for a DB round-trip.
@@ -574,6 +629,7 @@ export class SessionTranscriptStore {
       archivedDate: null,
       toolCallId: toolCallId ?? null,
       toolName: toolName ?? null,
+      parentSessionUuid: state.parentSessionUuid,
     });
 
     if (this.buffer.length >= this.maxBufferSize) {
@@ -613,6 +669,9 @@ export class SessionTranscriptStore {
           : (update.sessionKey ?? "");
 
       const sessionUuid = extractUuidFromKey(sessionKey);
+      const parentSessionUuid = update.parentSessionKey
+        ? extractUuidFromKey(update.parentSessionKey)
+        : null;
 
       const role = normaliseRole(rawRole);
       // Skip gateway-injected inbound metadata messages (second transcript event
@@ -622,7 +681,7 @@ export class SessionTranscriptStore {
         return;
       }
 
-      const state = this.getOrInitState(sessionUuid, sessionKey, sessionId);
+      const state = this.getOrInitState(sessionUuid, sessionKey, sessionId, parentSessionUuid);
       const seq = state.lastSeq + 1;
       state.lastSeq = seq;
 
@@ -641,6 +700,7 @@ export class SessionTranscriptStore {
         toolCallId:
           (msg["toolCallId"] as string | null) ?? (msg["tool_call_id"] as string | null) ?? null,
         toolName: (msg["toolName"] as string | null) ?? (msg["tool_name"] as string | null) ?? null,
+        parentSessionUuid: state.parentSessionUuid,
       };
 
       debugLog(
@@ -770,23 +830,24 @@ export class SessionTranscriptStore {
 
     const insertStmt = this.db.prepare(
       `INSERT INTO session_messages
-         (id, sessionUuid, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate, toolCallId, toolName)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, sessionUuid, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate, toolCallId, toolName, parentSessionUuid)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
     // Upsert statistic row: on first insert create the row; on subsequent inserts
     // update lastMsgAt/msgCount/lastSeq and narrow firstMsgAt if a back-dated
     // message arrives (e.g. from a replay).
     const upsertStatStmt = this.db.prepare(
-      `INSERT INTO session_msg_statistic (sessionUuid, sessionKey, sessionId, firstMsgAt, lastMsgAt, msgCount, lastSeq)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO session_msg_statistic (sessionUuid, sessionKey, sessionId, firstMsgAt, lastMsgAt, msgCount, lastSeq, parentSessionUuid)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(sessionUuid) DO UPDATE SET
          sessionKey = excluded.sessionKey,
          sessionId  = excluded.sessionId,
          firstMsgAt = MIN(firstMsgAt, excluded.firstMsgAt),
          lastMsgAt  = MAX(lastMsgAt,  excluded.lastMsgAt),
          msgCount   = msgCount + excluded.msgCount,
-         lastSeq    = MAX(lastSeq,    excluded.lastSeq)`,
+         lastSeq    = MAX(lastSeq,    excluded.lastSeq),
+         parentSessionUuid = COALESCE(parentSessionUuid, excluded.parentSessionUuid)`,
     );
 
     // Single transaction: archive checks + batch INSERT + statistic upsert.
@@ -829,6 +890,7 @@ export class SessionTranscriptStore {
           m.archivedDate,
           m.toolCallId,
           m.toolName,
+          m.parentSessionUuid,
         );
       }
 
@@ -856,6 +918,7 @@ export class SessionTranscriptStore {
           batchMaxTs,
           group.length,
           batchMaxSeq,
+          m.parentSessionUuid,
         );
       }
 

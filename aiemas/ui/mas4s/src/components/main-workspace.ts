@@ -25,6 +25,14 @@ export class MainWorkspace extends LitElement {
   @property({ type: Boolean }) hasMoreHistory = false;
   @property({ type: Boolean }) isChatting = false;
 
+  // ── SOP state (passed through to chat-view → message-list) ────────────────
+  @property({ attribute: false }) sopSteps: unknown[] = [];
+  @property({ attribute: false }) sopLabel = "";
+  @property({ attribute: false }) activeProgress: unknown = null;
+  @property({ attribute: false }) progressLogs: unknown[] = [];
+  @property({ type: Number }) currentStepIndex = -1;
+  @property({ type: Number }) sopCompletedAt: number | undefined = undefined;
+
   static styles = css`
     :host {
       display: flex;
@@ -105,6 +113,12 @@ export class MainWorkspace extends LitElement {
                 .truncated=${this.truncated}
                 .hasMoreHistory=${this.hasMoreHistory}
                 .isChatting=${this.isChatting}
+                .sopSteps=${this.sopSteps}
+                .sopLabel=${this.sopLabel}
+                .activeProgress=${this.activeProgress}
+                .progressLogs=${this.progressLogs}
+                .currentStepIndex=${this.currentStepIndex}
+                .sopCompletedAt=${this.sopCompletedAt}
                 @resolve=${this._onResolve}
                 @load-more-history=${this._onLoadMoreHistory}
                 @abort-chat=${this._onAbortChat}

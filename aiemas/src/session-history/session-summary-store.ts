@@ -10,6 +10,7 @@ export interface StoredSummary {
   toolSummary: string | null;
   generatedAt: number;
   generatedBy: string;
+  parentSessionUuid: string | null;
 }
 
 // ── Store functions ───────────────────────────────────────────────────────────
@@ -28,16 +29,43 @@ export function upsertSummary(
     toolSummary: string | null;
     generatedAt: number;
     generatedBy: string;
+    parentSessionUuid?: string | null;
   },
 ): StoredSummary {
-  const { sessionUuid, sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy } =
-    params;
+  const {
+    sessionUuid,
+    sessionKey,
+    sessionId,
+    textSummary,
+    toolSummary,
+    generatedAt,
+    generatedBy,
+    parentSessionUuid = null,
+  } = params;
   db.prepare(
     `INSERT OR REPLACE INTO session_summaries
-       (sessionUuid, sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(sessionUuid, sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy);
-  return { sessionUuid, sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy };
+       (sessionUuid, sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy, parentSessionUuid)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    sessionUuid,
+    sessionKey,
+    sessionId,
+    textSummary,
+    toolSummary,
+    generatedAt,
+    generatedBy,
+    parentSessionUuid,
+  );
+  return {
+    sessionUuid,
+    sessionKey,
+    sessionId,
+    textSummary,
+    toolSummary,
+    generatedAt,
+    generatedBy,
+    parentSessionUuid,
+  };
 }
 
 /**
@@ -53,7 +81,7 @@ export function getSummary(
   if (sessionId) {
     const row = db
       .prepare(
-        `SELECT sessionUuid, sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy
+        `SELECT sessionUuid, sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy, parentSessionUuid
            FROM session_summaries WHERE sessionUuid = ? AND sessionId = ?`,
       )
       .get(sessionUuid, sessionId) as StoredSummary | undefined;
@@ -62,7 +90,7 @@ export function getSummary(
 
   const row = db
     .prepare(
-      `SELECT sessionUuid, sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy
+      `SELECT sessionUuid, sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy, parentSessionUuid
          FROM session_summaries WHERE sessionUuid = ? ORDER BY generatedAt DESC LIMIT 1`,
     )
     .get(sessionUuid) as StoredSummary | undefined;
@@ -81,15 +109,29 @@ export function deleteSummary(db: DatabaseSync, sessionUuid: string, sessionId?:
     );
     return;
   }
-  db.prepare("DELETE FROM session_summaries WHERE sessionUuid = ?").run(sessionUuid);
+  // Cascading delete for summaries
+  db.prepare("DELETE FROM session_summaries WHERE sessionUuid = ? OR parentSessionUuid = ?").run(
+    sessionUuid,
+    sessionUuid,
+  );
 }
 
 /**
  * Delete all messages and statistic rows for a sessionKey from mas4s.message.db.
- * Called when a session is permanently deleted.
+ * Called when a session is permanently deleted. Cascades to sub-agents.
  * Idempotent: does not throw if no rows exist.
  */
 export function deleteSessionMessages(db: DatabaseSync, sessionUuid: string): void {
-  db.prepare("DELETE FROM session_messages WHERE sessionUuid = ?").run(sessionUuid);
-  db.prepare("DELETE FROM session_msg_statistic WHERE sessionUuid = ?").run(sessionUuid);
+  // Cascading delete: remove the session itself AND any sub-sessions that point to it as parent.
+  db.prepare("DELETE FROM session_messages WHERE sessionUuid = ? OR parentSessionUuid = ?").run(
+    sessionUuid,
+    sessionUuid,
+  );
+  db.prepare(
+    "DELETE FROM session_msg_statistic WHERE sessionUuid = ? OR parentSessionUuid = ?",
+  ).run(sessionUuid, sessionUuid);
+  db.prepare("DELETE FROM session_summaries WHERE sessionUuid = ? OR parentSessionUuid = ?").run(
+    sessionUuid,
+    sessionUuid,
+  );
 }

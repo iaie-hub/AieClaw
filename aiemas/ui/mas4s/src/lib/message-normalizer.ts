@@ -231,6 +231,30 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
         }
         continue;
       }
+      // [sop:state] {...} prefix — SOP pipeline state for history replay
+      const sopStateMatch = /^\[sop:state\]\s*(.*)$/.exec(line);
+      if (sopStateMatch) {
+        flushText();
+        try {
+          const data = JSON.parse(sopStateMatch[1] ?? "{}");
+          items.push({ type: "sop_state", args: data });
+        } catch {
+          items.push({ type: "text", text: line });
+        }
+        continue;
+      }
+      // [skill:progress] {...} prefix — skill-level progress for history replay
+      const skillProgressMatch = /^\[skill:progress\]\s*(.*)$/.exec(line);
+      if (skillProgressMatch) {
+        flushText();
+        try {
+          const data = JSON.parse(skillProgressMatch[1] ?? "{}");
+          items.push({ type: "skill_progress", args: data });
+        } catch {
+          items.push({ type: "text", text: line });
+        }
+        continue;
+      }
       textLines.push(line);
     }
     flushText();

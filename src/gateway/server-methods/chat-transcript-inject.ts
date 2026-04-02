@@ -23,6 +23,7 @@ export function appendInjectedAssistantMessageToTranscript(params: {
   idempotencyKey?: string;
   abortMeta?: GatewayInjectedAbortMeta;
   now?: number;
+  parentSessionKey?: string;
 }): GatewayInjectedTranscriptAppendResult {
   const now = params.now ?? Date.now();
   const labelPrefix = params.label ? `[${params.label}]\n\n` : "";
@@ -73,6 +74,7 @@ export function appendInjectedAssistantMessageToTranscript(params: {
       sessionFile: params.transcriptPath,
       message: messageBody,
       messageId,
+      parentSessionKey: params.parentSessionKey,
     });
     return { ok: true, messageId, message: messageBody };
   } catch (err) {

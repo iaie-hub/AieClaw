@@ -8,6 +8,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@core": resolve(__dirname, "../../src"),
+      "@vendor": resolve(__dirname, "../../../vendor"),
     },
   },
   esbuild: {

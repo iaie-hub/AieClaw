@@ -1,5 +1,10 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property } from "lit/decorators.js";
+import type {
+  SOPStepView,
+  SkillProgressView,
+  ProgressLogEntry,
+} from "../components/sop-pipeline.js";
 import type { ApprovalRequest, ApprovalResolved } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
 import "./msg-user.js";
@@ -7,6 +12,7 @@ import "./msg-colleague.js";
 import "./msg-agent.js";
 import "./msg-tool-result.js";
 import "./msg-approval-card.js";
+import "../components/sop-pipeline.js";
 
 /**
  * 消息列表：根据 role 和 subType 分发渲染对应消息组件。
@@ -20,6 +26,12 @@ export class MessageList extends LitElement {
     { approval: ApprovalRequest; resolved: ApprovalResolved }
   > = new Map();
   @property({ type: Boolean }) isInitiator = false;
+
+  // ── SOP state (fed from WebSocket events or history replay) ───────────────
+  @property({ attribute: false }) sopSteps: SOPStepView[] = [];
+  @property({ attribute: false }) sopLabel = "";
+  @property({ attribute: false }) activeProgress: SkillProgressView | null = null;
+  @property({ attribute: false }) progressLogs: ProgressLogEntry[] = [];
 
   static styles = css`
     :host {
@@ -182,6 +194,10 @@ export class MessageList extends LitElement {
     if (msg.role === "tool" || msg.role === "toolResult") {
       return html`<msg-tool-result .message=${msg}></msg-tool-result>`;
     }
+    // Progress messages are consumed by the SOP pipeline component, not rendered inline
+    if (msg.role === "progress") {
+      return html``;
+    }
     // 其他 role（system 等）暂不渲染
     return html``;
   }
@@ -194,13 +210,16 @@ export class MessageList extends LitElement {
     const lastAgentMsg = [...this.messages]
       .toReversed()
       .find(
-        (m) => m.role === "assistant" && !(m.id && this._cachedApprovalTriggeredMsgIds.has(m.id)),
+        (m: ChatMessage) =>
+          m.role === "assistant" && !(m.id && this._cachedApprovalTriggeredMsgIds.has(m.id)),
       );
     const lastAgentId = lastAgentMsg?.id;
 
-    return html`${this.messages.map((msg) =>
-      this._renderMessage(msg, !!(lastAgentId && msg.id === lastAgentId)),
-    )}`;
+    return html`
+      ${this.messages.map((msg) =>
+        this._renderMessage(msg, !!(lastAgentId && msg.id === lastAgentId)),
+      )}
+    `;
   }
 }
 

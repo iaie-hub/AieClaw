@@ -24,6 +24,15 @@ import type { RegisterParams, UpdateUserParams } from "./users/user-service.js";
 export type { GlobalRole, PublicUser } from "./models.js";
 export type { SessionPermissionContext, PermissionResult } from "./rbac/permission-checker.js";
 export type { RegisterParams, UpdateUserParams } from "./users/user-service.js";
+export { SOPTracker, ProgressWatcher } from "./sop-tracker/index.js";
+export type {
+  SOPDefinition,
+  SOPState,
+  SOPStepState,
+  SOPStateEventPayload,
+  SkillProgressEventPayload,
+  ProgressLine,
+} from "./sop-tracker/index.js";
 
 export interface TenantServiceConfig {
   jwtSecret?: string;

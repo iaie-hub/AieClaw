@@ -146,19 +146,32 @@ export function ensureMessageSchema(db: DatabaseSync): void {
       userId      TEXT    NULL,
       tenantId    TEXT    NULL,
       role        TEXT    NOT NULL
-                  CHECK(role IN ('user','assistant','tool','approval','system')),
+                  CHECK(role IN ('user','assistant','tool','approval','system','progress','summary')),
       content     TEXT    NOT NULL,
       timestamp   INTEGER NOT NULL,
       seq         INTEGER NOT NULL DEFAULT 0,
       archivedDate TEXT   NULL,
       toolCallId  TEXT    NULL,
-      toolName    TEXT    NULL
+      toolName    TEXT    NULL,
+      parentSessionUuid TEXT NULL
     );
   `);
+
+  // Migration: add parentSessionUuid if it doesn't exist (node:sqlite best-effort)
+  try {
+    db.exec("ALTER TABLE session_messages ADD COLUMN parentSessionUuid TEXT NULL;");
+  } catch {
+    // Already exists
+  }
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_session_messages_uuid_ts
     ON session_messages(sessionUuid, timestamp);
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_session_messages_parent_uuid
+    ON session_messages(parentSessionUuid);
   `);
 
   db.exec(`
@@ -179,9 +192,16 @@ export function ensureMessageSchema(db: DatabaseSync): void {
       firstMsgAt    INTEGER NOT NULL,
       lastMsgAt     INTEGER NOT NULL,
       msgCount      INTEGER NOT NULL DEFAULT 0,
-      lastSeq       INTEGER NOT NULL DEFAULT 0
+      lastSeq       INTEGER NOT NULL DEFAULT 0,
+      parentSessionUuid TEXT NULL
     );
   `);
+
+  try {
+    db.exec("ALTER TABLE session_msg_statistic ADD COLUMN parentSessionUuid TEXT NULL;");
+  } catch {
+    // Already exists
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS session_summaries (
@@ -191,7 +211,14 @@ export function ensureMessageSchema(db: DatabaseSync): void {
       textSummary  TEXT    NULL,
       toolSummary  TEXT    NULL,
       generatedAt  INTEGER NOT NULL,
-      generatedBy  TEXT    NOT NULL
+      generatedBy  TEXT    NOT NULL,
+      parentSessionUuid TEXT NULL
     );
   `);
+
+  try {
+    db.exec("ALTER TABLE session_summaries ADD COLUMN parentSessionUuid TEXT NULL;");
+  } catch {
+    // Already exists
+  }
 }

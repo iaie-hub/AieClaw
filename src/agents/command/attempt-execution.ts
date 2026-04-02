@@ -298,7 +298,11 @@ export async function persistAcpTurnTranscript(params: {
     });
   }
 
-  emitSessionTranscriptUpdate(sessionFile);
+  emitSessionTranscriptUpdate({
+    sessionFile,
+    sessionKey: params.sessionKey,
+    parentSessionKey: params.sessionEntry?.parentSessionKey,
+  });
   return sessionEntry;
 }
 

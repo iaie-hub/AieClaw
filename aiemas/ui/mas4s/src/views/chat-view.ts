@@ -31,6 +31,14 @@ export class ChatView extends LitElement {
   /** 是否正在聊天（Agent 运行中） */
   @property({ type: Boolean }) isChatting = false;
 
+  // ── SOP state (passed through to message-list) ────────────────────────────
+  @property({ attribute: false }) sopSteps: unknown[] = [];
+  @property({ attribute: false }) sopLabel = "";
+  @property({ attribute: false }) activeProgress: unknown = null;
+  @property({ attribute: false }) progressLogs: unknown[] = [];
+  @property({ type: Number }) currentStepIndex = -1;
+  @property({ type: Number }) sopCompletedAt: number | undefined = undefined;
+
   @state() private _inputText = "";
   @state() private _summaryOpen = false;
   @state() private _loadingMore = false;
@@ -506,6 +514,10 @@ export class ChatView extends LitElement {
               .pendingApprovals=${this.pendingApprovals}
               .resolvedApprovals=${this.resolvedApprovals}
               .isInitiator=${this.isInitiator}
+              .sopSteps=${this.sopSteps}
+              .sopLabel=${this.sopLabel}
+              .activeProgress=${this.activeProgress}
+              .progressLogs=${this.progressLogs}
             ></message-list>`}
       </div>
 
@@ -517,6 +529,21 @@ export class ChatView extends LitElement {
       ></summary-dialog>
 
       <div class="chat-input-wrapper">
+        ${this.sopSteps.length > 0 && !this._isArchived
+          ? html`
+              <div style="margin-bottom: 8px;">
+                <sop-pipeline
+                  .steps=${this.sopSteps}
+                  .sopLabel=${this.sopLabel}
+                  .activeProgress=${this.activeProgress}
+                  .logs=${this.progressLogs}
+                  .currentStepIndex=${this.currentStepIndex}
+                  .completedAt=${this.sopCompletedAt}
+                  compact
+                ></sop-pipeline>
+              </div>
+            `
+          : ""}
         <div class="chat-input-area">
           <textarea
             rows="2"

@@ -1,4 +1,6 @@
 import mk from "@traptitech/markdown-it-katex";
+// @ts-ignore
+import * as Sanitizer from "@vendor/a2ui/renderers/lit/src/0.8/ui/directives/sanitizer.js";
 /**
  * Markdown + LaTeX directive for mas4s.
  *
@@ -9,7 +11,6 @@ import { noChange } from "lit";
 import { Directive, DirectiveParameters, Part, directive } from "lit/directive.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import MarkdownIt from "markdown-it";
-import * as Sanitizer from "../../../../../vendor/a2ui/renderers/lit/src/0.8/ui/directives/sanitizer.js";
 
 const createMd = () => {
   const md = MarkdownIt({

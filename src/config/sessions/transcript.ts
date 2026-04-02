@@ -215,7 +215,13 @@ export async function appendAssistantMessageToSessionTranscript(params: {
   const sessionManager = SessionManager.open(sessionFile);
   const messageId = sessionManager.appendMessage(message);
 
-  emitSessionTranscriptUpdate({ sessionFile, sessionKey, message, messageId });
+  emitSessionTranscriptUpdate({
+    sessionFile,
+    sessionKey,
+    message,
+    messageId,
+    parentSessionKey: entry.parentSessionKey,
+  });
   return { ok: true, sessionFile, messageId };
 }
 
