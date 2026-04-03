@@ -27,13 +27,14 @@ const gatewayLog = createSubsystemLogger("gateway");
 type GatewayRunSignalAction = "stop" | "restart";
 
 export async function runGatewayLoop(params: {
-  start: () => Promise<Awaited<ReturnType<typeof startGatewayServer>>>;
+  start: (params?: {
+    startupStartedAt?: number;
+  }) => Promise<Awaited<ReturnType<typeof startGatewayServer>>>;
   runtime: RuntimeEnv;
   lockPort?: number;
 }) {
-  gatewayLog.info(`run-gateway-loop: acquiring lock on port ${params.lockPort ?? "unspecified"}`);
+  let startupStartedAt = Date.now();
   let lock = await acquireGatewayLock({ port: params.lockPort });
-  gatewayLog.info("run-gateway-loop: lock acquired");
   let server: Awaited<ReturnType<typeof startGatewayServer>> | null = null;
   let shuttingDown = false;
   let restartResolver: (() => void) | null = null;
@@ -57,6 +58,7 @@ export async function runGatewayLoop(params: {
   };
   const reacquireLockForInProcessRestart = async (): Promise<boolean> => {
     try {
+      startupStartedAt = Date.now();
       lock = await acquireGatewayLock({ port: params.lockPort });
       return true;
     } catch (err) {
@@ -231,9 +233,7 @@ export async function runGatewayLoop(params: {
     for (;;) {
       onIteration();
       try {
-        gatewayLog.info("run-gateway-loop: starting server...");
-        server = await params.start();
-        gatewayLog.info("run-gateway-loop: server started");
+        server = await params.start({ startupStartedAt });
         isFirstStart = false;
       } catch (err) {
         // On initial startup, let the error propagate so the outer handler

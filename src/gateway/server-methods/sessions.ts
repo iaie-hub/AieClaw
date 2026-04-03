@@ -49,12 +49,6 @@ import {
   validateSessionsResolveParams,
   validateSessionsSendParams,
 } from "../protocol/index.js";
-import {
-  archiveSessionTranscriptsForSession,
-  cleanupSessionBeforeMutation,
-  emitSessionUnboundLifecycleEvent,
-  performGatewaySessionReset,
-} from "../session-reset-service.js";
 import { reactivateCompletedSubagentSession } from "../session-subagent-reactivation.js";
 import {
   archiveFileOnDisk,
@@ -1076,6 +1070,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     }
 
     const reason = p.reason === "new" ? "new" : "reset";
+    const { performGatewaySessionReset } = await import("./sessions.runtime.js");
     const result = await performGatewaySessionReset({
       key,
       reason,
@@ -1126,6 +1121,12 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     }
 
     const deleteTranscript = typeof p.deleteTranscript === "boolean" ? p.deleteTranscript : true;
+    const {
+      archiveSessionTranscriptsForSessionDetailed,
+      cleanupSessionBeforeMutation,
+      emitGatewaySessionEndPluginHook,
+      emitSessionUnboundLifecycleEvent,
+    } = await import("./sessions.runtime.js");
 
     const { entry, legacyKey, canonicalKey } = loadSessionEntry(key);
     const mutationCleanupError = await cleanupSessionBeforeMutation({
@@ -1151,9 +1152,9 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return hadEntry;
     });
 
-    const archived =
+    const archivedTranscripts =
       deleted && deleteTranscript
-        ? archiveSessionTranscriptsForSession({
+        ? archiveSessionTranscriptsForSessionDetailed({
             sessionId,
             storePath,
             sessionFile: entry?.sessionFile,
@@ -1161,7 +1162,18 @@ export const sessionsHandlers: GatewayRequestHandlers = {
             reason: "deleted",
           })
         : [];
+    const archived = archivedTranscripts.map((entry) => entry.archivedPath);
     if (deleted) {
+      emitGatewaySessionEndPluginHook({
+        cfg,
+        sessionKey: target.canonicalKey ?? key,
+        sessionId,
+        storePath,
+        sessionFile: entry?.sessionFile,
+        agentId: target.agentId,
+        reason: "deleted",
+        archivedTranscripts,
+      });
       const emitLifecycleHooks = p.emitLifecycleHooks !== false;
       await emitSessionUnboundLifecycleEvent({
         targetSessionKey: target.canonicalKey ?? key,

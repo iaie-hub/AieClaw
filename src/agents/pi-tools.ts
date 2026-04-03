@@ -618,10 +618,10 @@ export function createOpenClawCodingTools(options?: {
       ...buildDefaultToolPolicyPipelineSteps({
         profilePolicy: profilePolicyWithAlsoAllow,
         profile,
-        profileAlsoAllow,
+        profileUnavailableCoreWarningAllowlist: profilePolicy?.allow,
         providerProfilePolicy: providerProfilePolicyWithAlsoAllow,
         providerProfile,
-        providerProfileAlsoAllow,
+        providerProfileUnavailableCoreWarningAllowlist: providerProfilePolicy?.allow,
         globalPolicy,
         globalProviderPolicy,
         agentPolicy,
