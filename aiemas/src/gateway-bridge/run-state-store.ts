@@ -107,3 +107,57 @@ export function getRunState(db: DatabaseSync, sessionUuid: string): RunStateRow 
 export function clearRunState(db: DatabaseSync, sessionUuid: string): void {
   db.prepare(`DELETE FROM session_run_state WHERE sessionUuid=?`).run(sessionUuid);
 }
+
+/**
+ * Reset all active SOP run states on gateway startup.
+ *
+ * When the gateway stops, all running SOP processes are interrupted but the DB
+ * still has stale `isChatting=true` rows and SOP snapshots with "running" steps.
+ * This function marks all sessions as not chatting and finalizes any in-progress
+ * SOP steps so the frontend shows them as completed (not stuck in "running").
+ */
+export function resetAllRunStatesOnStartup(db: DatabaseSync): number {
+  const now = Date.now();
+
+  // Find all rows that are still marked as chatting
+  const rows = db
+    .prepare(`SELECT sessionUuid, sopState FROM session_run_state WHERE isChatting = 1`)
+    .all() as { sessionUuid: string; sopState: string | null }[];
+
+  if (rows.length === 0) {
+    return 0;
+  }
+
+  const update = db.prepare(
+    `UPDATE session_run_state SET isChatting = 0, sopState = ?, updatedAt = ? WHERE sessionUuid = ?`,
+  );
+
+  for (const row of rows) {
+    let snapshotJson = row.sopState;
+
+    // Finalize any "running" steps in the SOP snapshot
+    if (snapshotJson) {
+      try {
+        const snapshot = JSON.parse(snapshotJson) as SOPSnapshot;
+        let changed = false;
+        for (let i = 0; i < snapshot.stepStatuses.length; i++) {
+          if (snapshot.stepStatuses[i] === "running") {
+            snapshot.stepStatuses[i] = "completed";
+            changed = true;
+          }
+        }
+        if (changed) {
+          snapshot.completedAt = now;
+          snapshotJson = JSON.stringify(snapshot);
+        }
+      } catch {
+        // Malformed JSON — clear it
+        snapshotJson = null;
+      }
+    }
+
+    update.run(snapshotJson, now, row.sessionUuid);
+  }
+
+  return rows.length;
+}

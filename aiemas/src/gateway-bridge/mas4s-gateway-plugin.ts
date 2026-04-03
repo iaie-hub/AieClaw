@@ -103,6 +103,15 @@ export async function createMas4sGatewayPlugin(
   };
   console.log(`[mas4s] Gateway started: ${userCountRow.count} user(s) in database`);
 
+  // Reset stale SOP run states from the previous gateway session.
+  // When the gateway stops, all running SOP processes are interrupted but the DB
+  // retains isChatting=true and "running" step statuses. Clean them up on startup.
+  const { resetAllRunStatesOnStartup } = await import("./run-state-store.js");
+  const resetCount = resetAllRunStatesOnStartup(db);
+  if (resetCount > 0) {
+    console.log(`[mas4s] Reset ${resetCount} stale SOP run state(s) from previous gateway session`);
+  }
+
   // Initialize message capture store in a separate DB for performance isolation
   const { initMessageDatabase } = await import("../store/database.js");
   const messageDbPath = config?.dbPath ? config.dbPath.replace(/\.db$/, ".message.db") : undefined;

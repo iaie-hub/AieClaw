@@ -466,8 +466,7 @@ export async function initMas4sIntegration(
             const progressDir = _join(
               _homedir(),
               ".openclaw",
-              "agents",
-              agentId,
+              `workspace-${agentId}`,
               "workspace",
               "progress",
             );

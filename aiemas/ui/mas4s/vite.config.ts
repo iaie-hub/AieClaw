@@ -19,6 +19,10 @@ export default defineConfig({
       },
     },
   },
+  define: {
+    // 让 Lit 在 dev-server 下也跳过 dev-mode 警告
+    "globalThis.litIssuedWarnings": "new Set()",
+  },
   build: {
     target: "es2022",
     outDir: "dist",

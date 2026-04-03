@@ -1,4 +1,5 @@
 import { getClient } from "../gateway/client.js";
+import { GatewayRequestError } from "../lib/gateway.js";
 import { AppStore } from "../store/app-store.js";
 import { buildChatSendParams } from "../utils/message-format.js";
 
@@ -81,7 +82,17 @@ export class MessageController {
       });
       console.debug("[mas4s:message] resolveApproval ← ok");
     } catch (err) {
-      console.error("[mas4s:message] exec.approval.resolve failed:", err);
+      // 审批过期/已处理是正常竞态（乐观更新已生效），降级为 warn
+      if (
+        err instanceof GatewayRequestError &&
+        (err.gatewayCode === "NOT_FOUND" || /unknown or expired/i.test(err.message))
+      ) {
+        console.warn(
+          "[mas4s:message] approval already expired or resolved, optimistic update kept",
+        );
+      } else {
+        console.error("[mas4s:message] exec.approval.resolve failed:", err);
+      }
     }
   };
 
