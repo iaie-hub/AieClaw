@@ -5,6 +5,7 @@ import type { ChatMessage } from "../types/chat-types.js";
 import type { MasSession } from "../types/session-types.js";
 import "./main-header.js";
 import "../views/chat-view.js";
+import "../views/agents-view.js";
 
 /**
  * 主工作区：组合 main-header + chat-view + approval-drawer（第二期）。
@@ -85,6 +86,10 @@ export class MainWorkspace extends LitElement {
 
     if (this.activeNav === "skills") {
       return html`<skills-manager></skills-manager>`;
+    }
+
+    if (this.activeNav === "agents") {
+      return html`<agents-view></agents-view>`;
     }
 
     return html`

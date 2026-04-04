@@ -10,6 +10,7 @@ export default defineConfig({
       "@core": resolve(__dirname, "../../src"),
       "@vendor": resolve(__dirname, "../../../vendor"),
     },
+    extensions: [".ts", ".tsx", ".js", ".jsx", ".json"],
   },
   esbuild: {
     tsconfigRaw: {
