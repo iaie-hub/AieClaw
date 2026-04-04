@@ -377,6 +377,8 @@ export function runAgentAttempt(params: {
         images: params.isFallbackRetry ? undefined : params.opts.images,
         imageOrder: params.isFallbackRetry ? undefined : params.opts.imageOrder,
         streamParams: params.opts.streamParams,
+        messageProvider: params.messageChannel,
+        agentAccountId: params.runContext.accountId,
       });
     return runCliWithSession(cliSessionBinding?.sessionId).catch(async (err) => {
       if (
@@ -402,6 +404,7 @@ export function runAgentAttempt(params: {
             sessionKey: params.sessionKey,
             storePath: params.storePath,
             entry: updatedEntry,
+            clearedFields: ["cliSessionBindings", "cliSessionIds", "claudeCliSessionId"],
           });
 
           params.sessionEntry = updatedEntry;
