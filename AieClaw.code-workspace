@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "../../../.openclaw"
+		},
+		{
+			"path": "../xstack-backend"
 		}
 	],
 	"settings": {

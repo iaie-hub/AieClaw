@@ -23,13 +23,19 @@ const ICONS: Record<string, string> = {
 export class AgentTabTools extends LitElement {
   @property({ type: String }) agentId = "";
   @state() private _loading = true;
+  @state() private _allGroups: AgentToolGroup[] = [];
   @state() private _groups: AgentToolGroup[] = [];
   @state() private _detail: AgentToolGroup | null = null;
+  @state() private _search = "";
 
   static styles = tabPanelStyles;
 
   connectedCallback() {
     super.connectedCallback();
+  }
+
+  /** 供父组件在页签切换时调用，重新拉取最新数据 */
+  refresh() {
     void this._load();
   }
 
@@ -37,7 +43,8 @@ export class AgentTabTools extends LitElement {
     this._loading = true;
     try {
       const res = await fetchAgentTools(getClient(), this.agentId);
-      this._groups = res.groups;
+      this._allGroups = res.groups;
+      this._applyFilter();
     } catch {
       /* */
     } finally {
@@ -45,37 +52,79 @@ export class AgentTabTools extends LitElement {
     }
   }
 
+  private _onSearch = (e: Event) => {
+    this._search = (e.target as HTMLInputElement).value;
+    this._applyFilter();
+  };
+
+  private _applyFilter() {
+    const q = this._search.trim().toLowerCase();
+    this._groups = q
+      ? this._allGroups.filter(
+          (g) =>
+            g.id.toLowerCase().includes(q) ||
+            g.label.toLowerCase().includes(q) ||
+            g.tools.some(
+              (t) => t.id.toLowerCase().includes(q) || t.label.toLowerCase().includes(q),
+            ),
+        )
+      : [...this._allGroups];
+  }
+
   render() {
     if (this._loading) {
       return html`<div class="loading-state">加载中...</div>`;
     }
-    if (this._groups.length === 0) {
-      return html`<div class="empty-state">暂无工具信息</div>`;
-    }
     return html`
-      <div class="grid">
-        ${this._groups.map(
-          (g) => html`
-            <div
-              class="item-card"
-              @click=${() => {
-                this._detail = g;
-              }}
-            >
-              <div class="card-head">
-                <div class="card-title">${ICONS[g.id] ?? "🔧"} ${g.label}</div>
-              </div>
-              <div class="card-desc">${g.id} · ${g.tools.length} 个工具</div>
-              <div class="tags">
-                ${g.tools.slice(0, 4).map((t) => html`<span class="tag">${t.id}</span>`)}
-                ${g.tools.length > 4
-                  ? html`<span class="tag">+${g.tools.length - 4}</span>`
-                  : nothing}
-              </div>
-            </div>
-          `,
-        )}
+      <div class="tab-toolbar">
+        <input
+          class="search-input"
+          type="text"
+          placeholder="搜索工具ID或名称..."
+          .value=${this._search}
+          @input=${this._onSearch}
+        />
+        <button class="refresh-btn" @click=${() => this.refresh()}>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+          刷新
+        </button>
       </div>
+      ${this._groups.length === 0
+        ? html`<div class="empty-state">${this._search ? "无匹配结果" : "暂无工具信息"}</div>`
+        : html`<div class="grid">
+            ${this._groups.map(
+              (g) => html`
+                <div
+                  class="item-card"
+                  @click=${() => {
+                    this._detail = g;
+                  }}
+                >
+                  <div class="card-head">
+                    <div class="card-title">${ICONS[g.id] ?? "🔧"} ${g.label}</div>
+                  </div>
+                  <div class="card-desc">${g.id} · ${g.tools.length} 个工具</div>
+                  <div class="tags">
+                    ${g.tools.slice(0, 4).map((t) => html`<span class="tag">${t.id}</span>`)}
+                    ${g.tools.length > 4
+                      ? html`<span class="tag">+${g.tools.length - 4}</span>`
+                      : nothing}
+                  </div>
+                </div>
+              `,
+            )}
+          </div>`}
       ${this._detail ? this._renderDetail(this._detail) : nothing}
     `;
   }

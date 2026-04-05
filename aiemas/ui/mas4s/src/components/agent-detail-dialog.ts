@@ -30,6 +30,17 @@ export class AgentDetailDialog extends LitElement {
   /** 记录已激活过的页签，保持 DOM 不销毁 */
   private _mountedTabs = new Set<TabId>(["files"]);
 
+  connectedCallback() {
+    super.connectedCallback();
+    // 首次渲染后，对默认页签触发数据加载
+    void this.updateComplete.then(() => {
+      const el = this.shadowRoot?.querySelector(`agent-tab-${this._activeTab}`);
+      if (el && "refresh" in el && typeof el.refresh === "function") {
+        el.refresh();
+      }
+    });
+  }
+
   static styles = css`
     :host {
       display: flex;
@@ -156,6 +167,13 @@ export class AgentDetailDialog extends LitElement {
   private _switchTab(tab: TabId) {
     this._activeTab = tab;
     this._mountedTabs.add(tab);
+    // 每次切换页签时，通知子组件重新拉取数据
+    void this.updateComplete.then(() => {
+      const el = this.shadowRoot?.querySelector(`agent-tab-${tab}`);
+      if (el && "refresh" in el && typeof el.refresh === "function") {
+        el.refresh();
+      }
+    });
   }
 
   private _goBack() {

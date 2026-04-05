@@ -9,13 +9,19 @@ import { tabPanelStyles } from "./shared-styles.js";
 export class AgentTabCron extends LitElement {
   @state() private _loading = true;
   @state() private _status: AgentCronStatusPayload | null = null;
+  @state() private _allJobs: AgentCronJob[] = [];
   @state() private _jobs: AgentCronJob[] = [];
   @state() private _detail: AgentCronJob | null = null;
+  @state() private _search = "";
 
   static styles = tabPanelStyles;
 
   connectedCallback() {
     super.connectedCallback();
+  }
+
+  /** 供父组件在页签切换时调用，重新拉取最新数据 */
+  refresh() {
     void this._load();
   }
 
@@ -31,13 +37,28 @@ export class AgentTabCron extends LitElement {
         this._status = sRes.value;
       }
       if (lRes.status === "fulfilled") {
-        this._jobs = lRes.value.jobs;
+        this._allJobs = lRes.value.jobs;
+        this._applyFilter();
       }
     } catch {
       /* */
     } finally {
       this._loading = false;
     }
+  }
+
+  private _onSearch = (e: Event) => {
+    this._search = (e.target as HTMLInputElement).value;
+    this._applyFilter();
+  };
+
+  private _applyFilter() {
+    const q = this._search.trim().toLowerCase();
+    this._jobs = q
+      ? this._allJobs.filter(
+          (j) => j.id.toLowerCase().includes(q) || (j.label ?? "").toLowerCase().includes(q),
+        )
+      : [...this._allJobs];
   }
 
   private _fmtTime(ms?: number | null) {
@@ -49,6 +70,30 @@ export class AgentTabCron extends LitElement {
       return html`<div class="loading-state">加载中...</div>`;
     }
     return html`
+      <div class="tab-toolbar">
+        <input
+          class="search-input"
+          type="text"
+          placeholder="搜索任务ID或名称..."
+          .value=${this._search}
+          @input=${this._onSearch}
+        />
+        <button class="refresh-btn" @click=${() => this.refresh()}>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+          刷新
+        </button>
+      </div>
       ${this._status
         ? html`
             <div class="item-card" style="cursor:default;margin-bottom:16px;">

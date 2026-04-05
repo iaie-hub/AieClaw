@@ -280,7 +280,9 @@ function mergeFileEntry(files: AgentFileEntry[], entry: AgentFileEntry): AgentFi
 export class AgentTabFiles extends LitElement {
   @property({ type: String }) agentId = "";
   @state() private _loading = true;
+  @state() private _allFiles: AgentFileEntry[] = [];
   @state() private _files: AgentFileEntry[] = [];
+  @state() private _search = "";
 
   // ── viewer state ──
   @state() private _viewerOpen = false;
@@ -300,6 +302,10 @@ export class AgentTabFiles extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
+  }
+
+  /** 供父组件在页签切换时调用，重新拉取最新数据 */
+  refresh() {
     void this._load();
   }
 
@@ -307,12 +313,25 @@ export class AgentTabFiles extends LitElement {
     this._loading = true;
     try {
       const res = await fetchAgentFiles(getClient(), this.agentId);
-      this._files = res.files;
+      this._allFiles = res.files;
+      this._applyFilter();
     } catch {
       /* retry on next mount */
     } finally {
       this._loading = false;
     }
+  }
+
+  private _onSearch = (e: Event) => {
+    this._search = (e.target as HTMLInputElement).value;
+    this._applyFilter();
+  };
+
+  private _applyFilter() {
+    const q = this._search.trim().toLowerCase();
+    this._files = q
+      ? this._allFiles.filter((f) => f.name.toLowerCase().includes(q))
+      : [...this._allFiles];
   }
 
   private _fmtSize(b?: number) {
@@ -391,7 +410,8 @@ export class AgentTabFiles extends LitElement {
       );
       if (res?.file) {
         // 更新文件列表条目（参考 agent-files controller）
-        this._files = mergeFileEntry(this._files, res.file);
+        this._allFiles = mergeFileEntry(this._allFiles, res.file);
+        this._applyFilter();
         this._viewerContent = this._draft;
         this._viewerFile = res.file;
       }
@@ -409,33 +429,56 @@ export class AgentTabFiles extends LitElement {
     if (this._loading) {
       return html`<div class="loading-state">加载中...</div>`;
     }
-    if (this._files.length === 0) {
-      return html`<div class="empty-state">暂无文件信息</div>`;
-    }
     return html`
-      <div class="grid">
-        ${this._files.map(
-          (f) => html`
-            <div
-              class="item-card"
-              @click=${() => {
-                void this._openViewer(f);
-              }}
-            >
-              <div class="card-head">
-                <div class="card-title">📄 ${f.name}</div>
-                ${f.missing
-                  ? html`<span class="status-missing">缺失</span>`
-                  : html`<span class="status-ok">就绪</span>`}
-              </div>
-              <div class="card-desc">${FILE_DESCRIPTIONS[f.name] ?? "智能体配置文件。"}</div>
-              <div class="card-meta">
-                大小: ${this._fmtSize(f.size)} | 更新: ${this._fmtTime(f.updatedAtMs)}
-              </div>
-            </div>
-          `,
-        )}
+      <div class="tab-toolbar">
+        <input
+          class="search-input"
+          type="text"
+          placeholder="搜索文件名..."
+          .value=${this._search}
+          @input=${this._onSearch}
+        />
+        <button class="refresh-btn" @click=${() => this.refresh()}>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+          刷新
+        </button>
       </div>
+      ${this._files.length === 0
+        ? html`<div class="empty-state">${this._search ? "无匹配结果" : "暂无文件信息"}</div>`
+        : html`<div class="grid">
+            ${this._files.map(
+              (f) => html`
+                <div
+                  class="item-card"
+                  @click=${() => {
+                    void this._openViewer(f);
+                  }}
+                >
+                  <div class="card-head">
+                    <div class="card-title">📄 ${f.name}</div>
+                    ${f.missing
+                      ? html`<span class="status-missing">缺失</span>`
+                      : html`<span class="status-ok">就绪</span>`}
+                  </div>
+                  <div class="card-desc">${FILE_DESCRIPTIONS[f.name] ?? "智能体配置文件。"}</div>
+                  <div class="card-meta">
+                    大小: ${this._fmtSize(f.size)} | 更新: ${this._fmtTime(f.updatedAtMs)}
+                  </div>
+                </div>
+              `,
+            )}
+          </div>`}
       ${this._viewerOpen ? this._renderViewer() : nothing}
     `;
   }
