@@ -1,6 +1,6 @@
-import { extractAgentNameFromKey } from "@core/utils/session-utils.js";
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { extractAgentNameFromKey } from "../../../../src/utils/session-utils.js";
 import { markdownMath } from "../lib/markdown-directive.js";
 import "./msg-tool-card.js";
 import type { ChatMessage, MessageContentItem } from "../types/chat-types.js";

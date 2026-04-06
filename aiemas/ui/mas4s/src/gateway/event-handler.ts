@@ -1,4 +1,4 @@
-import { extractUuidFromKey } from "@core/utils/session-utils.js";
+import { extractUuidFromKey } from "../../../../src/utils/session-utils.js";
 import type { GatewayEventFrame } from "../lib/gateway.js";
 import { normalizeMessage } from "../lib/message-normalizer.js";
 import { AppStore } from "../store/app-store.js";

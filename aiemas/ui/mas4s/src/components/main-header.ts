@@ -1,6 +1,6 @@
-import { extractAgentNameFromKey } from "@core/utils/session-utils.js";
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { extractAgentNameFromKey } from "../../../../src/utils/session-utils.js";
 import type { SessionRunStatus } from "../lib/types.js";
 import { AppStoreController } from "../store/app-store.js";
 import type { ApprovalRequest } from "../types/approval-types.js";
