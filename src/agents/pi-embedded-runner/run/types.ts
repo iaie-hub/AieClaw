@@ -68,4 +68,9 @@ export type EmbeddedRunAttemptResult = {
     hadPotentialSideEffects: boolean;
     replaySafe: boolean;
   };
+  itemLifecycle: {
+    startedCount: number;
+    completedCount: number;
+    activeCount: number;
+  };
 };
