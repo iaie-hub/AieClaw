@@ -246,15 +246,6 @@ export function resolveExecTarget(params: {
 }) {
   const configuredTarget = params.configuredTarget ?? "auto";
   const requestedTarget = params.requestedTarget ?? null;
-  if (params.elevatedRequested) {
-    const elevatedTarget = configuredTarget === "node" ? ("node" as const) : ("gateway" as const);
-    return {
-      configuredTarget,
-      requestedTarget,
-      selectedTarget: elevatedTarget,
-      effectiveHost: elevatedTarget,
-    };
-  }
   if (
     requestedTarget &&
     !isRequestedExecTargetAllowed({
@@ -277,12 +268,17 @@ export function resolveExecTarget(params: {
     );
   }
   const selectedTarget = requestedTarget ?? configuredTarget;
+  const resolvedTarget = params.elevatedRequested
+    ? selectedTarget === "node"
+      ? "node"
+      : "gateway"
+    : selectedTarget;
   const effectiveHost =
-    selectedTarget === "auto" ? (params.sandboxAvailable ? "sandbox" : "gateway") : selectedTarget;
+    resolvedTarget === "auto" ? (params.sandboxAvailable ? "sandbox" : "gateway") : resolvedTarget;
   return {
     configuredTarget,
     requestedTarget,
-    selectedTarget,
+    selectedTarget: resolvedTarget,
     effectiveHost,
   };
 }

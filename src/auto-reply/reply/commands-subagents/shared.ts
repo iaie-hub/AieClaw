@@ -25,7 +25,7 @@ import {
   truncateLine,
 } from "../../../shared/subagents-format.js";
 import { resolveCommandSurfaceChannel, resolveChannelAccountId } from "../channel-context.js";
-import { extractMessageText } from "../commands-subagents-text.js";
+import { extractMessageText, type ChatMessage } from "../commands-subagents-text.js";
 import type { CommandHandler, CommandHandlerResult } from "../commands-types.js";
 import {
   formatRunLabel,
@@ -37,7 +37,6 @@ import {
 export { extractAssistantText, stripToolMessages };
 export { resolveCommandSurfaceChannel, resolveChannelAccountId };
 export type { ChatMessage } from "../commands-subagents-text.js";
-import type { ChatMessage } from "../commands-subagents-text.js";
 
 export const COMMAND = "/subagents";
 export const COMMAND_KILL = "/kill";

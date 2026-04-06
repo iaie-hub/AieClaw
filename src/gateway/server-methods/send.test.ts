@@ -13,15 +13,15 @@ const mocks = vi.hoisted(() => ({
   resolveOutboundSessionRoute: vi.fn(),
   ensureOutboundSessionEntry: vi.fn(async () => undefined),
   resolveMessageChannelSelection: vi.fn(),
-  sendPoll: vi.fn(
-    async () =>
-      ({ messageId: "poll-1" }) as {
-        messageId: string;
-        conversationId?: string;
-        toJid?: string;
-        pollId?: string;
-      },
-  ),
+  sendPoll: vi.fn<
+    () => Promise<{
+      messageId: string;
+      toJid?: string;
+      channelId?: string;
+      conversationId?: string;
+      pollId?: string;
+    }>
+  >(async () => ({ messageId: "poll-1" })),
   getChannelPlugin: vi.fn(),
   loadOpenClawPlugins: vi.fn(),
   applyPluginAutoEnable: vi.fn(),
@@ -425,6 +425,7 @@ describe("gateway send mirroring", () => {
   it("includes optional poll delivery identifiers in the gateway payload", async () => {
     mocks.sendPoll.mockResolvedValue({
       messageId: "poll-rich",
+      channelId: "C123",
       conversationId: "conv-1",
       toJid: "jid-1",
       pollId: "poll-meta-1",
@@ -444,6 +445,7 @@ describe("gateway send mirroring", () => {
         runId: "idem-poll-rich",
         messageId: "poll-rich",
         channel: "slack",
+        channelId: "C123",
         conversationId: "conv-1",
         toJid: "jid-1",
         pollId: "poll-meta-1",

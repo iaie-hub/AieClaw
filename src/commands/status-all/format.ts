@@ -1,5 +1,5 @@
 import { resolveGatewayPort } from "../../config/config.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { OpenClawConfig } from "../../config/types.js";
 import { resolveControlUiLinks } from "../../gateway/control-ui-links.js";
 import { formatDurationPrecise } from "../../infra/format-time/format-duration.ts";
 import {
@@ -17,35 +17,23 @@ export type StatusOverviewRow = {
   Value: string;
 };
 
-type StatusUpdateLike = {
-  installKind?: string | null;
-  git?: {
-    tag?: string | null;
-    branch?: string | null;
-  } | null;
-} & UpdateCheckResult;
+type UpdateConfigChannel = NonNullable<OpenClawConfig["update"]>["channel"];
 
 export function resolveStatusUpdateChannelInfo(params: {
-  updateConfigChannel?: string | null;
-  update: {
-    installKind?: string | null;
-    git?: {
-      tag?: string | null;
-      branch?: string | null;
-    } | null;
-  };
+  updateConfigChannel?: UpdateConfigChannel;
+  update: UpdateCheckResult;
 }) {
   return resolveUpdateChannelDisplay({
     configChannel: normalizeUpdateChannel(params.updateConfigChannel),
-    installKind: (params.update.installKind ?? "unknown") as "git" | "package" | "unknown",
+    installKind: params.update.installKind ?? null,
     gitTag: params.update.git?.tag ?? null,
     gitBranch: params.update.git?.branch ?? null,
   });
 }
 
 export function buildStatusUpdateSurface(params: {
-  updateConfigChannel?: string | null;
-  update: StatusUpdateLike;
+  updateConfigChannel?: UpdateConfigChannel;
+  update: UpdateCheckResult;
 }) {
   const channelInfo = resolveStatusUpdateChannelInfo({
     updateConfigChannel: params.updateConfigChannel,
@@ -127,29 +115,14 @@ export function formatStatusServiceValue(params: {
 }
 
 export function resolveStatusDashboardUrl(params: {
-  cfg: {
-    gateway?: {
-      bind?: string;
-      customBindHost?: string;
-      controlUi?: {
-        enabled?: boolean;
-        basePath?: string;
-      };
-    };
-  };
+  cfg: Pick<OpenClawConfig, "gateway">;
 }): string | null {
   if (!(params.cfg.gateway?.controlUi?.enabled ?? true)) {
     return null;
   }
   return resolveControlUiLinks({
-    port: resolveGatewayPort(params.cfg as OpenClawConfig),
-    bind: params.cfg.gateway?.bind as
-      | "auto"
-      | "lan"
-      | "loopback"
-      | "custom"
-      | "tailnet"
-      | undefined,
+    port: resolveGatewayPort(params.cfg),
+    bind: params.cfg.gateway?.bind,
     customBindHost: params.cfg.gateway?.customBindHost,
     basePath: params.cfg.gateway?.controlUi?.basePath,
   }).httpUrl;
@@ -296,16 +269,7 @@ export function buildGatewayStatusSummaryParts(params: {
 }
 
 export function buildStatusGatewaySurfaceValues(params: {
-  cfg: {
-    gateway?: {
-      bind?: string;
-      customBindHost?: string;
-      controlUi?: {
-        enabled?: boolean;
-        basePath?: string;
-      };
-    };
-  };
+  cfg: Pick<OpenClawConfig, "gateway">;
   gatewayMode: "local" | "remote";
   remoteUrlMissing: boolean;
   gatewayConnection: {
