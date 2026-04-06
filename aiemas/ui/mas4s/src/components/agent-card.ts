@@ -21,12 +21,13 @@ export class AgentCard extends LitElement {
       border: 1px solid #e8edf5;
       border-radius: 12px;
       padding: 20px;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       height: 100%;
       box-sizing: border-box;
       display: flex;
       flex-direction: column;
       gap: 14px;
+      position: relative;
     }
 
     .card {
@@ -35,8 +36,10 @@ export class AgentCard extends LitElement {
 
     .card:hover {
       border-color: #3b82f6;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-      transform: translateY(-2px);
+      box-shadow:
+        0 10px 20px rgba(0, 0, 0, 0.06),
+        0 4px 6px rgba(0, 0, 0, 0.04);
+      transform: translateY(-4px);
     }
 
     .header {
@@ -87,6 +90,16 @@ export class AgentCard extends LitElement {
       white-space: nowrap;
     }
 
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 0 2px #dcfce7;
+      margin-left: 4px;
+      flex-shrink: 0;
+    }
+
     .badge {
       font-size: 11px;
       font-weight: 600;
@@ -121,25 +134,63 @@ export class AgentCard extends LitElement {
 
     .detail-label {
       color: #94a3b8;
-      font-weight: 500;
+      font-weight: 400;
       white-space: nowrap;
       min-width: 48px;
     }
 
     .detail-value {
-      color: #475569;
+      color: #1e293b;
+      font-weight: 500;
       word-break: break-all;
       line-height: 1.4;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .workspace-path {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .copy-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: none;
+      border: none;
+      color: #94a3b8;
+      cursor: pointer;
+      padding: 2px;
+      border-radius: 4px;
+      flex-shrink: 0;
+      transition: all 0.15s;
+    }
+
+    .copy-btn:hover {
+      color: #3b82f6;
+      background: #eff6ff;
     }
 
     .model-tag {
-      display: inline-block;
-      font-size: 12px;
-      padding: 2px 8px;
-      background: #f1f5f9;
-      border-radius: 6px;
-      color: #475569;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 13px;
+      color: #334155;
+    }
+
+    .model-tag::before {
+      content: "";
+      display: block;
+      width: 14px;
+      height: 14px;
+      background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%2364748b"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16zM12 22l-9-5.19V8.69L12 13.88l9-5.19v8.12L12 22zM12 11.57l-9-5.19 9-5.19 9 5.19-9 5.19z"/></svg>')
+        no-repeat center;
     }
 
     .fallback-list {
@@ -158,7 +209,60 @@ export class AgentCard extends LitElement {
       color: #64748b;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
+
+    .card-footer {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 6px;
+      padding-top: 10px;
+      border-top: 1px solid #f1f5f9;
+      margin-top: auto;
+    }
+
+    .icon-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: #64748b;
+      cursor: pointer;
+      transition: all 0.15s;
+      padding: 0;
+      font-size: 14px;
+      line-height: 1;
+    }
+
+    .icon-btn:hover {
+      background: #f1f5f9;
+      color: #3b82f6;
+    }
+
+    .icon-btn.danger:hover {
+      background: #fee2e2;
+      color: #ef4444;
+    }
   `;
+
+  private _onCopyWorkspace = async (e: Event) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(this.agent.workspace);
+      this.dispatchEvent(
+        new CustomEvent("agent-toast", {
+          detail: { message: "目录已复制" },
+          bubbles: true,
+          composed: true,
+        }),
+      );
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   private _onClick() {
     this.dispatchEvent(
@@ -169,6 +273,28 @@ export class AgentCard extends LitElement {
       }),
     );
   }
+
+  private _onDelete = (e: Event) => {
+    e.stopPropagation();
+    this.dispatchEvent(
+      new CustomEvent("agent-delete", {
+        detail: { agent: this.agent },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  };
+
+  private _onExport = (e: Event) => {
+    e.stopPropagation();
+    this.dispatchEvent(
+      new CustomEvent("agent-export", {
+        detail: { agent: this.agent },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  };
 
   render() {
     const a = this.agent;
@@ -188,6 +314,7 @@ export class AgentCard extends LitElement {
           <div class="info">
             <div class="name-row">
               <h3 class="name">${displayName}</h3>
+              <span class="status-dot" title="准备就绪"></span>
               ${this.isDefault ? html`<span class="badge">默认</span>` : ""}
             </div>
             ${showId ? html`<p class="id">ID: ${a.id}</p>` : ""}
@@ -215,8 +342,68 @@ export class AgentCard extends LitElement {
             : ""}
           <div class="detail-row">
             <span class="detail-label">目录</span>
-            <span class="detail-value">${a.workspace}</span>
+            <span class="detail-value">
+              <span class="workspace-path" title=${a.workspace}>${a.workspace}</span>
+              <button class="copy-btn" title="一键复制" @click=${this._onCopyWorkspace}>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+              </button>
+            </span>
           </div>
+        </div>
+        <div class="card-footer">
+          <button
+            class="icon-btn"
+            title="导出配置"
+            aria-label="导出智能体 ${displayName}"
+            @click=${this._onExport}
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+          </button>
+          <button
+            class="icon-btn danger"
+            title="删除智能体"
+            aria-label="删除智能体 ${displayName}"
+            @click=${this._onDelete}
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path
+                d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+              ></path>
+            </svg>
+          </button>
         </div>
       </div>
     `;

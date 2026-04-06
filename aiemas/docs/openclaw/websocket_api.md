@@ -76,21 +76,26 @@
 
 ### 4. Agent 与 插件管理 (Agents & Skills)
 
-| 方法                | 说明                | 处理程序           |
-| :------------------ | :------------------ | :----------------- |
-| `agents.list`       | 列出可用 Agent      | `agents.ts`        |
-| `agents.create`     | 创建 Agent          | `agents.ts`        |
-| `agents.update`     | 更新 Agent 配置     | `agents.ts`        |
-| `agents.delete`     | 删除 Agent          | `agents.ts`        |
-| `agents.files.list` | 列出 Agent 关联文件 | `agents.ts`        |
-| `agents.files.get`  | 读取 Agent 文件内容 | `agents.ts`        |
-| `agents.files.set`  | 写入 Agent 文件内容 | `agents.ts`        |
-| `tools.catalog`     | 内容工具包目录      | `tools-catalog.ts` |
-| `tools.effective`   | 当前生效工具        | `tools-catalog.ts` |
-| `skills.status`     | 插件状态            | `skills.ts`        |
-| `skills.bins`       | 插件二进制文件      | `skills.ts`        |
-| `skills.install`    | 安装插件            | `skills.ts`        |
-| `skills.update`     | 更新插件            | `skills.ts`        |
+| 方法                      | 说明                               | 处理程序           |
+| :------------------------ | :--------------------------------- | :----------------- |
+| `agents.list`             | 列出可用 Agent                     | `agents.ts`        |
+| `agents.create`           | 创建 Agent                         | `agents.ts`        |
+| `agents.update`           | 更新 Agent 配置                    | `agents.ts`        |
+| `agents.delete`           | 删除 Agent                         | `agents.ts`        |
+| `agents.files.list`       | 列出 Agent 关联文件                | `agents.ts`        |
+| `agents.files.get`        | 读取 Agent 文件内容                | `agents.ts`        |
+| `agents.files.set`        | 写入 Agent 文件内容                | `agents.ts`        |
+| `aiemas.agents.preDelete` | [MAS] 删除前检查关联会话           | `aiemas`           |
+| `aiemas.agents.export`    | [MAS] 导出 Agent 工作区为 zip      | `aiemas`           |
+| `aiemas.agents.import`    | [MAS] 导入 Agent 压缩包            | `aiemas`           |
+| `aiemas.files.download`   | [MAS] 下载服务端文件（base64）     | `aiemas`           |
+| `aiemas.file.upload`      | [MAS] 上传文件到临时目录（base64） | `aiemas`           |
+| `tools.catalog`           | 内容工具包目录                     | `tools-catalog.ts` |
+| `tools.effective`         | 当前生效工具                       | `tools-catalog.ts` |
+| `skills.status`           | 插件状态                           | `skills.ts`        |
+| `skills.bins`             | 插件二进制文件                     | `skills.ts`        |
+| `skills.install`          | 安装插件                           | `skills.ts`        |
+| `skills.update`           | 更新插件                           | `skills.ts`        |
 
 ### 5. 系统、配置与治理 (System & Config)
 
@@ -99,6 +104,7 @@
 | `health`          | 健康检查               | `health.ts`   |
 | `status`          | 获取 Gateway 综合状态  | `health.ts`   |
 | `system.status`   | [MAS] MAS 系统运行状态 | `aiemas`      |
+| `aiemas.fs.list`  | [MAS] 列出目录直接子项 | `aiemas`      |
 | `usage.status`    | 配额使用统计           | `health.ts`   |
 | `usage.cost`      | 消耗统计               | `health.ts`   |
 | `config.get`      | 获取配置项             | `config.ts`   |
@@ -207,6 +213,182 @@
     "sessionKey": "main",
     "page": 1,
     "pageSize": 50
+  }
+}
+```
+
+### 3. 删除前检查 (aiemas.agents.preDelete)
+
+请求：
+
+```json
+{
+  "type": "req",
+  "id": "10",
+  "method": "aiemas.agents.preDelete",
+  "params": { "agentId": "agent-abc123" }
+}
+```
+
+成功响应（可安全删除）：
+
+```json
+{
+  "type": "res",
+  "id": "10",
+  "ok": true,
+  "payload": { "ok": true }
+}
+```
+
+失败响应（存在关联会话）：
+
+```json
+{
+  "type": "res",
+  "id": "10",
+  "ok": false,
+  "error": { "code": "AGENT_IN_USE", "message": "该智能体仍有 2 个关联会话，无法删除" }
+}
+```
+
+### 4. 列出工作区目录 (aiemas.fs.list)
+
+请求：
+
+```json
+{
+  "type": "req",
+  "id": "11",
+  "method": "aiemas.fs.list",
+  "params": { "dirPath": "/home/user/.openclaw/agents/agent-abc123" }
+}
+```
+
+响应：
+
+```json
+{
+  "type": "res",
+  "id": "11",
+  "ok": true,
+  "payload": {
+    "entries": [
+      { "name": "agent.json", "type": "file", "size": 1024 },
+      { "name": "skills", "type": "directory", "size": 0 }
+    ]
+  }
+}
+```
+
+### 5. 导出智能体 (aiemas.agents.export)
+
+请求：
+
+```json
+{
+  "type": "req",
+  "id": "12",
+  "method": "aiemas.agents.export",
+  "params": {
+    "agentId": "agent-abc123",
+    "workspace": "/home/user/.openclaw/agents/agent-abc123",
+    "items": ["agent.json", "skills"]
+  }
+}
+```
+
+响应：
+
+```json
+{
+  "type": "res",
+  "id": "12",
+  "ok": true,
+  "payload": { "archivePath": "/home/user/.openclaw/agents/agent-abc123-export.zip" }
+}
+```
+
+### 6. 下载文件 (aiemas.files.download)
+
+请求：
+
+```json
+{
+  "type": "req",
+  "id": "13",
+  "method": "aiemas.files.download",
+  "params": { "filePath": "/home/user/.openclaw/agents/agent-abc123-export.zip" }
+}
+```
+
+响应：
+
+```json
+{
+  "type": "res",
+  "id": "13",
+  "ok": true,
+  "payload": {
+    "data": "UEsDBBQAAAAI...",
+    "fileName": "agent-abc123-export.zip",
+    "mimeType": "application/octet-stream"
+  }
+}
+```
+
+### 7. 上传文件 (aiemas.file.upload)
+
+请求：
+
+```json
+{
+  "type": "req",
+  "id": "14",
+  "method": "aiemas.file.upload",
+  "params": {
+    "fileName": "agent-abc123-export.zip",
+    "data": "UEsDBBQAAAAI..."
+  }
+}
+```
+
+响应：
+
+```json
+{
+  "type": "res",
+  "id": "14",
+  "ok": true,
+  "payload": { "filePath": "/tmp/aiemas-upload-x7k2m/agent-abc123-export.zip" }
+}
+```
+
+### 8. 导入智能体 (aiemas.agents.import)
+
+请求：
+
+```json
+{
+  "type": "req",
+  "id": "15",
+  "method": "aiemas.agents.import",
+  "params": { "archivePath": "/tmp/aiemas-upload-x7k2m/agent-abc123-export.zip" }
+}
+```
+
+响应：
+
+```json
+{
+  "type": "res",
+  "id": "15",
+  "ok": true,
+  "payload": {
+    "id": "agent-xyz789",
+    "name": "agent-abc123-export",
+    "workspace": "/home/user/.openclaw/agents/agent-xyz789",
+    "model": { "primary": "claude-sonnet-4-5", "fallbacks": [] }
   }
 }
 ```

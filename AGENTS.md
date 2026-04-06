@@ -15,7 +15,7 @@
   - `aiemas/docs/` — module-level docs (`docs/mas4s/`, `docs/openclaw/`)
   - Tests colocated as `*.test.ts` and `*.property.test.ts` (fast-check PBT); run via root `pnpm test -- aiemas/src`
   - SQLite database: `~/.openclaw/aiemas/mas4s.db` (WAL mode, shared by TenantService and GatewayAuthBridge)
-  - See `aiemas/AGENTS.md` for module-specific development constraints.
+  - See `aiemas/AGENTS.md` for module-specific development constraints. **When working on any file under `aiemas/`, you MUST load and follow `aiemas/AGENTS.md` before making changes.**
 - Nomenclature: use "plugin" / "plugins" in docs, UI, changelogs, and contributor guidance. `extensions/*` remains the internal directory/package path to avoid repo-wide churn from a rename.
 - Bundled plugin naming: for repo-owned workspace plugins, keep the canonical plugin id aligned across `openclaw.plugin.json:id`, `extensions/<id>` by default, and package names anchored to the same id (`@openclaw/<id>` or approved suffix forms like `-provider`, `-plugin`, `-speech`, `-sandbox`, `-media-understanding`). Keep `openclaw.install.npmSpec` equal to the package name and `openclaw.channel.id` equal to the plugin id when present. Exceptions must be explicit and covered by the repo invariant test.
 - Plugins: live under `extensions/*` (workspace packages). Keep plugin-only deps in the extension `package.json`; do not add them to the root `package.json` unless core uses them.

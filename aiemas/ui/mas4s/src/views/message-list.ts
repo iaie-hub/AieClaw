@@ -94,7 +94,8 @@ export class MessageList extends LitElement {
 
   private _renderMessage(msg: ChatMessage, isLatestAgent: boolean) {
     // ── 始终过滤无可见内容的 assistant 消息（空白气泡） ─────────────────────
-    if (msg.role === "assistant") {
+    // 跳过 pending/colleague 等由专用组件渲染的 subType，它们不依赖 content
+    if (msg.role === "assistant" && msg.subType !== "pending" && msg.subType !== "colleague") {
       const visibleTypes = this.showToolMessages
         ? ["text", "thinking", "tool_call"]
         : ["text", "thinking"];
@@ -150,18 +151,23 @@ export class MessageList extends LitElement {
       if (reqItem?.args) {
         const data = reqItem.args as Record<string, unknown>;
         const approvalId = data["id"] as string;
+        // The stored payload may be the raw exec.approval.requested broadcast
+        // (nested: { id, request: { command, ... }, createdAtMs, expiresAtMs })
+        // or a flattened shape. Support both.
+        const nested = data["request"] as Record<string, unknown> | undefined;
+        const r = nested ?? data;
         // Reconstruct ApprovalRequest from stored data
         const approval: ApprovalRequest = {
           id: approvalId,
           request: {
-            command: (data["command"] as string) ?? "",
-            commandPreview: data["commandPreview"] as string | undefined,
-            cwd: (data["cwd"] as string | null) ?? null,
-            resolvedPath: (data["resolvedPath"] as string | null) ?? null,
-            host: (data["host"] as string | null) ?? null,
-            agentId: (data["agentId"] as string | null) ?? null,
-            security: (data["security"] as string | null) ?? null,
-            sessionKey: (data["sessionKey"] as string | null) ?? null,
+            command: (r["command"] as string) ?? "",
+            commandPreview: r["commandPreview"] as string | undefined,
+            cwd: (r["cwd"] as string | null) ?? null,
+            resolvedPath: (r["resolvedPath"] as string | null) ?? null,
+            host: (r["host"] as string | null) ?? null,
+            agentId: (r["agentId"] as string | null) ?? null,
+            security: (r["security"] as string | null) ?? null,
+            sessionKey: (r["sessionKey"] as string | null) ?? null,
             ask: null,
             nodeId: null,
             systemRunBinding: null,

@@ -194,7 +194,12 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
 
     const send = (obj: unknown) => {
       try {
-        socket.send(JSON.stringify(obj));
+        const text = JSON.stringify(obj);
+        if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
+          // eslint-disable-next-line no-console
+          console.log(`[ws:msg] OUT conn=${connId} raw=${text}`);
+        }
+        socket.send(text);
       } catch {
         /* ignore */
       }

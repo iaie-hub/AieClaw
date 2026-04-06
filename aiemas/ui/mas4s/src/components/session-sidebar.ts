@@ -48,8 +48,8 @@ export class SessionSidebar extends LitElement {
     }
 
     :host([collapsed]) {
-      width: 48px;
-      min-width: 48px;
+      width: 40px;
+      min-width: 40px;
     }
 
     .sidebar-header {
@@ -98,7 +98,7 @@ export class SessionSidebar extends LitElement {
     }
 
     :host([collapsed]) .refresh-btn,
-    :host([collapsed]) .add-btn {
+    :host([collapsed]) session-create-control {
       display: none;
     }
 

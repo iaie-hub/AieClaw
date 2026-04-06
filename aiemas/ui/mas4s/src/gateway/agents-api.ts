@@ -1,6 +1,7 @@
 import type { GatewayBrowserClient } from "../lib/gateway.js";
 import type {
   AgentsListPayload,
+  AgentEntry,
   AgentFilesPayload,
   AgentFileGetPayload,
   AgentFileSetPayload,
@@ -9,6 +10,10 @@ import type {
   AgentChannelsPayload,
   AgentCronStatusPayload,
   AgentCronListPayload,
+  WorkspaceListPayload,
+  AgentExportPayload,
+  FileDownloadPayload,
+  FileUploadPayload,
 } from "../types/agents-types.js";
 
 /**
@@ -111,5 +116,81 @@ export async function fetchCronList(client: GatewayBrowserClient): Promise<Agent
     enabled: "all",
     sortBy: "nextRunAtMs",
     sortDir: "asc",
+  });
+}
+
+// ── CRUD & Import/Export API ──────────────────────────────────────────────────
+
+/** 创建智能体 */
+export async function createAgent(
+  client: GatewayBrowserClient,
+  name: string,
+  workspace: string,
+): Promise<AgentEntry & { ok?: true }> {
+  return client.request("agents.create", { name, workspace });
+}
+
+/** 删除智能体 */
+export async function deleteAgent(
+  client: GatewayBrowserClient,
+  agentId: string,
+): Promise<{ ok: true }> {
+  return client.request("agents.delete", { agentId });
+}
+
+/** 删除前检查智能体是否被会话引用 */
+export async function preDeleteAgent(
+  client: GatewayBrowserClient,
+  agentId: string,
+): Promise<{ ok: true }> {
+  return client.request("aiemas.agents.preDelete", { agentId });
+}
+
+/** 列出工作区目录内容 */
+export async function listWorkspaceFiles(
+  client: GatewayBrowserClient,
+  dirPath: string,
+): Promise<WorkspaceListPayload> {
+  return client.request("aiemas.fs.list", { dirPath });
+}
+
+/** 导出智能体工作区为 zip */
+export async function exportAgent(
+  client: GatewayBrowserClient,
+  agentId: string,
+  workspace: string,
+  items: string[],
+): Promise<AgentExportPayload> {
+  return client.request("aiemas.agents.export", { agentId, workspace, items });
+}
+
+/** 下载服务端文件（base64） */
+export async function downloadFile(
+  client: GatewayBrowserClient,
+  filePath: string,
+): Promise<FileDownloadPayload> {
+  return client.request("aiemas.files.download", { filePath });
+}
+
+/** 上传文件到服务端临时目录（base64） */
+export async function uploadFile(
+  client: GatewayBrowserClient,
+  fileName: string,
+  data: string,
+): Promise<FileUploadPayload> {
+  return client.request("aiemas.file.upload", { fileName, data });
+}
+
+/** 导入智能体压缩包。agentId 和 workspace 可选，不传时 gateway 从文件名自动解析。 */
+export async function importAgent(
+  client: GatewayBrowserClient,
+  archivePath: string,
+  agentId?: string,
+  workspace?: string,
+): Promise<AgentEntry> {
+  return client.request("aiemas.agents.import", {
+    archivePath,
+    ...(agentId ? { agentId } : {}),
+    ...(workspace ? { workspace } : {}),
   });
 }

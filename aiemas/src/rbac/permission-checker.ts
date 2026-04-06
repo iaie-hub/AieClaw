@@ -50,6 +50,12 @@ export const GLOBAL_ROLE_PERMISSIONS: Record<string, Set<GlobalRole>> = {
   "session.label.list": new Set(["admin", "member", "viewer"]),
   "session.agent.update": new Set(["admin", "member"]),
   "session.run.state": new Set(["admin", "member", "viewer"]),
+  "aiemas.agents.preDelete": new Set(["admin", "member"]),
+  "aiemas.agents.export": new Set(["admin", "member"]),
+  "aiemas.agents.import": new Set(["admin"]),
+  "aiemas.files.download": new Set(["admin", "member"]),
+  "aiemas.file.upload": new Set(["admin", "member"]),
+  "aiemas.fs.list": new Set(["admin", "member", "viewer"]),
 };
 
 /**

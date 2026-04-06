@@ -308,6 +308,10 @@ export function attachGatewayWsMessageHandler(params: {
     }
 
     const text = rawDataToString(data);
+    if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
+      // eslint-disable-next-line no-console
+      console.log(`[ws:msg] IN conn=${connId} raw=${text}`);
+    }
     try {
       const parsed = JSON.parse(text);
       const frameType =

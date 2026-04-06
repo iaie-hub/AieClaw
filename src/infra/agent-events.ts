@@ -88,6 +88,14 @@ export function emitAgentEvent(event: Omit<AgentEventPayload, "seq" | "ts">) {
     seq: nextSeq,
     ts: Date.now(),
   };
+
+  if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[infra:agent-events] emit runId=${enriched.runId} stream=${enriched.stream} sessionKey=${enriched.sessionKey ?? "(none)"} listeners=${state.listeners.size}`,
+    );
+  }
+
   notifyListeners(state.listeners, enriched);
 }
 

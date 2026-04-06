@@ -1,13 +1,34 @@
 import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import { fetchAgents } from "../gateway/agents-api.js";
-import { getClient } from "../gateway/client.js";
-import type { AgentEntry } from "../types/agents-types.js";
+import { runAgentImport } from "../components/agent/agent-import-controller.js";
+import type { ImportConfirmDetail } from "../components/agent/agent-import-controller.js";
+import {
+  fetchAgents,
+  createAgent,
+  deleteAgent,
+  preDeleteAgent,
+  listWorkspaceFiles,
+  exportAgent,
+  downloadFile,
+} from "../gateway/agents-api.js";
 import "../components/agent-card.js";
 import "../components/agent-detail-dialog.js";
+import "../components/confirm-dialog.js";
+import "../components/agent/agent-create-dialog.js";
+import "../components/agent/agent-export-dialog.js";
+import "../components/agent/agent-import-dialog.js";
+import { getClient } from "../gateway/client.js";
+import type { AgentEntry, WorkspaceEntry } from "../types/agents-types.js";
+
+type DialogState =
+  | { kind: "none" }
+  | { kind: "create" }
+  | { kind: "delete"; agent: AgentEntry }
+  | { kind: "export"; agent: AgentEntry; entries: WorkspaceEntry[] }
+  | { kind: "import" };
 
 /**
- * 智能体列表视图 — 以卡片网格展示所有智能体。
+ * 智能体列表视图 — 以卡片网格展示所有智能体，支持创建、删除、导出、导入。
  */
 @customElement("agents-view")
 export class AgentsView extends LitElement {
@@ -17,6 +38,11 @@ export class AgentsView extends LitElement {
   @state() private _error = "";
   @state() private _selectedAgent: AgentEntry | null = null;
   @state() private _selectedIsDefault = false;
+  @state() private _dialog: DialogState = { kind: "none" };
+  @state() private _toastMsg = "";
+  @state() private _toastError = false;
+  @state() private _searchQuery = "";
+  private _toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   static styles = css`
     :host {
@@ -33,6 +59,14 @@ export class AgentsView extends LitElement {
       padding: 24px 32px;
       background: white;
       border-bottom: 1px solid #e8edf5;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .header-text {
+      flex: 1;
     }
 
     .page-title {
@@ -46,6 +80,42 @@ export class AgentsView extends LitElement {
       font-size: 14px;
       color: #64748b;
       margin: 6px 0 0;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .search-box {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .search-box input {
+      padding: 8px 12px 8px 34px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+      width: 220px;
+      transition: all 0.2s;
+      background: #f8fafc;
+    }
+
+    .search-box input:focus {
+      background: white;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 10px;
+      color: #94a3b8;
     }
 
     .list-area {
@@ -71,6 +141,7 @@ export class AgentsView extends LitElement {
       }
       .header-area {
         padding: 16px;
+        flex-direction: column;
       }
       .list-area {
         padding: 16px;
@@ -91,7 +162,6 @@ export class AgentsView extends LitElement {
       font-size: 48px;
       margin-bottom: 16px;
     }
-
     .center-msg {
       font-size: 15px;
       margin-bottom: 24px;
@@ -106,23 +176,79 @@ export class AgentsView extends LitElement {
 
     .btn-primary {
       padding: 10px 20px;
-      background: #3b82f6;
+      background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
       color: white;
       border: none;
       border-radius: 8px;
       font-size: 14px;
-      font-weight: 500;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .btn-primary:hover {
+      opacity: 0.9;
+    }
+
+    .btn-secondary {
+      padding: 10px 20px;
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
       cursor: pointer;
       transition: background 0.2s;
     }
-    .btn-primary:hover {
-      background: #2563eb;
+    .btn-secondary:hover {
+      background: #e2e8f0;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 500;
+      color: white;
+      z-index: 2000;
+      animation: toastIn 0.25s ease-out;
+      max-width: 400px;
+      text-align: center;
+    }
+
+    .toast.success {
+      background: #22c55e;
+    }
+    .toast.error {
+      background: #ef4444;
+    }
+
+    @keyframes toastIn {
+      from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
     }
   `;
 
   connectedCallback() {
     super.connectedCallback();
     void this._fetch();
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this._toastTimer) {
+      clearTimeout(this._toastTimer);
+    }
   }
 
   private async _fetch() {
@@ -141,6 +267,112 @@ export class AgentsView extends LitElement {
     }
   }
 
+  private _showToast(msg: string, isError = false) {
+    if (this._toastTimer) {
+      clearTimeout(this._toastTimer);
+    }
+    this._toastMsg = msg;
+    this._toastError = isError;
+    this._toastTimer = setTimeout(() => {
+      this._toastMsg = "";
+    }, 3000);
+  }
+
+  // ── Create ────────────────────────────────────────────────────────────────
+
+  private _onCreateConfirm = async (e: CustomEvent<{ agentId: string; workspace: string }>) => {
+    this._dialog = { kind: "none" };
+    try {
+      const client = getClient();
+      await createAgent(client, e.detail.agentId, e.detail.workspace);
+      this._showToast("智能体创建成功");
+      await this._fetch();
+    } catch (err: unknown) {
+      this._showToast(err instanceof Error ? err.message : "创建失败", true);
+    }
+  };
+
+  // ── Delete ────────────────────────────────────────────────────────────────
+
+  private async _onDeleteEvent(e: CustomEvent<{ agent: AgentEntry }>) {
+    this._dialog = { kind: "delete", agent: e.detail.agent };
+  }
+
+  private _onDeleteConfirm = async () => {
+    if (this._dialog.kind !== "delete") {
+      return;
+    }
+    const { agent } = this._dialog;
+    this._dialog = { kind: "none" };
+    try {
+      const client = getClient();
+      await preDeleteAgent(client, agent.id);
+      await deleteAgent(client, agent.id);
+      this._showToast("智能体已删除");
+      await this._fetch();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "删除失败";
+      this._showToast(msg, true);
+    }
+  };
+
+  // ── Export ────────────────────────────────────────────────────────────────
+
+  private async _onExportEvent(e: CustomEvent<{ agent: AgentEntry }>) {
+    const { agent } = e.detail;
+    try {
+      const client = getClient();
+      const result = await listWorkspaceFiles(client, agent.workspace);
+      this._dialog = { kind: "export", agent, entries: result.entries };
+    } catch (err: unknown) {
+      this._showToast(err instanceof Error ? err.message : "获取工作区文件失败", true);
+    }
+  }
+
+  private _onExportConfirm = async (e: CustomEvent<{ items: string[]; fileName: string }>) => {
+    if (this._dialog.kind !== "export") {
+      return;
+    }
+    const { agent } = this._dialog;
+    this._dialog = { kind: "none" };
+    try {
+      const client = getClient();
+      const { archivePath } = await exportAgent(client, agent.id, agent.workspace, e.detail.items);
+      const fileData = await downloadFile(client, archivePath);
+      // Determine download filename: prefer dialog-supplied name (agentName.zip),
+      // fall back to server basename; ensure .zip suffix is present.
+      const rawName = e.detail.fileName || fileData.fileName || "agent-export";
+      const downloadName = rawName.endsWith(".zip") ? rawName : `${rawName}.zip`;
+      // Trigger browser download
+      const bytes = Uint8Array.from(atob(fileData.data), (c) => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: fileData.mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = downloadName;
+      a.click();
+      URL.revokeObjectURL(url);
+      this._showToast("导出成功");
+    } catch (err: unknown) {
+      this._showToast(err instanceof Error ? err.message : "导出失败", true);
+    }
+  };
+
+  // ── Import ────────────────────────────────────────────────────────────────
+
+  private _onImportConfirm = async (e: CustomEvent<ImportConfirmDetail>) => {
+    this._dialog = { kind: "none" };
+    const result = await runAgentImport(e.detail);
+    if (result.ok) {
+      this._showToast("导入成功");
+      await this._fetch();
+    } else {
+      this._showToast(result.message, true);
+    }
+  };
+
+  // ── Agent select ──────────────────────────────────────────────────────────
+
   private _onAgentSelect(e: CustomEvent<{ agent: AgentEntry; isDefault: boolean }>) {
     this._selectedAgent = e.detail.agent;
     this._selectedIsDefault = e.detail.isDefault;
@@ -150,8 +382,61 @@ export class AgentsView extends LitElement {
     this._selectedAgent = null;
   }
 
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  private _renderDialogs() {
+    const d = this._dialog;
+    if (d.kind === "create") {
+      return html`
+        <agent-create-dialog
+          @confirm=${this._onCreateConfirm}
+          @cancel=${() => {
+            this._dialog = { kind: "none" };
+          }}
+        ></agent-create-dialog>
+      `;
+    }
+    if (d.kind === "delete") {
+      return html`
+        <confirm-dialog
+          title="删除智能体"
+          message="确定要删除智能体「${d.agent.name ?? d.agent.id}」吗？此操作不可撤销。"
+          confirmText="删除"
+          confirmVariant="danger"
+          @confirm=${this._onDeleteConfirm}
+          @cancel=${() => {
+            this._dialog = { kind: "none" };
+          }}
+        ></confirm-dialog>
+      `;
+    }
+    if (d.kind === "export") {
+      return html`
+        <agent-export-dialog
+          .entries=${d.entries}
+          agentName=${d.agent.name ?? d.agent.id}
+          @confirm=${this._onExportConfirm}
+          @cancel=${() => {
+            this._dialog = { kind: "none" };
+          }}
+        ></agent-export-dialog>
+      `;
+    }
+    if (d.kind === "import") {
+      return html`
+        <agent-import-dialog
+          @confirm=${this._onImportConfirm}
+          @cancel=${() => {
+            this._dialog = { kind: "none" };
+          }}
+        ></agent-import-dialog>
+      `;
+    }
+    return "";
+  }
+
   render() {
-    // ── Detail page (second-level) ──
+    // ── Detail page ──
     if (this._selectedAgent) {
       return html`
         <agent-detail-dialog
@@ -162,11 +447,12 @@ export class AgentsView extends LitElement {
       `;
     }
 
-    // ── List page ──
+    // ── Loading ──
     if (this._loading) {
       return html`<div class="center-state">加载中...</div>`;
     }
 
+    // ── Error ──
     if (this._error) {
       return html`
         <div class="center-state">
@@ -176,33 +462,96 @@ export class AgentsView extends LitElement {
       `;
     }
 
-    if (this._agents.length === 0) {
-      return html`
-        <div class="center-state">
-          <div class="center-icon">🤖</div>
-          <div class="center-msg">暂无可用的智能体</div>
-        </div>
-      `;
-    }
-
     return html`
       <div class="header-area">
-        <h1 class="page-title">智能体</h1>
-        <p class="subtitle">共 ${this._agents.length} 个智能体</p>
-      </div>
-      <div class="list-area">
-        <div class="cards-grid">
-          ${this._agents.map(
-            (agent) => html`
-              <agent-card
-                .agent=${agent}
-                .isDefault=${agent.id === this._defaultId}
-                @agent-select=${(e: CustomEvent) => this._onAgentSelect(e)}
-              ></agent-card>
-            `,
-          )}
+        <div class="header-text">
+          <h1 class="page-title">智能体</h1>
+          <p class="subtitle">共 ${this._agents.length} 个智能体</p>
+        </div>
+        <div class="header-actions">
+          <div class="search-box">
+            <svg
+              class="search-icon"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input
+              type="text"
+              placeholder="搜索名称或模型..."
+              .value=${this._searchQuery}
+              @input=${(e: Event) => {
+                this._searchQuery = (e.target as HTMLInputElement).value;
+              }}
+            />
+          </div>
+          <button
+            class="btn-secondary"
+            @click=${() => {
+              this._dialog = { kind: "import" };
+            }}
+          >
+            导入
+          </button>
+          <button
+            class="btn-primary"
+            @click=${() => {
+              this._dialog = { kind: "create" };
+            }}
+          >
+            + 创建
+          </button>
         </div>
       </div>
+      <div class="list-area">
+        ${this._agents.length === 0
+          ? html`
+              <div class="center-state">
+                <div class="center-icon">🤖</div>
+                <div class="center-msg">暂无可用的智能体</div>
+              </div>
+            `
+          : html`
+              <div class="cards-grid">
+                ${this._agents
+                  .filter((a) => {
+                    if (!this._searchQuery) {
+                      return true;
+                    }
+                    const q = this._searchQuery.toLowerCase();
+                    const nameMatch = (a.name || a.id).toLowerCase().includes(q);
+                    const modelMatch =
+                      a.model.primary.toLowerCase().includes(q) ||
+                      a.model.fallbacks.some((f) => f.toLowerCase().includes(q));
+                    return nameMatch || modelMatch;
+                  })
+                  .map(
+                    (agent) => html`
+                      <agent-card
+                        .agent=${agent}
+                        .isDefault=${agent.id === this._defaultId}
+                        @agent-select=${(e: CustomEvent) => this._onAgentSelect(e)}
+                        @agent-delete=${(e: CustomEvent) => this._onDeleteEvent(e)}
+                        @agent-export=${(e: CustomEvent) => this._onExportEvent(e)}
+                        @agent-toast=${(e: CustomEvent) => this._showToast(e.detail.message)}
+                      ></agent-card>
+                    `,
+                  )}
+              </div>
+            `}
+      </div>
+      ${this._renderDialogs()}
+      ${this._toastMsg
+        ? html`<div class="toast ${this._toastError ? "error" : "success"}">${this._toastMsg}</div>`
+        : ""}
     `;
   }
 }

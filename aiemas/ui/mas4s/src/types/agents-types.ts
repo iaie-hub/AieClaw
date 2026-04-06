@@ -146,3 +146,34 @@ export interface AgentCronListPayload {
   jobs: AgentCronJob[];
   total: number;
 }
+
+// ── Import / Export Types ─────────────────────────────────────────────────────
+
+/** aiemas.fs.list 响应中的文件/目录条目 */
+export interface WorkspaceEntry {
+  name: string;
+  type: "file" | "directory";
+  size: number;
+}
+
+/** aiemas.fs.list 响应 */
+export interface WorkspaceListPayload {
+  entries: WorkspaceEntry[];
+}
+
+/** aiemas.agents.export 响应 */
+export interface AgentExportPayload {
+  archivePath: string;
+}
+
+/** aiemas.files.download 响应 */
+export interface FileDownloadPayload {
+  data: string;
+  fileName: string;
+  mimeType: string;
+}
+
+/** aiemas.file.upload 响应 */
+export interface FileUploadPayload {
+  filePath: string;
+}

@@ -11,7 +11,7 @@ import type { MsgContext } from "../../auto-reply/templating.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../../auto-reply/tokens.js";
 import type { ReplyPayload } from "../../auto-reply/types.js";
 import { resolveSessionFilePath } from "../../config/sessions.js";
-import { emitAgentEvent } from "../../infra/agent-events.js";
+import { emitAgentEvent, registerAgentRunContext } from "../../infra/agent-events.js";
 import { jsonUtf8Bytes } from "../../infra/json-utf8-bytes.js";
 import type { PromptImageOrderEntry } from "../../media/prompt-image-order.js";
 import { type SavedMedia, saveMediaBuffer } from "../../media/store.js";
@@ -1366,6 +1366,7 @@ export const chatHandlers: GatewayRequestHandlers = {
     });
   },
   "chat.send": async ({ params, respond, context, client }) => {
+    let agentRunStarted = false;
     if (!validateChatSendParams(params)) {
       respond(
         false,
@@ -1736,7 +1737,13 @@ export const chatHandlers: GatewayRequestHandlers = {
         );
       });
 
-      let agentRunStarted = false;
+      if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
+        context.logGateway.info(
+          `[mas4s:chat.send] clientRunId=${clientRunId} sessionKey=${sessionKey} agentId=${agentId}`,
+        );
+      }
+      registerAgentRunContext(clientRunId, { sessionKey, isControlUiVisible: true });
+
       void dispatchInboundMessage({
         ctx,
         cfg,
@@ -1773,6 +1780,11 @@ export const chatHandlers: GatewayRequestHandlers = {
             const delta = text && text.startsWith(prior) ? text.slice(prior.length) : (text ?? "");
             if (delta) {
               _reasoningBufferByRun.set(clientRunId, text ?? "");
+              if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
+                context.logGateway.info(
+                  `[mas4s:chat.send] reasoning clientRunId=${clientRunId} deltaLen=${delta.length}`,
+                );
+              }
               emitAgentEvent({
                 runId: clientRunId,
                 stream: "thinking",

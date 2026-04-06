@@ -101,6 +101,10 @@ aiemas/
 
 ## 5. API 接口约束 (API Interface Constraints)
 
-- **记录新增API ** : 记录新增的API到 `docs/openclaw/websocket_api.md` 中。
-- **记录新增事件 ** : 记录新增的事件到 `docs/openclaw/websocket_api.md` 中。
-- **记录新增消息格式 ** : 记录新增的消息格式到 `docs/openclaw/websocket_api.md` 中。
+- **记录新增API** : 记录新增的API到 `docs/openclaw/websocket_api.md` 中。
+- **记录新增事件** : 记录新增的事件到 `docs/openclaw/websocket_api.md` 中。
+- **记录新增消息格式** : 记录新增的消息格式到 `docs/openclaw/websocket_api.md` 中。
+- **新增接口必须同步放开权限**：在 `aiemas/src/gateway-bridge/mas4s-gateway-plugin.ts` 的 `extraHandlers` 中新增任何 RPC 方法时，必须同步在 `aiemas/src/rbac/permission-checker.ts` 的 `GLOBAL_ROLE_PERMISSIONS` 中显式注册该方法及其允许的角色集合。不得依赖 `deriveAllowedRoles` 的 fallback 推断，因为 `aiemas.*` 前缀的方法不在任何 fallback 集合中，未注册的方法会被全部拒绝（`PERMISSION_DENIED`）。权限级别参考：
+  - 只读查询类（如 `aiemas.fs.list`）→ `new Set(["admin", "member", "viewer"])`
+  - 写操作类（如 `aiemas.agents.preDelete`、`aiemas.agents.export`、`aiemas.files.download`、`aiemas.file.upload`）→ `new Set(["admin", "member"])`
+  - 创建/破坏性操作类（如 `aiemas.agents.import`）→ `new Set(["admin"])`
