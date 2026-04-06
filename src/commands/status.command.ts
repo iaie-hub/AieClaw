@@ -308,17 +308,7 @@ export async function statusCommand(
       : (summary.sessions.paths[0] ?? "unknown");
 
   const memoryValue = buildStatusMemoryValue({
-    memory: memory
-      ? {
-          files: memory.files ?? 0,
-          chunks: memory.chunks ?? 0,
-          dirty: memory.dirty,
-          sources: memory.sources,
-          vector: memory.vector,
-          fts: memory.fts,
-          cache: memory.cache,
-        }
-      : null,
+    memory: memory ?? null,
     memoryPlugin,
     ok,
     warn,
