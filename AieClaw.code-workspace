@@ -4,10 +4,10 @@
 			"path": "."
 		},
 		{
-			"path": "../../../.openclaw"
+			"path": "../xstack-backend"
 		},
 		{
-			"path": "../xstack-backend"
+			"path": "../../../.openclaw"
 		}
 	],
 	"settings": {
@@ -15,7 +15,6 @@
 		"typescript.tsdk": "node_modules/typescript/lib",
 		"typescript.experimental.useTsgo": true,
 		"java.configuration.updateBuildConfiguration": "disabled",
-		"java.compile.nullAnalysis.mode": "automatic",
-		"java.jdt.ls.vmargs": "-XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xmx4G -Xms100m -Xlog:disable"
+		"java.compile.nullAnalysis.mode": "disabled"
 	}
 }
