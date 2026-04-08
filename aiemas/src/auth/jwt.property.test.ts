@@ -27,7 +27,6 @@ const arbRole: fc.Arbitrary<GlobalRole> = fc.constantFrom("admin", "member", "vi
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** base64url-encode a buffer or string (mirrors jwt.ts internals). */
-// eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
 function base64urlEncode(input: string | Buffer): string {
   const buf = typeof input === "string" ? Buffer.from(input, "utf8") : input;
   return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");

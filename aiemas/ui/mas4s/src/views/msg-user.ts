@@ -1,6 +1,7 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { markdownMath } from "../lib/markdown-directive.js";
+import "../components/copy-button.js";
 import type { ChatMessage } from "../types/chat-types.js";
 
 /**
@@ -70,6 +71,20 @@ export class MsgUser extends LitElement {
       background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
       color: #fff;
       box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+      position: relative;
+    }
+
+    .copy-btn {
+      position: absolute;
+      left: -32px;
+      bottom: 0;
+      opacity: 0;
+      transition: all 0.2s;
+      z-index: 5;
+    }
+
+    .message-row:hover .copy-btn {
+      opacity: 1;
     }
 
     /* Markdown resets for white-on-blue bubble */
@@ -159,7 +174,16 @@ export class MsgUser extends LitElement {
             ${name} ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
           </div>
           ${text.trim()
-            ? html`<div class="message-bubble">${markdownMath(text.trim())}</div>`
+            ? html`
+                <div class="message-bubble">
+                  ${markdownMath(text.trim())}
+                  <copy-button
+                    class="copy-btn"
+                    .value=${text.trim()}
+                    title="复制消息内容"
+                  ></copy-button>
+                </div>
+              `
             : nothing}
         </div>
         <div class="message-avatar">👤</div>

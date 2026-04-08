@@ -40,7 +40,6 @@ export function registerChatHandlers(
     }) => {
       const { params, respond } = opts;
       if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
-        // eslint-disable-next-line no-console
         console.log(
           `[aiemas:chat.send] bridge wrapper entered, sessionKey=${String(params["sessionKey"])}`,
         );
@@ -49,7 +48,6 @@ export function registerChatHandlers(
       // Proxy respond to capture results and ensure transparency
       const wrappedRespond: typeof respond = (ok, payload, error, meta) => {
         if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
-          // eslint-disable-next-line no-console
           console.log(
             `[aiemas:chat.send] bridge respond ok=${ok} payloadKeys=${Object.keys(payload || {}).join(",")}`,
           );
@@ -73,7 +71,6 @@ export function registerChatHandlers(
             });
           }
         } catch (err) {
-          // eslint-disable-next-line no-console
           console.warn(`mas4s chat.send hook side-effects failed: ${String(err)}`);
         }
       }
@@ -191,7 +188,6 @@ export function filterBroadcast(
         });
       }
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.warn(`[aiemas:filterBroadcast] approval capture failed: ${String(err)}`);
     }
   }

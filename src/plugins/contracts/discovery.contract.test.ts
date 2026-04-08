@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  registerProviders,
+  requireProvider,
+} from "../../../test/helpers/plugins/contracts-testkit.js";
 import type { AuthProfileStore } from "../../agents/auth-profiles/types.js";
 import type { ModelDefinitionConfig } from "../../config/types.models.js";
-import { registerProviders, requireProvider } from "./testkit.js";
 
 const resolveCopilotApiTokenMock = vi.hoisted(() => vi.fn());
 const buildOllamaProviderMock = vi.hoisted(() => vi.fn());

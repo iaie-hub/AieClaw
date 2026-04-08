@@ -90,9 +90,31 @@ export class MsgToolResult extends LitElement {
       border-top-left-radius: 4px;
       font-size: 13px;
       line-height: 1.5;
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
       color: #334155;
+      position: relative;
+    }
+
+    .copy-btn {
+      position: absolute;
+      right: 8px;
+      top: 8px;
+      opacity: 0;
+      transition: all 0.2s;
+      z-index: 5;
+    }
+
+    .copy-full-btn {
+      position: absolute;
+      right: -32px;
+      bottom: 0;
+      opacity: 0;
+      transition: all 0.2s;
+      z-index: 5;
+    }
+
+    .message-row:hover .copy-btn,
+    .message-row:hover .copy-full-btn {
+      opacity: 1;
     }
 
     .tool-cards {
@@ -113,7 +135,19 @@ export class MsgToolResult extends LitElement {
         `;
       }
       if (item.type === "text") {
-        return html`<div class="message-bubble">${markdownMath((item.text ?? "").trim())}</div>`;
+        const text = (item.text ?? "").trim();
+        const toolTitle = `ToolResult: ${this.message.toolName || "Tool"}`;
+        return html`
+          <div class="message-bubble">
+            ${markdownMath(text)}
+            <copy-button class="copy-btn" .value=${text} title="仅复制内容"></copy-button>
+            <copy-button
+              class="copy-full-btn"
+              .value=${`${toolTitle}\n${text}`}
+              title="复制标题和内容"
+            ></copy-button>
+          </div>
+        `;
       }
       return nothing;
     })}`;

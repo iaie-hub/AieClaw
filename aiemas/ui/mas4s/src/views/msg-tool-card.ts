@@ -1,6 +1,7 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { markdownMath } from "../lib/markdown-directive.js";
+import "../components/copy-button.js";
 import type { MessageContentItem } from "../types/chat-types.js";
 
 /** 工具调用/结果卡片（tool_call / tool_result）。默认折叠，点击 header 展开/收起。 */
@@ -112,10 +113,31 @@ export class MsgToolCard extends LitElement {
       transform: rotate(180deg);
     }
 
+    .tool-copy-btn {
+      margin-left: auto;
+    }
+
+    .tool-card-wrapper {
+      position: relative;
+    }
+
     .tool-body {
-      padding: 0 12px 10px;
+      padding: 0 12px 12px;
       border-top: 1px solid #e2e8f0;
       animation: fadeInDown 0.2s ease-out;
+    }
+
+    .tool-body-copy-btn {
+      position: absolute;
+      right: -30px;
+      bottom: 8px;
+      opacity: 0;
+      transition: all 0.2s;
+      z-index: 5;
+    }
+
+    .tool-card-wrapper:hover .tool-body-copy-btn {
+      opacity: 1;
     }
 
     @keyframes fadeInDown {
@@ -307,21 +329,31 @@ export class MsgToolCard extends LitElement {
     const hasBody = bodyText.trim().length > 0;
 
     return html`
-      <div class="tool-card ${cardClass}">
-        <div class="tool-header" @click=${this._toggleBody}>
-          <span class="tool-icon">${icon}</span>
-          <span class="tool-name">${name}</span>
-          <span class="tool-kind-tag">${kindLabel}</span>
-          <span class="toggle-icon ${this._expanded ? "is-expanded" : ""}">▼</span>
+      <div class="tool-card-wrapper">
+        <div class="tool-card ${cardClass}">
+          <div class="tool-header" @click=${this._toggleBody}>
+            <span class="tool-icon">${icon}</span>
+            <span class="tool-name">${name}</span>
+            <span class="tool-kind-tag">${kindLabel}</span>
+            <copy-button class="tool-copy-btn" .value=${bodyText} title="仅复制内容"></copy-button>
+            <span class="toggle-icon ${this._expanded ? "is-expanded" : ""}">▼</span>
+          </div>
+          ${this._expanded && hasBody
+            ? html`
+                <div class="tool-body">
+                  ${isCall
+                    ? html`<pre>${bodyText}</pre>`
+                    : html`<div class="tool-result-body">${markdownMath(bodyText.trim())}</div>`}
+                </div>
+              `
+            : nothing}
         </div>
         ${this._expanded && hasBody
-          ? html`
-              <div class="tool-body">
-                ${isCall
-                  ? html`<pre>${bodyText}</pre>`
-                  : html`<div class="tool-result-body">${markdownMath(bodyText.trim())}</div>`}
-              </div>
-            `
+          ? html`<copy-button
+              class="tool-body-copy-btn"
+              .value=${`${name}\n${bodyText}`}
+              title="复制标题和内容"
+            ></copy-button>`
           : nothing}
       </div>
     `;

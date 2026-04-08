@@ -101,7 +101,6 @@ const RATE_LIMIT_MAX_FAILURES = 10;
 export function createTenantService(config?: TenantServiceConfig): TenantService {
   const dbPath = config?.dbPath ?? join(homedir(), ".openclaw", "aiemas", "mas4s.db");
 
-  // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
   let db: DatabaseSync | undefined;
   let _stopOfflineScanner: (() => void) | undefined;
 

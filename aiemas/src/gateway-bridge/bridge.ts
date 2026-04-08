@@ -322,7 +322,6 @@ export class GatewayAuthBridge {
 
     if (!sessionKey) {
       if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
-        // eslint-disable-next-line no-console
         console.log(
           `[aiemas:bridge] filterBroadcastTargets event=${event} → MISSING sessionKey, broadcasting to ALL`,
         );

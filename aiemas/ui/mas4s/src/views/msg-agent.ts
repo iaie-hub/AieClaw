@@ -3,6 +3,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import { extractAgentNameFromKey } from "../../../../src/utils/session-utils.js";
 import { markdownMath } from "../lib/markdown-directive.js";
 import "./msg-tool-card.js";
+import "../components/copy-button.js";
 import type { ChatMessage, MessageContentItem } from "../types/chat-types.js";
 
 /** 检测文本末尾是否为疑问句（中英文问号），用于推断是否需要快捷回复按钮 */
@@ -139,6 +140,20 @@ export class MsgAgent extends LitElement {
       border: 1px solid #e2e8f0;
       color: #1e293b;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+      position: relative;
+    }
+
+    .copy-btn {
+      position: absolute;
+      right: -32px;
+      bottom: 0;
+      opacity: 0;
+      transition: all 0.2s;
+      z-index: 5;
+    }
+
+    .message-row:hover .copy-btn {
+      opacity: 1;
     }
 
     /* Markdown content styles */
@@ -301,6 +316,14 @@ export class MsgAgent extends LitElement {
       background: #dcfce7;
     }
 
+    .thinking-wrapper {
+      position: relative;
+    }
+
+    .thinking-copy-btn {
+      margin-left: auto;
+    }
+
     .thinking-arrow {
       font-size: 10px;
       transition: transform 0.2s;
@@ -318,6 +341,19 @@ export class MsgAgent extends LitElement {
       line-height: 1.6;
       word-break: break-word;
       border-top: 1px solid #d1fae5;
+    }
+
+    .thinking-body-copy-btn {
+      position: absolute;
+      right: -30px;
+      bottom: 8px;
+      opacity: 0;
+      transition: all 0.2s;
+      z-index: 5;
+    }
+
+    .thinking-wrapper:hover .thinking-body-copy-btn {
+      opacity: 1;
     }
 
     /* Markdown styles inside thinking block */
@@ -416,18 +452,32 @@ export class MsgAgent extends LitElement {
         })();
 
         return html`
-          <div class="thinking-block">
-            <div
-              class="thinking-toggle"
-              @click=${() => {
-                this._thinkingExpanded = !this._thinkingExpanded;
-              }}
-            >
-              <span class="thinking-arrow ${this._thinkingExpanded ? "expanded" : ""}">▶</span>
-              <span>思考过程</span>
+          <div class="thinking-wrapper">
+            <div class="thinking-block">
+              <div
+                class="thinking-toggle"
+                @click=${() => {
+                  this._thinkingExpanded = !this._thinkingExpanded;
+                }}
+              >
+                <span class="thinking-arrow ${this._thinkingExpanded ? "expanded" : ""}">▶</span>
+                <span>思考过程</span>
+                <copy-button
+                  class="thinking-copy-btn"
+                  .value=${rawThinking}
+                  title="仅复制内容"
+                ></copy-button>
+              </div>
+              ${this._thinkingExpanded
+                ? html`<div class="thinking-body">${markdownMath(thinkingText)}</div>`
+                : nothing}
             </div>
             ${this._thinkingExpanded
-              ? html`<div class="thinking-body">${markdownMath(thinkingText)}</div>`
+              ? html`<copy-button
+                  class="thinking-body-copy-btn"
+                  .value=${`思考过程\n${rawThinking}`}
+                  title="复制标题和内容"
+                ></copy-button>`
               : nothing}
           </div>
         `;
@@ -438,7 +488,12 @@ export class MsgAgent extends LitElement {
         if (!text.trim()) {
           return nothing;
         }
-        return html`<div class="message-bubble">${markdownMath(text.trim())}</div>`;
+        return html`
+          <div class="message-bubble">
+            ${markdownMath(text.trim())}
+            <copy-button class="copy-btn" .value=${text.trim()} title="复制消息内容"></copy-button>
+          </div>
+        `;
       }
 
       if (item.type === "tool_call") {
