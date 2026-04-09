@@ -17,6 +17,7 @@ import "../components/confirm-dialog.js";
 import "../components/agent/agent-create-dialog.js";
 import "../components/agent/agent-export-dialog.js";
 import "../components/agent/agent-import-dialog.js";
+import "./topology-view.js";
 import { getClient } from "../gateway/client.js";
 import type { AgentEntry, WorkspaceEntry } from "../types/agents-types.js";
 
@@ -41,6 +42,7 @@ export class AgentsView extends LitElement {
   @state() private _dialog: DialogState = { kind: "none" };
   @state() private _toastMsg = "";
   @state() private _toastError = false;
+  @state() private _topologyAgent: AgentEntry | null = null;
   @state() private _searchQuery = "";
   private _toastTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -371,6 +373,12 @@ export class AgentsView extends LitElement {
     }
   };
 
+  // ── Topology ────────────────────────────────────────────────────────────────
+
+  private _onTopologyEvent(e: CustomEvent<{ agent: AgentEntry }>) {
+    this._topologyAgent = e.detail.agent;
+  }
+
   // ── Agent select ──────────────────────────────────────────────────────────
 
   private _onAgentSelect(e: CustomEvent<{ agent: AgentEntry; isDefault: boolean }>) {
@@ -436,6 +444,18 @@ export class AgentsView extends LitElement {
   }
 
   render() {
+    // ── Topology view ──
+    if (this._topologyAgent) {
+      return html`
+        <topology-view
+          .agent=${this._topologyAgent}
+          @topology-back=${() => {
+            this._topologyAgent = null;
+          }}
+        ></topology-view>
+      `;
+    }
+
     // ── Detail page ──
     if (this._selectedAgent) {
       return html`
@@ -541,6 +561,7 @@ export class AgentsView extends LitElement {
                         @agent-select=${(e: CustomEvent) => this._onAgentSelect(e)}
                         @agent-delete=${(e: CustomEvent) => this._onDeleteEvent(e)}
                         @agent-export=${(e: CustomEvent) => this._onExportEvent(e)}
+                        @agent-topology=${(e: CustomEvent) => this._onTopologyEvent(e)}
                         @agent-toast=${(e: CustomEvent) => this._showToast(e.detail.message)}
                       ></agent-card>
                     `,

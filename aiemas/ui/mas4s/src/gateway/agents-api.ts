@@ -194,3 +194,22 @@ export async function importAgent(
     ...(workspace ? { workspace } : {}),
   });
 }
+
+// ── Topology API ──────────────────────────────────────────────────────────────
+
+/** 查询拓扑关系（按 rootAgentId 查询单棵或查询全部） */
+export async function fetchTopology(
+  client: GatewayBrowserClient,
+  rootAgentId?: string,
+): Promise<unknown> {
+  return client.request("aiemas.agents.topology.list", rootAgentId ? { rootAgentId } : {});
+}
+
+/** 保存拓扑关系 */
+export async function saveTopology(
+  client: GatewayBrowserClient,
+  rootAgentId: string,
+  topology: { edges: Array<{ from: string; to: string }> },
+): Promise<{ ok: true }> {
+  return client.request("aiemas.agents.topology.save", { rootAgentId, topology });
+}

@@ -478,6 +478,7 @@ async function agentCommandInternal(
           storePath,
           sessionAgentId,
           threadId: opts.threadId,
+          role: opts.role,
           sessionCwd: resolveAcpSessionCwd(acpResolution.meta) ?? workspaceDir,
         });
       } catch (error) {
@@ -810,6 +811,7 @@ async function agentCommandInternal(
               timeoutMs,
               runId,
               opts,
+              role: opts.role,
               runContext,
               spawnedBy,
               messageChannel,

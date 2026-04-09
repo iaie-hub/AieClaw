@@ -981,6 +981,17 @@ export async function runEmbeddedAttempt(
 
       const allCustomTools = [...customTools, ...clientToolDefs];
 
+      if (sessionManager && params.role && params.role !== "user") {
+        const sm = sessionManager;
+        const originalAppendMessage = sm.appendMessage.bind(sm);
+        sm.appendMessage = (message: AgentMessage) => {
+          if ("role" in message && message.role === "user" && "content" in message) {
+            (message as { role: string }).role = params.role!;
+          }
+          return originalAppendMessage(message as Parameters<typeof sm.appendMessage>[0]);
+        };
+      }
+
       ({ session } = await createAgentSession({
         cwd: resolvedWorkspace,
         agentDir,
@@ -1924,12 +1935,13 @@ export async function runEmbeddedAttempt(
               inFlightPrompt: effectivePrompt,
             });
 
+            const promptOptions =
+              imageResult.images.length > 0 ? { images: imageResult.images } : undefined;
+
             // Only pass images option if there are actually images to pass
             // This avoids potential issues with models that don't expect the images parameter
-            if (imageResult.images.length > 0) {
-              await abortable(
-                activeSession.prompt(effectivePrompt, { images: imageResult.images }),
-              );
+            if (promptOptions) {
+              await abortable(activeSession.prompt(effectivePrompt, promptOptions));
             } else {
               await abortable(activeSession.prompt(effectivePrompt));
             }

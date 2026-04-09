@@ -58,6 +58,8 @@ export interface Mas4sGatewayPlugin {
   ) => void;
   /** Clear run state for a session (on reset/delete/clear). */
   clearRunState: (sessionUuid: string) => void;
+  /** SQLite database handle for direct DB operations. */
+  db: import("node:sqlite").DatabaseSync;
 }
 
 function errorShape(code: string, message: string): { code: string; message: string } {
@@ -974,6 +976,20 @@ export async function createMas4sGatewayPlugin(
     },
   };
 
+  // ── Register agent-related handlers (including topology) ──
+  const { registerAgentHandlers } = await import("./aiemas-agent.js");
+  registerAgentHandlers(extraHandlers, {
+    plugin: undefined, // handlers don't depend on plugin instance
+    db,
+    cacheService: tenantService.cacheService,
+    setCurrentRequestContext: () => {
+      // Request context management not needed for topology handlers
+    },
+    clearRequestContext: () => {
+      // Request context management not needed for topology handlers
+    },
+  });
+
   const { upsertRunState: _upsertRunState, clearRunState: _clearRunState } =
     await import("./run-state-store.js");
 
@@ -987,6 +1003,7 @@ export async function createMas4sGatewayPlugin(
     stopLabelSync,
     upsertRunState: (sessionUuid, patch) => _upsertRunState(db, sessionUuid, patch),
     clearRunState: (sessionUuid) => _clearRunState(db, sessionUuid),
+    db,
   };
 
   return plugin;

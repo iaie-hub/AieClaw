@@ -122,6 +122,14 @@ export function ensureMas4sSchema(db: DatabaseSync): void {
       updatedAt   INTEGER NOT NULL
     );
   `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_topologies (
+      rootAgentId TEXT PRIMARY KEY,
+      topology    TEXT NOT NULL,
+      updatedAt   INTEGER NOT NULL
+    );
+  `);
 }
 
 /**

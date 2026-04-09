@@ -76,26 +76,28 @@
 
 ### 4. Agent 与 插件管理 (Agents & Skills)
 
-| 方法                      | 说明                               | 处理程序           |
-| :------------------------ | :--------------------------------- | :----------------- |
-| `agents.list`             | 列出可用 Agent                     | `agents.ts`        |
-| `agents.create`           | 创建 Agent                         | `agents.ts`        |
-| `agents.update`           | 更新 Agent 配置                    | `agents.ts`        |
-| `agents.delete`           | 删除 Agent                         | `agents.ts`        |
-| `agents.files.list`       | 列出 Agent 关联文件                | `agents.ts`        |
-| `agents.files.get`        | 读取 Agent 文件内容                | `agents.ts`        |
-| `agents.files.set`        | 写入 Agent 文件内容                | `agents.ts`        |
-| `aiemas.agents.preDelete` | [MAS] 删除前检查关联会话           | `aiemas`           |
-| `aiemas.agents.export`    | [MAS] 导出 Agent 工作区为 zip      | `aiemas`           |
-| `aiemas.agents.import`    | [MAS] 导入 Agent 压缩包            | `aiemas`           |
-| `aiemas.files.download`   | [MAS] 下载服务端文件（base64）     | `aiemas`           |
-| `aiemas.file.upload`      | [MAS] 上传文件到临时目录（base64） | `aiemas`           |
-| `tools.catalog`           | 内容工具包目录                     | `tools-catalog.ts` |
-| `tools.effective`         | 当前生效工具                       | `tools-catalog.ts` |
-| `skills.status`           | 插件状态                           | `skills.ts`        |
-| `skills.bins`             | 插件二进制文件                     | `skills.ts`        |
-| `skills.install`          | 安装插件                           | `skills.ts`        |
-| `skills.update`           | 更新插件                           | `skills.ts`        |
+| 方法                          | 说明                               | 处理程序           |
+| :---------------------------- | :--------------------------------- | :----------------- |
+| `agents.list`                 | 列出可用 Agent                     | `agents.ts`        |
+| `agents.create`               | 创建 Agent                         | `agents.ts`        |
+| `agents.update`               | 更新 Agent 配置                    | `agents.ts`        |
+| `agents.delete`               | 删除 Agent                         | `agents.ts`        |
+| `agents.files.list`           | 列出 Agent 关联文件                | `agents.ts`        |
+| `agents.files.get`            | 读取 Agent 文件内容                | `agents.ts`        |
+| `agents.files.set`            | 写入 Agent 文件内容                | `agents.ts`        |
+| `aiemas.agents.preDelete`     | [MAS] 删除前检查关联会话           | `aiemas`           |
+| `aiemas.agents.export`        | [MAS] 导出 Agent 工作区为 zip      | `aiemas`           |
+| `aiemas.agents.import`        | [MAS] 导入 Agent 压缩包            | `aiemas`           |
+| `aiemas.files.download`       | [MAS] 下载服务端文件（base64）     | `aiemas`           |
+| `aiemas.file.upload`          | [MAS] 上传文件到临时目录（base64） | `aiemas`           |
+| `aiemas.agents.topology.list` | [MAS] 查询智能体拓扑关系           | `aiemas`           |
+| `aiemas.agents.topology.save` | [MAS] 保存智能体拓扑关系           | `aiemas`           |
+| `tools.catalog`               | 内容工具包目录                     | `tools-catalog.ts` |
+| `tools.effective`             | 当前生效工具                       | `tools-catalog.ts` |
+| `skills.status`               | 插件状态                           | `skills.ts`        |
+| `skills.bins`                 | 插件二进制文件                     | `skills.ts`        |
+| `skills.install`              | 安装插件                           | `skills.ts`        |
+| `skills.update`               | 更新插件                           | `skills.ts`        |
 
 ### 5. 系统、配置与治理 (System & Config)
 
@@ -424,5 +426,173 @@
     "isOnline": true,
     "ts": 1711618000000
   }
+}
+```
+
+---
+
+## 五、拓扑关系 API (Topology API Detail)
+
+### 1. 查询拓扑关系 (aiemas.agents.topology.list)
+
+查询智能体拓扑关系。
+
+**权限**: admin, member, viewer
+
+**请求参数**:
+
+| 参数        | 类型   | 必填 | 说明                                                      |
+| ----------- | ------ | ---- | --------------------------------------------------------- |
+| rootAgentId | string | 否   | 根 Agent ID。提供时返回单棵拓扑树，不提供时返回所有拓扑树 |
+
+**请求示例**（按根节点查询）：
+
+```json
+{
+  "type": "req",
+  "id": "20",
+  "method": "aiemas.agents.topology.list",
+  "params": { "rootAgentId": "aie-iaas" }
+}
+```
+
+**响应示例**（提供 `rootAgentId` 时）：
+
+```json
+{
+  "type": "res",
+  "id": "20",
+  "ok": true,
+  "payload": {
+    "rootAgentId": "aie-iaas",
+    "topology": {
+      "edges": [
+        { "from": "aie-iaas", "to": "aieiaas-resource" },
+        { "from": "aie-iaas", "to": "aieiaas-model" }
+      ]
+    }
+  }
+}
+```
+
+**请求示例**（查询所有拓扑树）：
+
+```json
+{
+  "type": "req",
+  "id": "21",
+  "method": "aiemas.agents.topology.list",
+  "params": {}
+}
+```
+
+**响应示例**（未提供 `rootAgentId` 时）：
+
+```json
+{
+  "type": "res",
+  "id": "21",
+  "ok": true,
+  "payload": {
+    "topologies": [
+      {
+        "rootAgentId": "aie-iaas",
+        "topology": {
+          "edges": [
+            { "from": "aie-iaas", "to": "aieiaas-resource" },
+            { "from": "aie-iaas", "to": "aieiaas-model" }
+          ]
+        }
+      }
+    ]
+  }
+}
+```
+
+**响应示例**（指定的 `rootAgentId` 不存在拓扑数据时）：
+
+```json
+{
+  "type": "res",
+  "id": "20",
+  "ok": true,
+  "payload": {
+    "rootAgentId": "xxx",
+    "topology": { "edges": [] }
+  }
+}
+```
+
+### 2. 保存拓扑关系 (aiemas.agents.topology.save)
+
+保存智能体拓扑关系（整棵树覆盖写入）。
+
+**权限**: admin, member
+
+**请求参数**:
+
+| 参数           | 类型   | 必填 | 说明                                       |
+| -------------- | ------ | ---- | ------------------------------------------ |
+| rootAgentId    | string | 是   | 根 Agent ID                                |
+| topology       | object | 是   | 拓扑树文档                                 |
+| topology.edges | array  | 是   | 有向边数组，每条边包含 `from` 和 `to` 字段 |
+
+**请求示例**：
+
+```json
+{
+  "type": "req",
+  "id": "22",
+  "method": "aiemas.agents.topology.save",
+  "params": {
+    "rootAgentId": "aie-iaas",
+    "topology": {
+      "edges": [
+        { "from": "aie-iaas", "to": "aieiaas-resource" },
+        { "from": "aie-iaas", "to": "aieiaas-model" },
+        { "from": "aie-iaas", "to": "aieiaas-task" }
+      ]
+    }
+  }
+}
+```
+
+**成功响应**：
+
+```json
+{
+  "type": "res",
+  "id": "22",
+  "ok": true,
+  "payload": { "ok": true }
+}
+```
+
+**错误码**:
+
+| 错误码            | 说明                                                                    |
+| ----------------- | ----------------------------------------------------------------------- |
+| INVALID_PARAMS    | rootAgentId 为空、topology 缺失、或 edges 中存在自引用边（from === to） |
+| PERMISSION_DENIED | 角色权限不足（viewer 无写权限）                                         |
+
+**错误响应示例**（自引用边）：
+
+```json
+{
+  "type": "res",
+  "id": "22",
+  "ok": false,
+  "error": { "code": "INVALID_PARAMS", "message": "自引用边不允许" }
+}
+```
+
+**错误响应示例**（权限不足）：
+
+```json
+{
+  "type": "res",
+  "id": "22",
+  "ok": false,
+  "error": { "code": "PERMISSION_DENIED", "message": "权限不足" }
 }
 ```

@@ -12,7 +12,7 @@ import { collectTextContentBlocks } from "./content-blocks.js";
 import { type MessagingToolSend } from "./pi-embedded-messaging.js";
 import { normalizeToolName } from "./tool-policy.js";
 
-const TOOL_RESULT_MAX_CHARS = 8000;
+const TOOL_RESULT_MAX_CHARS = 8192;
 const TOOL_ERROR_MAX_CHARS = 400;
 
 function truncateToolText(text: string): string {

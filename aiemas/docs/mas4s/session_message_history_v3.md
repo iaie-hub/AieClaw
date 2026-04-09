@@ -952,3 +952,309 @@ seq=2（路径 A，handleUpdate）来自 JSONL transcript 的 assistant 消息�
 - **若不包含 tool_use**（只有 thinking + text）：seq=2 和 seq=3 各司其职，无重复。
 
 需要确认 JSONL transcript 中 assistant 消息的实际 content 格式，以决定是否需要在 `recordToolEvent` 写入前检查 `handleUpdate` 是否已写入同一 tool_use。
+
+---
+
+## 12. exec-approval-followup 消息 role 错误分析
+
+### 12.1 问题描述
+
+`session.history.range` 返回的消息中，exec-approval-followup 消息（即审批通过后工具执行结果的回注消息）的 `role` 为 `"user"`，但该消息实际上是系统自动注入的工具执行结果通知，不是用户发起的消息，其 `role` 应为 `"system"`。
+
+示例消息（id: `22bc0382-3921-4083-a1ce-0914a3ed0fdc`）：
+
+```json
+{
+  "role": "user",
+  "content": "[text] [Wed 2026-04-08 21:26 GMT+8] An async command the user already approved has completed.\nDo not run the command again.\nIf the task requires more steps, continue from this result before replying to the user.\nOnly ask the user for help if you are actually blocked.\n\nExact completion details:\nExec finished (gateway id=d3836bad-..., session=clear-orbit, code 0)\n[{\"uuid\":\"619e08867d124932b6fbbdf2967311f0\",\"name\":\"agent开发主机-bj-160\",\"status\":\"Running\",...}]"
+}
+```
+
+该消息是审核消息 `578f517c-9afd-4be6-bf1b-22a3d64c9aed`（`exec.approval.resolved`，decision=allow-once）允许后的工具调用结果消息，由 `buildExecApprovalFollowupPrompt` 构建，经 gateway `agent` 方法回注到 session 中。
+
+### 12.2 消息链路追踪
+
+#### 12.2.1 触发链路
+
+```
+exec.approval.resolved (decision=allow-once)
+      │
+      ▼
+工具命令执行完成
+      │
+      ▼
+sendExecApprovalFollowup()                    ← src/agents/bash-tools.exec-approval-followup.ts
+      │
+      ├── buildExecApprovalFollowupPrompt()    ← 构建 followup 提示文本
+      │     返回: "An async command the user already approved has completed..."
+      │
+      ├── buildAgentFollowupArgs()             ← 构建 gateway agent 方法参数
+      │     返回: { sessionKey, message, deliver, channel, ..., idempotencyKey }
+      │     ⚠️ 未包含 role 字段
+      │
+      └── callGatewayTool("agent", opts, args) ← 调用 gateway agent 方法
+```
+
+#### 12.2.2 gateway agent 方法处理链路
+
+```
+callGatewayTool("agent", opts, args)
+      │
+      ▼
+callGateway({ method: "agent", params: args })     ← src/agents/tools/gateway.ts
+      │
+      ▼
+gateway agent handler                               ← src/gateway/server-methods/agent.ts
+      │  request.role = undefined  (buildAgentFollowupArgs 未传 role)
+      │
+      ├── dispatchAgentRunFromGateway({
+      │     ingressOpts: { role: request.role, message, ... }
+      │   })
+      │
+      └── agentCommandFromIngress(opts)              ← src/commands/agent.ts → src/agents/agent-command.ts
+            │  opts.role = undefined
+            │
+            └── agentCommandInternal(opts)
+                  │  opts.role = undefined
+                  │
+                  └── runAgentAttempt(params)         ← src/agents/command/attempt-execution.ts
+                        │  params.opts.role = undefined
+                        │
+                        └── runEmbeddedPiAgent(params) ← src/agents/pi-embedded-runner/run.ts
+                              │  role: params.role ?? params.opts.role = undefined
+                              │
+                              └── attempt.ts (EmbeddedRunAttemptParams)
+                                    │  params.role = undefined
+                                    │
+                                    └── activeSession.prompt(effectivePrompt)
+                                          │  ⚠️ params.role 从未被消费
+                                          │  @mariozechner/pi-agent-core 的 prompt()
+                                          │  始终创建 role: "user" 的消息
+                                          │
+                                          ▼
+                                    SessionManager.appendMessage({ role: "user", content: ... })
+```
+
+#### 12.2.3 消息持久化链路
+
+```
+SessionManager.appendMessage({ role: "user", content: effectivePrompt })
+      │
+      ▼
+guardedAppend (session-tool-result-guard.ts)
+      │  message.role = "user"
+      │
+      ├── originalAppend(message)  → 写入 JSONL transcript
+      │
+      └── emitSessionTranscriptUpdate({
+            sessionFile, sessionKey,
+            message: { role: "user", content: ... }  ← role 为 "user"
+          })
+            │
+            ▼
+      SessionTranscriptStore.handleUpdate(update)
+            │  msg["role"] = "user"
+            │  normaliseRole("user") → "user"
+            │
+            └── pushToBuffer({ role: "user", content: ..., ... })
+                  │
+                  ▼
+            flush() → persistBatch() → session_messages 表
+                  role = "user"  ← ⚠️ 错误：应为 "system"
+```
+
+### 12.3 根因分析
+
+问题有两层根因：
+
+#### 根因 1：`buildAgentFollowupArgs` 未传递 `role: "system"`
+
+源文件：`src/agents/bash-tools.exec-approval-followup.ts`
+
+`buildAgentFollowupArgs` 构建 gateway `agent` 方法的参数时，返回对象中不包含 `role` 字段：
+
+```typescript
+function buildAgentFollowupArgs(params: { ... }) {
+  return {
+    sessionKey: params.sessionKey,
+    message: buildExecApprovalFollowupPrompt(params.resultText),
+    deliver: deliveryTarget.deliver,
+    // ... channel, to, accountId, threadId, idempotencyKey
+    // ⚠️ 缺少 role: "system"
+  };
+}
+```
+
+exec-approval-followup 消息是系统自动注入的工具执行结果通知，语义上应使用 `role: "system"` 标识，与子 agent 跨 session 通知消息（§7.1.2）的处理方式一致。
+
+#### 根因 2：`attempt.ts` 中 `params.role` 为死代码
+
+源文件：`src/agents/pi-embedded-runner/run/attempt.ts`
+
+即使 `buildAgentFollowupArgs` 传递了 `role: "system"`，该值也不会生效。`role` 参数在类型定义中一路传递：
+
+```
+AgentCommandOpts.role?: "user" | "system"
+  → AgentCommandIngressOpts (继承)
+    → agentCommandInternal(opts)
+      → runAgentAttempt(params)  // params.opts.role
+        → runEmbeddedPiAgent(params)  // role: params.role ?? params.opts.role
+          → EmbeddedRunAttemptParams.role?: "user" | "system"
+```
+
+但在 `attempt.ts` 的实际执行中，`params.role` **从未被消费**。`activeSession.prompt(effectivePrompt)` 调用的是 `@mariozechner/pi-agent-core` 库的 `prompt()` 方法，该方法内部始终以 `role: "user"` 创建消息，完全忽略外部传入的 `role` 参数。
+
+相关代码位置：
+
+| 文件                                           | 行为                                                              |
+| ---------------------------------------------- | ----------------------------------------------------------------- |
+| `src/agents/command/types.ts`                  | 定义 `role?: "user" \| "system"`                                  |
+| `src/agents/command/attempt-execution.ts:490`  | `role: params.role ?? params.opts.role` 传给 `runEmbeddedPiAgent` |
+| `src/agents/pi-embedded-runner/run.ts:650`     | `role: params.role` 传给 attempt params                           |
+| `src/agents/pi-embedded-runner/run/attempt.ts` | `params.role` **从未使用**                                        |
+
+#### 对比：子 agent 通知消息的正确路径
+
+子 agent 通知消息（§7.1.2）同样通过 `callGateway({ method: "agent", params: { role: "system", ... } })` 注入，但其 `role: "system"` 同样会遇到 `attempt.ts` 中的死代码问题。这意味着子 agent 通知消息在 JSONL transcript 中也是以 `role: "user"` 存储的。
+
+但 `SessionTranscriptStore.handleUpdate` 读取的是 JSONL transcript 中消息的 `role` 字段，该字段由 `@mariozechner/pi-agent-core` 的 `prompt()` 方法硬编码为 `"user"`，因此所有通过 `activeSession.prompt()` 注入的消息，无论调用方传入什么 `role`，最终在 `session_messages` 表中都是 `role="user"`。
+
+### 12.4 影响范围
+
+以下场景的消息 role 均受此问题影响：
+
+| 场景                                                 | 入口函数                        | 期望 role | 实际 role |
+| ---------------------------------------------------- | ------------------------------- | --------- | --------- |
+| exec-approval-followup（审批通过后工具执行结果回注） | `sendExecApprovalFollowup`      | `system`  | `user`    |
+| 子 agent 唤醒消息                                    | `subagent-announce.ts`          | `system`  | `user`    |
+| 子 agent 完成通知                                    | `subagent-announce-delivery.ts` | `system`  | `user`    |
+
+所有通过 gateway `agent` 方法 + `role: "system"` 注入的消息，在 JSONL transcript 和 `session_messages` 表中均以 `role="user"` 存储。
+
+### 12.5 修复方案
+
+修复需要两处改动：
+
+#### 修复 1：`buildAgentFollowupArgs` 补充 `role: "system"`
+
+文件：`src/agents/bash-tools.exec-approval-followup.ts`
+
+```typescript
+function buildAgentFollowupArgs(params: { ... }) {
+  return {
+    sessionKey: params.sessionKey,
+    message: buildExecApprovalFollowupPrompt(params.resultText),
+    role: "system" as const,  // ← 新增
+    deliver: deliveryTarget.deliver,
+    // ... 其余字段不变
+  };
+}
+```
+
+#### 修复 2：`attempt.ts` 中消费 `params.role`
+
+文件：`src/agents/pi-embedded-runner/run/attempt.ts`
+
+在调用 `activeSession.prompt()` 之前或之后，根据 `params.role` 设置消息的实际 role。具体实现方案需要评估 `@mariozechner/pi-agent-core` 的 `prompt()` API 是否支持 role 参数，或者是否需要绕过 `prompt()` 直接调用 `sessionManager.appendMessage()` 来注入 `role: "system"` 的消息。
+
+可能的实现路径：
+
+- **方案 A**：如果 `pi-agent-core` 的 `prompt()` 支持 options 参数（如 `prompt(text, { role: "system" })`），直接传递即可
+- **方案 B**：如果 `prompt()` 不支持 role 参数，在 `prompt()` 调用后，通过 `sessionManager` 修改最后一条消息的 role
+- **方案 C**：当 `params.role === "system"` 时，不调用 `prompt()`，改为直接调用 `sessionManager.appendMessage({ role: "system", content: effectivePrompt, timestamp: Date.now() })` 然后触发 agent 响应
+
+### 12.6 工具执行完整链路（exec-approval 场景）
+
+以下为 exec-approval 场景下，从用户发起审批到工具执行结果回注的完整链路：
+
+```
+用户发送 exec.approval.resolve (decision=allow-once)
+      │
+      ▼
+gateway exec.approval.resolve handler
+      │  解析 approval，执行命令
+      │
+      ▼
+命令执行完成 (exit code 0)
+      │
+      ▼
+sendExecApprovalFollowup()                         ← bash-tools.exec-approval-followup.ts
+      │
+      ├── buildExecApprovalFollowupPrompt(resultText)
+      │     → "An async command the user already approved has completed.
+      │        Do not run the command again.
+      │        If the task requires more steps, continue from this result...
+      │        Exact completion details:
+      │        Exec finished (gateway id=..., session=..., code 0)
+      │        [{...vm data...}]"
+      │
+      ├── buildAgentFollowupArgs({ approvalId, sessionKey, resultText, ... })
+      │     → { sessionKey, message: <上述文本>, deliver, channel, ...,
+      │          idempotencyKey: "exec-approval-followup:<approvalId>" }
+      │     ⚠️ 无 role 字段
+      │
+      └── callGatewayTool("agent", { timeoutMs: 60000 }, args, { expectFinal: true })
+            │
+            ▼
+      callGateway({ method: "agent", params: args })
+            │
+            ▼
+      gateway agent handler
+            │  request = { message: "An async command...", sessionKey: "agent:...:group:mas-...", ... }
+            │  request.role = undefined
+            │
+            ├── 验证参数、解析 session、注入时间戳
+            │     message = injectTimestamp(message, ...)
+            │     → "[Wed 2026-04-08 21:26 GMT+8] An async command..."
+            │
+            ├── respond(true, { runId, status: "accepted" })  ← 立即返回 accepted
+            │
+            └── dispatchAgentRunFromGateway({ ingressOpts: { role: undefined, message, ... } })
+                  │
+                  └── agentCommandFromIngress(opts)
+                        │
+                        └── agentCommandInternal(opts)
+                              │
+                              ├── prepareAgentCommandExecution(opts)
+                              │     → 解析 session、加载配置、解析模型
+                              │
+                              └── runAgentAttempt({ ..., opts: { role: undefined, ... } })
+                                    │
+                                    └── runEmbeddedPiAgent({ ..., role: undefined })
+                                          │
+                                          └── attempt.ts
+                                                │
+                                                ├── 构建 system prompt、加载历史、解析工具
+                                                │
+                                                └── activeSession.prompt(effectivePrompt)
+                                                      │  effectivePrompt = "[Wed 2026-04-08 21:26 GMT+8] An async command..."
+                                                      │  ⚠️ params.role (undefined) 未被使用
+                                                      │  pi-agent-core prompt() 硬编码 role: "user"
+                                                      │
+                                                      ▼
+                                                SessionManager.appendMessage({
+                                                  role: "user",           ← 硬编码
+                                                  content: effectivePrompt,
+                                                  timestamp: Date.now()
+                                                })
+                                                      │
+                                                      ▼
+                                                guardedAppend → emitSessionTranscriptUpdate
+                                                      │
+                                                      ▼
+                                                SessionTranscriptStore.handleUpdate
+                                                      │  normaliseRole("user") → "user"
+                                                      │
+                                                      ▼
+                                                session_messages: role="user"  ← ⚠️ 应为 "system"
+```
+
+### 12.7 与 §7 system role 消息的关系
+
+§7 中描述的 `role="system"` 消息（Compaction 标记和子 agent 通知）存在同样的问题：
+
+- **Compaction 标记**（§7.1.1）：由 `readSessionMessages` 合成，不经过 `activeSession.prompt()`，而是直接通过 `onSessionTranscriptUpdate` 事件传入 `handleUpdate`，`msg["role"]` 为 `"system"`，`normaliseRole` 正确映射为 `"system"`。**此路径不受影响。**
+
+- **子 agent 通知消息**（§7.1.2）：通过 `callGateway({ method: "agent", params: { role: "system", ... } })` 注入，走的是与 exec-approval-followup 相同的 gateway agent → `activeSession.prompt()` 路径。**此路径受影响**，`role: "system"` 在 `attempt.ts` 中被忽略，最终以 `role: "user"` 存储。
+
+因此 §7.1.2 中关于子 agent 通知消息以 `role="system"` 写入 `session_messages` 的描述，在当前实现中并不准确。实际上这些消息在 `session_messages` 中的 `role` 为 `"user"`。

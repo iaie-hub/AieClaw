@@ -137,6 +137,7 @@ function buildAgentFollowupArgs(params: {
   const { deliveryTarget, sessionOnlyOriginChannel } = params;
   return {
     sessionKey: params.sessionKey,
+    role: "system" as const,
     message: buildExecApprovalFollowupPrompt(params.resultText),
     deliver: deliveryTarget.deliver,
     ...(deliveryTarget.deliver ? { bestEffortDeliver: true as const } : {}),

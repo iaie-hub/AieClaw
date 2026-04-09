@@ -542,6 +542,8 @@ export async function initMas4sIntegration(
     };
     const agentCtx = {
       plugin,
+      db: plugin.db,
+      cacheService: plugin.tenantService.cacheService,
       setCurrentRequestContext: (ctx: unknown, cli: unknown) => {
         currentRequestContext = ctx as
           | import("./server-methods/types.js").GatewayRequestContext

@@ -285,6 +285,17 @@ export class AgentCard extends LitElement {
     );
   };
 
+  private _onTopology = (e: Event) => {
+    e.stopPropagation();
+    this.dispatchEvent(
+      new CustomEvent("agent-topology", {
+        detail: { agent: this.agent },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  };
+
   private _onExport = (e: Event) => {
     e.stopPropagation();
     this.dispatchEvent(
@@ -361,6 +372,29 @@ export class AgentCard extends LitElement {
           </div>
         </div>
         <div class="card-footer">
+          <button
+            class="icon-btn"
+            title="拓扑关系"
+            aria-label="查看拓扑关系 ${displayName}"
+            @click=${this._onTopology}
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="5" r="3"></circle>
+              <circle cx="6" cy="19" r="3"></circle>
+              <circle cx="18" cy="19" r="3"></circle>
+              <line x1="12" y1="8" x2="6" y2="16"></line>
+              <line x1="12" y1="8" x2="18" y2="16"></line>
+            </svg>
+          </button>
           <button
             class="icon-btn"
             title="导出配置"
