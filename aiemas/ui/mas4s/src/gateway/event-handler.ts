@@ -299,6 +299,24 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
     return;
   }
 
+  if (stream === "prompt" && data?.text !== undefined) {
+    const uuid = extractUuidFromKey(sessionKey);
+    const normalized = normalizeMessage(data.text);
+    const chatMsg: ChatMessage = {
+      ...normalized,
+      id: runId ?? normalized.id,
+      timestamp: Date.now(),
+      role: (data.role as unknown) ?? normalized.role,
+      senderLabel: null,
+    };
+    debugLog(
+      `[mas4s:event-handler] Appending manual prompt message (role=${chatMsg.role})`,
+      chatMsg,
+    );
+    store.appendMessage(uuid, chatMsg);
+    return;
+  }
+
   if (stream === "assistant" && data?.text !== undefined && runId) {
     // 用 runId 作为稳定 id，流式更新 assistant 消息气泡
     const thinkingText = _thinkingByRun.get(runId);

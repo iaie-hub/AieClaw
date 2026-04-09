@@ -31,4 +31,5 @@ export type NormalizedMessage = {
   toolCallId?: string;
   toolName?: string;
   isError?: boolean;
+  subType?: string;
 };

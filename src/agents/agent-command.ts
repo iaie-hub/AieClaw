@@ -479,6 +479,7 @@ async function agentCommandInternal(
           sessionAgentId,
           threadId: opts.threadId,
           role: opts.role,
+          runId,
           sessionCwd: resolveAcpSessionCwd(acpResolution.meta) ?? workspaceDir,
         });
       } catch (error) {

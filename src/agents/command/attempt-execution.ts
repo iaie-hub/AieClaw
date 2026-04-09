@@ -249,6 +249,7 @@ export async function persistAcpTurnTranscript(params: {
   threadId?: string | number;
   sessionCwd: string;
   role?: "user" | "system";
+  runId: string;
 }): Promise<SessionEntry | undefined> {
   const promptText = params.body;
   const replyText = params.finalText;
@@ -298,6 +299,9 @@ export async function persistAcpTurnTranscript(params: {
       timestamp: Date.now(),
     });
   }
+
+  // Broadcast the prompt event for real-time visibility (e.g. for system followups)
+  emitAcpPrompt({ runId: params.runId, role: params.role ?? "user", text: promptText });
 
   emitSessionTranscriptUpdate({
     sessionFile,
@@ -544,6 +548,17 @@ export function emitAcpLifecycleError(params: { runId: string; message: string }
       phase: "error",
       error: params.message,
       endedAt: Date.now(),
+    },
+  });
+}
+
+export function emitAcpPrompt(params: { runId: string; role: string; text: string }) {
+  emitAgentEvent({
+    runId: params.runId,
+    stream: "prompt",
+    data: {
+      role: params.role,
+      text: params.text,
     },
   });
 }

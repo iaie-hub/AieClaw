@@ -14,6 +14,7 @@ export type AgentEventStream =
   | "patch"
   | "compaction"
   | "thinking"
+  | "prompt"
   | (string & {});
 
 export type AgentItemEventPhase = "start" | "update" | "end";

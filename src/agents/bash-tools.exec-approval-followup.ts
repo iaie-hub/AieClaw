@@ -25,19 +25,22 @@ type ExecApprovalFollowupParams = {
 };
 
 function buildExecDeniedFollowupPrompt(resultText: string): string {
-  return [
+  const preamble = [
     "An async command did not run.",
     "Do not run the command again.",
     "There is no new command output.",
     "Do not mention, summarize, or reuse output from any earlier run in this session.",
-    "",
-    "Exact completion details:",
-    resultText.trim(),
-    "",
+  ].join("\n");
+
+  const resultBlock = `[tool_result] ${resultText.trim().replace(/\n/g, "\\n")}`;
+
+  const postamble = [
     "Reply to the user in a helpful way.",
     "Explain that the command did not run and why.",
     "Do not claim there is new command output.",
   ].join("\n");
+
+  return `[text] ${preamble.replace(/\n/g, "\\n")}\n${resultBlock}\n[text] ${postamble.replace(/\n/g, "\\n")}`;
 }
 
 function formatUnknownError(error: unknown): string {
@@ -56,22 +59,45 @@ function formatUnknownError(error: unknown): string {
 
 export function buildExecApprovalFollowupPrompt(resultText: string): string {
   const trimmed = resultText.trim();
-  if (isExecDeniedResultText(trimmed)) {
+  const parsed = parseExecApprovalResultText(trimmed);
+
+  if (parsed.kind === "denied") {
     return buildExecDeniedFollowupPrompt(trimmed);
   }
-  return [
+
+  const preamble = [
     "An async command the user already approved has completed.",
     "Do not run the command again.",
     "If the task requires more steps, continue from this result before replying to the user.",
     "Only ask the user for help if you are actually blocked.",
-    "",
-    "Exact completion details:",
-    trimmed,
-    "",
+  ].join("\n");
+
+  const postamble = [
     "Continue the task if needed, then reply to the user in a helpful way.",
     "If it succeeded, share the relevant output.",
     "If it failed, explain what went wrong.",
   ].join("\n");
+
+  const blocks: string[] = [`[text] ${preamble.replace(/\n/g, "\\n")}`];
+
+  if (parsed.kind === "finished") {
+    const statusLine = `Exec finished (${parsed.metadata})`;
+    blocks.push(`[text] ${statusLine}`);
+    if (parsed.body) {
+      blocks.push(`[tool_result] ${parsed.body.replace(/\n/g, "\\n")}`);
+    }
+  } else if (parsed.kind === "completed") {
+    if (parsed.body) {
+      blocks.push(`[tool_result] ${parsed.body.replace(/\n/g, "\\n")}`);
+    }
+  } else {
+    // Other/Fallback
+    blocks.push(`[tool_result] ${trimmed.replace(/\n/g, "\\n")}`);
+  }
+
+  blocks.push(`[text] ${postamble.replace(/\n/g, "\\n")}`);
+
+  return blocks.join("\n");
 }
 
 function shouldSuppressExecDeniedFollowup(sessionKey: string | undefined): boolean {

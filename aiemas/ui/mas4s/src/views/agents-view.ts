@@ -17,7 +17,7 @@ import "../components/confirm-dialog.js";
 import "../components/agent/agent-create-dialog.js";
 import "../components/agent/agent-export-dialog.js";
 import "../components/agent/agent-import-dialog.js";
-import "./topology-view.js";
+import "./agent-topology-view.js";
 import { getClient } from "../gateway/client.js";
 import type { AgentEntry, WorkspaceEntry } from "../types/agents-types.js";
 
@@ -447,12 +447,12 @@ export class AgentsView extends LitElement {
     // ── Topology view ──
     if (this._topologyAgent) {
       return html`
-        <topology-view
+        <agent-topology-view
           .agent=${this._topologyAgent}
           @topology-back=${() => {
             this._topologyAgent = null;
           }}
-        ></topology-view>
+        ></agent-topology-view>
       `;
     }
 

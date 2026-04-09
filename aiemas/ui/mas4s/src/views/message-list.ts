@@ -12,6 +12,7 @@ import "./msg-colleague.js";
 import "./msg-agent.js";
 import "./msg-tool-result.js";
 import "./msg-approval-card.js";
+import "./msg-system-card.js";
 import "../components/sop-pipeline.js";
 
 /**
@@ -144,6 +145,9 @@ export class MessageList extends LitElement {
         ></msg-approval-card>`;
       }
       return html``;
+    }
+    if (msg.subType === "execution-followup") {
+      return html`<msg-system-card .message=${msg}></msg-system-card>`;
     }
     // ── History approval messages (role="approval") ──────────────────────────
     if (msg.role === "approval") {

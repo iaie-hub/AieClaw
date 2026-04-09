@@ -47,8 +47,8 @@ export const isBuildRelevantRunNodePath = (repoPath) => {
   if (normalizedPath.startsWith(BUNDLED_PLUGIN_PATH_PREFIX)) {
     return isBuildRelevantSourcePath(normalizedPath.slice(BUNDLED_PLUGIN_PATH_PREFIX.length));
   }
-  if (normalizedPath.startsWith("aiemas/")) {
-    return isBuildRelevantSourcePath(normalizedPath.slice("aiemas/".length));
+  if (normalizedPath.startsWith("aiemas/src/")) {
+    return isBuildRelevantSourcePath(normalizedPath.slice("aiemas/src/".length));
   }
   return false;
 };
@@ -72,8 +72,8 @@ export const isRestartRelevantRunNodePath = (repoPath) => {
   if (normalizedPath.startsWith(BUNDLED_PLUGIN_PATH_PREFIX)) {
     return isRestartRelevantExtensionPath(normalizedPath.slice(BUNDLED_PLUGIN_PATH_PREFIX.length));
   }
-  if (normalizedPath.startsWith("aiemas/")) {
-    return isBuildRelevantSourcePath(normalizedPath.slice("aiemas/".length));
+  if (normalizedPath.startsWith("aiemas/src/")) {
+    return isBuildRelevantSourcePath(normalizedPath.slice("aiemas/src/".length));
   }
   return false;
 };

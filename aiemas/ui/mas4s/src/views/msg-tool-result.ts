@@ -53,6 +53,7 @@ export class MsgToolResult extends LitElement {
     }
 
     .message-content {
+      width: 100%;
       max-width: calc(100% - 80px);
       display: flex;
       flex-direction: column;
