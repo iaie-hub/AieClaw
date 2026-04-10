@@ -10,6 +10,7 @@ import {
   agentCommand,
   getFreePort,
   installGatewayTestHooks,
+  startGatewayServerWithRetries,
   testState,
   withGatewayServer,
 } from "./test-helpers.js";
@@ -22,12 +23,21 @@ let enabledPort: number;
 
 beforeAll(async () => {
   ({ startGatewayServer } = await import("./server.js"));
-  enabledPort = await getFreePort();
-  enabledServer = await startServer(enabledPort);
+  const started = await startGatewayServerWithRetries({
+    port: await getFreePort(),
+    opts: {
+      host: "127.0.0.1",
+      auth: { mode: "none" },
+      controlUiEnabled: false,
+      openAiChatCompletionsEnabled: true,
+    },
+  });
+  enabledPort = started.port;
+  enabledServer = started.server;
 });
 
 afterAll(async () => {
-  await enabledServer.close({ reason: "openai http enabled suite done" });
+  await enabledServer?.close({ reason: "openai http enabled suite done" });
 });
 
 async function startServerWithDefaultConfig(port: number) {
@@ -152,6 +162,7 @@ describe("OpenAI-compatible HTTP API (e2e)", () => {
       (agentCommand.mock.calls[0] as unknown[] | undefined)?.[0] as
         | {
             sessionKey?: string;
+            messageChannel?: string;
             message?: string;
             extraSystemPrompt?: string;
             images?: Array<{ type: string; data: string; mimeType: string }>;
@@ -204,6 +215,7 @@ describe("OpenAI-compatible HTTP API (e2e)", () => {
         });
         expect(res.status).toBe(200);
         expect(agentCommand).toHaveBeenCalledTimes(1);
+        expect(getFirstAgentCall()?.messageChannel).toBe("webchat");
         await res.text();
       }
 
@@ -267,6 +279,21 @@ describe("OpenAI-compatible HTTP API (e2e)", () => {
         expect((opts as { sessionKey?: string } | undefined)?.sessionKey ?? "").toContain(
           "openai-user:alice",
         );
+        await res.text();
+      }
+
+      {
+        mockAgentOnce([{ text: "hello" }]);
+        const res = await postChatCompletions(
+          port,
+          {
+            model: "openclaw",
+            messages: [{ role: "user", content: "hi" }],
+          },
+          { "x-openclaw-message-channel": "custom-client-channel" },
+        );
+        expect(res.status).toBe(200);
+        expect(getFirstAgentCall()?.messageChannel).toBe("custom-client-channel");
         await res.text();
       }
 

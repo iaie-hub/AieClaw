@@ -40,7 +40,7 @@ export type {
 export type {
   ChannelSetupWizard,
   ChannelSetupWizardAllowFromEntry,
-} from "../channels/plugins/setup-wizard.js";
+} from "../channels/plugins/setup-wizard-types.js";
 export type {
   AnyAgentTool,
   CliBackendPlugin,
@@ -50,10 +50,12 @@ export type {
   PluginLogger,
   ProviderAuthContext,
   ProviderAuthResult,
+  ProviderPreparedRuntimeAuth,
   ProviderRuntimeModel,
   RealtimeTranscriptionProviderPlugin,
   SpeechProviderPlugin,
 } from "../plugins/types.js";
+export type { ResolvedProviderRuntimeAuth } from "../plugins/runtime/model-auth-types.js";
 export type {
   PluginRuntime,
   RuntimeLogger,

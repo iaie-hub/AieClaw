@@ -34,6 +34,17 @@ export type PluginManifestModelSupport = {
   modelPatterns?: string[];
 };
 
+export type PluginManifestCommandAliasKind = "runtime-slash";
+
+export type PluginManifestCommandAlias = {
+  /** Command-like name users may put in plugin config by mistake. */
+  name: string;
+  /** Command family, used for targeted diagnostics. */
+  kind?: PluginManifestCommandAliasKind;
+  /** Optional root CLI command that handles related CLI operations. */
+  cliCommand?: string;
+};
+
 export type PluginManifestConfigLiteral = string | number | boolean | null;
 
 export type PluginManifestDangerousConfigFlag = {
@@ -97,14 +108,26 @@ export type PluginManifest = {
   channels?: string[];
   providers?: string[];
   /**
+   * Optional lightweight module that exports provider plugin metadata for
+   * auth/catalog discovery. It should not import the full plugin runtime.
+   */
+  providerDiscoveryEntry?: string;
+  /**
    * Cheap model-family ownership metadata used before plugin runtime loads.
    * Use this for shorthand model refs that omit an explicit provider prefix.
    */
   modelSupport?: PluginManifestModelSupport;
   /** Cheap startup activation lookup for plugin-owned CLI inference backends. */
   cliBackends?: string[];
+  /**
+   * Plugin-owned command aliases that should resolve to this plugin during
+   * config diagnostics before runtime loads.
+   */
+  commandAliases?: PluginManifestCommandAlias[];
   /** Cheap provider-auth env lookup without booting plugin runtime. */
   providerAuthEnvVars?: Record<string, string[]>;
+  /** Provider ids that should reuse another provider id for auth lookup. */
+  providerAuthAliases?: Record<string, string>;
   /** Cheap channel env lookup without booting plugin runtime. */
   channelEnvVars?: Record<string, string[]>;
   /**
@@ -194,6 +217,22 @@ function normalizeStringListRecord(value: unknown): Record<string, string[]> | u
       continue;
     }
     normalized[providerId] = values;
+  }
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function normalizeStringRecord(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const normalized: Record<string, string> = {};
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    const key = normalizeOptionalString(rawKey) ?? "";
+    const value = normalizeOptionalString(rawValue) ?? "";
+    if (!key || !value) {
+      continue;
+    }
+    normalized[key] = value;
   }
   return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
@@ -332,6 +371,38 @@ function normalizeManifestModelSupport(value: unknown): PluginManifestModelSuppo
   } satisfies PluginManifestModelSupport;
 
   return Object.keys(modelSupport).length > 0 ? modelSupport : undefined;
+}
+
+function normalizeManifestCommandAliases(value: unknown): PluginManifestCommandAlias[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const normalized: PluginManifestCommandAlias[] = [];
+  for (const entry of value) {
+    if (typeof entry === "string") {
+      const name = normalizeOptionalString(entry) ?? "";
+      if (name) {
+        normalized.push({ name });
+      }
+      continue;
+    }
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const name = normalizeOptionalString(entry.name) ?? "";
+    if (!name) {
+      continue;
+    }
+    const kind = entry.kind === "runtime-slash" ? entry.kind : undefined;
+    const cliCommand = normalizeOptionalString(entry.cliCommand) ?? "";
+    normalized.push({
+      name,
+      ...(kind ? { kind } : {}),
+      ...(cliCommand ? { cliCommand } : {}),
+    });
+  }
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function normalizeProviderAuthChoices(
@@ -513,9 +584,12 @@ export function loadPluginManifest(
   const version = normalizeOptionalString(raw.version);
   const channels = normalizeTrimmedStringList(raw.channels);
   const providers = normalizeTrimmedStringList(raw.providers);
+  const providerDiscoveryEntry = normalizeOptionalString(raw.providerDiscoveryEntry);
   const modelSupport = normalizeManifestModelSupport(raw.modelSupport);
   const cliBackends = normalizeTrimmedStringList(raw.cliBackends);
+  const commandAliases = normalizeManifestCommandAliases(raw.commandAliases);
   const providerAuthEnvVars = normalizeStringListRecord(raw.providerAuthEnvVars);
+  const providerAuthAliases = normalizeStringRecord(raw.providerAuthAliases);
   const channelEnvVars = normalizeStringListRecord(raw.channelEnvVars);
   const providerAuthChoices = normalizeProviderAuthChoices(raw.providerAuthChoices);
   const skills = normalizeTrimmedStringList(raw.skills);
@@ -541,9 +615,12 @@ export function loadPluginManifest(
       kind,
       channels,
       providers,
+      providerDiscoveryEntry,
       modelSupport,
       cliBackends,
+      commandAliases,
       providerAuthEnvVars,
+      providerAuthAliases,
       channelEnvVars,
       providerAuthChoices,
       skills,

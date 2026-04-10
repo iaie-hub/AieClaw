@@ -593,10 +593,15 @@ export function setLastTtsAttempt(entry: TtsStatusEntry | undefined): void {
   lastTtsAttempt = entry;
 }
 
-const OPUS_CHANNELS = new Set(["telegram", "feishu", "whatsapp", "matrix"]);
+const OPUS_CHANNELS = new Set(["telegram", "feishu", "whatsapp", "matrix", "discord"]);
 
 function resolveChannelId(channel: string | undefined): ChannelId | null {
   return channel ? normalizeChannelId(channel) : null;
+}
+
+function supportsNativeVoiceNoteTts(channel: string | undefined): boolean {
+  const channelId = resolveChannelId(channel);
+  return channelId !== null && OPUS_CHANNELS.has(channelId);
 }
 
 export function resolveTtsProviderOrder(primary: TtsProvider, cfg?: OpenClawConfig): TtsProvider[] {
@@ -807,8 +812,7 @@ export async function synthesizeSpeech(params: {
   }
 
   const { config, providers } = setup;
-  const channelId = resolveChannelId(params.channel);
-  const target = channelId && OPUS_CHANNELS.has(channelId) ? "voice-note" : "audio-file";
+  const target = supportsNativeVoiceNoteTts(params.channel) ? "voice-note" : "audio-file";
 
   const errors: string[] = [];
   const attemptedProviders: string[] = [];
@@ -936,9 +940,17 @@ export async function textToSpeechTelephony(params: {
         logVerbose(`TTS telephony: provider ${provider} skipped (${resolvedProvider.message})`);
         continue;
       }
-      const synthesizeTelephony = resolvedProvider.provider.synthesizeTelephony as NonNullable<
-        typeof resolvedProvider.provider.synthesizeTelephony
-      >;
+      const synthesizeTelephony = resolvedProvider.provider.synthesizeTelephony;
+      if (!synthesizeTelephony) {
+        errors.push(`${provider}: synthesizeTelephony not available`);
+        attempts.push({
+          provider,
+          outcome: "skipped",
+          reasonCode: "unsupported_for_telephony",
+          error: `${provider}: synthesizeTelephony not available`,
+        });
+        continue;
+      }
       const synthesis = await synthesizeTelephony({
         text: params.text,
         cfg: params.cfg,
@@ -1161,9 +1173,8 @@ export async function maybeApplyTtsToPayload(params: {
       latencyMs: result.latencyMs,
     };
 
-    const channelId = resolveChannelId(params.channel);
     const shouldVoice =
-      channelId !== null && OPUS_CHANNELS.has(channelId) && result.voiceCompatible === true;
+      supportsNativeVoiceNoteTts(params.channel) && result.voiceCompatible === true;
     return {
       ...nextPayload,
       mediaUrl: result.audioPath,
@@ -1189,6 +1200,7 @@ export async function maybeApplyTtsToPayload(params: {
 export const _test = {
   parseTtsDirectives,
   resolveModelOverridePolicy,
+  supportsNativeVoiceNoteTts,
   summarizeText,
   getResolvedSpeechProviderConfig,
   formatTtsProviderError,

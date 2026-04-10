@@ -12,7 +12,7 @@ import type {
 } from "../agents/auth-profiles/types.js";
 import type { ModelCatalogEntry } from "../agents/model-catalog.js";
 import type { FailoverReason } from "../agents/pi-embedded-helpers/types.js";
-import type { ProviderRequestTransportOverrides } from "../agents/provider-request-config.js";
+import type { ModelProviderRequestTransportOverrides } from "../agents/provider-request-config.js";
 import type { ProviderSystemPromptContribution } from "../agents/system-prompt-contribution.js";
 import type { PromptMode } from "../agents/system-prompt.js";
 import type { ToolFsPolicy } from "../agents/tool-fs-policy.js";
@@ -22,13 +22,13 @@ import type { FinalizedMsgContext } from "../auto-reply/templating.js";
 import type { ThinkLevel } from "../auto-reply/thinking.js";
 import type { ReplyPayload } from "../auto-reply/types.js";
 import type { ChannelId, ChannelPlugin } from "../channels/plugins/types.js";
-import type { OpenClawConfig } from "../config/config.js";
 import type {
   CliBackendConfig,
   ModelProviderAuthMode,
   ModelProviderConfig,
 } from "../config/types.js";
 import type { ModelCompatConfig } from "../config/types.models.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { TtsAutoMode } from "../config/types.tts.js";
 import type { OperatorScope } from "../gateway/method-scopes.js";
 import type { GatewayRequestHandler } from "../gateway/server-methods/types.js";
@@ -379,6 +379,14 @@ export type ProviderResolveDynamicModelContext = {
  */
 export type ProviderPrepareDynamicModelContext = ProviderResolveDynamicModelContext;
 
+export type ProviderPreferRuntimeResolvedModelContext = {
+  config?: OpenClawConfig;
+  agentDir?: string;
+  workspaceDir?: string;
+  provider: string;
+  modelId: string;
+};
+
 /**
  * Last-chance rewrite hook for provider-owned transport normalization.
  *
@@ -471,7 +479,7 @@ export type ProviderPrepareRuntimeAuthContext = {
 export type ProviderPreparedRuntimeAuth = {
   apiKey: string;
   baseUrl?: string;
-  request?: ProviderRequestTransportOverrides;
+  request?: ModelProviderRequestTransportOverrides;
   expiresAt?: number;
 };
 
@@ -866,6 +874,7 @@ export type ProviderBuildUnknownModelHintContext = {
   env: NodeJS.ProcessEnv;
   provider: string;
   modelId: string;
+  baseUrl?: string;
 };
 
 /**
@@ -882,6 +891,7 @@ export type ProviderBuiltInModelSuppressionContext = {
   env: NodeJS.ProcessEnv;
   provider: string;
   modelId: string;
+  baseUrl?: string;
 };
 
 export type ProviderBuiltInModelSuppressionResult = {
@@ -1138,6 +1148,12 @@ export type ProviderPlugin = {
    * completes, `resolveDynamicModel` is called again.
    */
   prepareDynamicModel?: (ctx: ProviderPrepareDynamicModelContext) => Promise<void>;
+  /**
+   * Lets a provider plugin opt exact configured models into a runtime
+   * metadata comparison pass before the embedded runner returns the explicit
+   * entry unchanged.
+   */
+  preferRuntimeResolvedModel?: (ctx: ProviderPreferRuntimeResolvedModelContext) => boolean;
   /**
    * Provider-owned transport normalization.
    *
@@ -1944,6 +1960,7 @@ export type PluginInteractiveHandlerRegistration = PluginInteractiveRegistration
 
 export type OpenClawPluginHttpRouteAuth = "gateway" | "plugin";
 export type OpenClawPluginHttpRouteMatch = "exact" | "prefix";
+export type OpenClawPluginGatewayRuntimeScopeSurface = "write-default" | "trusted-operator";
 
 export type OpenClawPluginHttpRouteHandler = (
   req: IncomingMessage,
@@ -1955,6 +1972,7 @@ export type OpenClawPluginHttpRouteParams = {
   handler: OpenClawPluginHttpRouteHandler;
   auth: OpenClawPluginHttpRouteAuth;
   match?: OpenClawPluginHttpRouteMatch;
+  gatewayRuntimeScopeSurface?: OpenClawPluginGatewayRuntimeScopeSurface;
   replaceExisting?: boolean;
 };
 

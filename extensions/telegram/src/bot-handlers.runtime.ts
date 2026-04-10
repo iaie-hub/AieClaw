@@ -5,10 +5,8 @@ import {
   createInboundDebouncer,
   resolveInboundDebounceMs,
 } from "openclaw/plugin-sdk/channel-inbound";
-import {
-  buildCommandsMessagePaginated,
-  resolveStoredModelOverride,
-} from "openclaw/plugin-sdk/command-auth";
+import { resolveStoredModelOverride } from "openclaw/plugin-sdk/command-auth";
+import { buildCommandsMessagePaginated } from "openclaw/plugin-sdk/command-status";
 import { writeConfigFile } from "openclaw/plugin-sdk/config-runtime";
 import {
   loadSessionStore,
@@ -1506,7 +1504,7 @@ export const registerTelegramHandlers = ({
             );
             return;
           }
-          const models = [...modelSet].toSorted();
+          const models = [...modelSet].toSorted((a, b) => a.localeCompare(b));
           const pageSize = getModelsPageSize();
           const totalPages = calculateTotalPages(models.length, pageSize);
           const safePage = Math.max(1, Math.min(page, totalPages));

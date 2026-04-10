@@ -17,6 +17,7 @@ import { discoverOpenClawPlugins, type PluginCandidate } from "./discovery.js";
 import {
   loadPluginManifest,
   type OpenClawPackageManifest,
+  type PluginManifestCommandAlias,
   type PluginManifestConfigContracts,
   type PluginManifest,
   type PluginManifestChannelConfig,
@@ -75,9 +76,12 @@ export type PluginManifestRecord = {
   kind?: PluginKind | PluginKind[];
   channels: string[];
   providers: string[];
+  providerDiscoverySource?: string;
   modelSupport?: PluginManifestModelSupport;
   cliBackends: string[];
+  commandAliases?: PluginManifestCommandAlias[];
   providerAuthEnvVars?: Record<string, string[]>;
+  providerAuthAliases?: Record<string, string>;
   channelEnvVars?: Record<string, string[]>;
   providerAuthChoices?: PluginManifest["providerAuthChoices"];
   skills: string[];
@@ -202,6 +206,47 @@ export function resolveManifestContractOwnerPluginId(params: {
   )?.id;
 }
 
+export type PluginManifestCommandAliasRecord = PluginManifestCommandAlias & {
+  pluginId: string;
+};
+
+export function resolveManifestCommandAliasOwner(params: {
+  command: string | undefined;
+  config?: OpenClawConfig;
+  workspaceDir?: string;
+  env?: NodeJS.ProcessEnv;
+  registry?: PluginManifestRegistry;
+}): PluginManifestCommandAliasRecord | undefined {
+  const normalizedCommand = normalizeOptionalLowercaseString(params.command);
+  if (!normalizedCommand) {
+    return undefined;
+  }
+  const registry =
+    params.registry ??
+    loadPluginManifestRegistry({
+      config: params.config,
+      workspaceDir: params.workspaceDir,
+      env: params.env,
+    });
+
+  const commandIsPluginId = registry.plugins.some(
+    (plugin) => normalizeOptionalLowercaseString(plugin.id) === normalizedCommand,
+  );
+  if (commandIsPluginId) {
+    return undefined;
+  }
+
+  for (const plugin of registry.plugins) {
+    const alias = plugin.commandAliases?.find(
+      (entry) => normalizeOptionalLowercaseString(entry.name) === normalizedCommand,
+    );
+    if (alias) {
+      return { ...alias, pluginId: plugin.id };
+    }
+  }
+  return undefined;
+}
+
 function resolveManifestCacheMs(env: NodeJS.ProcessEnv): number {
   const raw = env.OPENCLAW_PLUGIN_MANIFEST_CACHE_MS?.trim();
   if (raw === "" || raw === "0") {
@@ -308,9 +353,14 @@ function buildRecord(params: {
     kind: params.manifest.kind,
     channels: params.manifest.channels ?? [],
     providers: params.manifest.providers ?? [],
+    providerDiscoverySource: params.manifest.providerDiscoveryEntry
+      ? path.resolve(params.candidate.rootDir, params.manifest.providerDiscoveryEntry)
+      : undefined,
     modelSupport: params.manifest.modelSupport,
     cliBackends: params.manifest.cliBackends ?? [],
+    commandAliases: params.manifest.commandAliases,
     providerAuthEnvVars: params.manifest.providerAuthEnvVars,
+    providerAuthAliases: params.manifest.providerAuthAliases,
     channelEnvVars: params.manifest.channelEnvVars,
     providerAuthChoices: params.manifest.providerAuthChoices,
     skills: params.manifest.skills ?? [],
