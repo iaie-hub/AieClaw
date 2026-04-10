@@ -313,7 +313,7 @@ export class SessionController {
       const updated = sessions.find((s) => s.sessionUuid === uuid);
       if (updated) {
         this.store.setActiveSession(updated.sessionUuid!);
-        // 重要：由于 sessionKey 变更，为了获取最新的 displayName 等，可选刷新
+        // 重要：由于 sessionKey 变更，为了获取最新的 label 等，可选刷新
         // 但由于 UUID 不变，历史消息缓存是稳定的，不需要重新 loadMoreHistory。
       }
       console.debug("[mas4s:session] agent-update ← ok");

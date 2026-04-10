@@ -15,10 +15,10 @@
     "allowJs": true,
     "skipLibCheck": true,
     "outDir": "dist",
-    "rootDir": "../../",
+    "rootDir": "../../../",
     "paths": {
-      "@core/*": ["../../src/*"],
-      "@vendor/*": ["../../../vendor/*"]
+      "@core/*": ["./src/*"],
+      "@vendor/*": ["./vendor/*"]
     }
   },
   "include": ["src/**/*.ts", "vite.config.ts"],

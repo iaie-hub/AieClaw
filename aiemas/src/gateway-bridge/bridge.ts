@@ -7,8 +7,8 @@ import {
 } from "../errors.js";
 import type { TenantService } from "../index.js";
 import type { SessionMember } from "../models.js";
-import { getSessionLabel } from "../session-history/session-label-store.js";
 import type { SessionTranscriptStore } from "../session-history/session-transcript-store.js";
+import { createAiemasSessionsStore } from "../store/aiemas-sessions-store.js";
 import {
   extractUuidFromKey,
   extractAgentNameFromKey,
@@ -162,6 +162,11 @@ export class GatewayAuthBridge {
     masAuth: MasAuthContext,
   ): { allowed: true } | { allowed: false; code: string; message: string } {
     if (masAuth.userId === null) {
+      return { allowed: true };
+    }
+
+    // Admin override: admins can access any session
+    if (masAuth.masRole === "admin") {
       return { allowed: true };
     }
 
@@ -713,24 +718,23 @@ function enrichSessionRow(
     .prepare("SELECT role FROM session_memberships WHERE sessionUuid = ? AND userId = ?")
     .get(uuid, userId) as { role: string } | undefined;
 
-  // Resolve and route: use currentAgentId from labels to construct the live sessionKey
-  const labelEntry = getSessionLabel(db, uuid);
+  // Resolve and route: use currentAgentId from aiemas_sessions to construct the live sessionKey
+  const store = createAiemasSessionsStore(db);
+  const labelEntry = store.getSessionLabel(uuid);
   const currentAgentId = labelEntry?.currentAgentId ?? extractAgentNameFromKey(sessionKey);
   const liveKey = constructKeyFromUuid(currentAgentId, uuid);
 
-  const gatewayDisplayName = session["displayName"] as string | null | undefined;
-  const resolvedDisplayName =
-    labelEntry?.displayName ??
+  const resolvedLabel =
     labelEntry?.label ??
-    gatewayDisplayName ??
     (session["label"] as string | null | undefined) ??
+    (session["displayName"] as string | null | undefined) ??
     null;
 
   return {
     ...session,
     key: liveKey,
     sessionKey: liveKey,
-    displayName: resolvedDisplayName,
+    displayName: resolvedLabel,
     archivedAt: ownership?.archivedAt ?? null,
     masRole: membership?.role ?? null,
     currentAgentId,

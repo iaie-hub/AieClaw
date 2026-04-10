@@ -1,4 +1,3 @@
-import { extractUuidFromKey } from "../../../../src/utils/session-utils.js";
 import type { GatewayEventFrame } from "../lib/gateway.js";
 import { normalizeMessage } from "../lib/message-normalizer.js";
 import { AppStore } from "../store/app-store.js";
@@ -6,6 +5,7 @@ import type { ApprovalRequest, ApprovalResolved } from "../types/approval-types.
 import type { ChatMessage } from "../types/chat-types.js";
 import type { MasSession } from "../types/session-types.js";
 import { parseSenderPrefix } from "../utils/message-format.js";
+import { extractUuidFromKey } from "../utils/session-utils.js";
 import { addEventHandler } from "./client.js";
 
 const TOOL_OUTPUT_CHAR_LIMIT = 120_000;
@@ -148,7 +148,7 @@ export function registerEventHandlers(): void {
       }
       case "sessions.changed": {
         // When a session is patched or reset, re-sync label from aiemas DB
-        // in case the gateway's sessions.json lost the displayName.
+        // in case the gateway's sessions.json lost the label.
         const { sessionKey: changedKey, reason: changedReason } = evt.payload as {
           sessionKey?: string;
           reason?: string;
@@ -165,7 +165,6 @@ export function registerEventHandlers(): void {
               if (entry) {
                 store.patchSessionLabelFromDb(changedKey, {
                   label: entry.label,
-                  displayName: entry.displayName,
                 });
               }
             } catch {
@@ -306,7 +305,7 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
       ...normalized,
       id: runId ?? normalized.id,
       timestamp: Date.now(),
-      role: (data.role as unknown) ?? normalized.role,
+      role: normalized.role,
       senderLabel: null,
     };
     debugLog(

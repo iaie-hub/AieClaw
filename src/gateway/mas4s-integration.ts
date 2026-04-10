@@ -445,7 +445,41 @@ export async function initMas4sIntegration(
         const respond = (ok: boolean, payload: unknown, error: unknown) => {
           opts.respond(ok, payload ?? undefined, error as Parameters<typeof opts.respond>[2]);
         };
-        await handler({ params: opts.params, client: opts.client, respond });
+        await handler({
+          params: opts.params,
+          client: opts.client,
+          respond,
+          dispatchGateway: async (innerMethod, innerParams, innerClient = opts.client) => {
+            const { handleGatewayRequest: dispatch } = await import("./server-methods.js");
+            return await new Promise<unknown>((resolve, reject) => {
+              void dispatch({
+                req: {
+                  type: "req" as const,
+                  method: innerMethod,
+                  params: innerParams,
+                  id: `mas4s-internal-${Date.now()}`,
+                },
+                client: (innerClient ?? null) as GatewayWsClient | null,
+                isWebchatConnect: () => false,
+                respond: (ok, payload, error) => {
+                  if (ok) {
+                    resolve(payload);
+                    return;
+                  }
+                  reject(
+                    new Error(
+                      typeof error === "object" && error
+                        ? ((error as { message?: string }).message ?? JSON.stringify(error))
+                        : String(error),
+                    ),
+                  );
+                },
+                context: opts.context,
+                extraHandlers,
+              });
+            });
+          },
+        });
       };
     }
 

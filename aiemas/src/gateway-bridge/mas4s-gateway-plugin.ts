@@ -1,13 +1,8 @@
 import { TenantServiceError } from "../errors.js";
 import type { TenantService, TenantServiceConfig } from "../index.js";
 import { createTenantService } from "../index.js";
-import {
-  upsertSessionLabel,
-  getSessionLabel,
-  listSessionLabels,
-  deleteSessionLabel,
-} from "../session-history/session-label-store.js";
 import { deleteSummary, deleteSessionMessages } from "../session-history/session-summary-store.js";
+import { createAiemasSessionsStore } from "../store/aiemas-sessions-store.js";
 import { GatewayAuthBridge } from "./bridge.js";
 import { getMasAuth, NULL_MAS_AUTH } from "./context.js";
 import { extractMasTokenFromUrl } from "./integration.js";
@@ -21,6 +16,11 @@ type SimpleHandler = (opts: {
   params: Record<string, unknown>;
   client: unknown;
   respond: (ok: boolean, payload: unknown, error: unknown) => void;
+  dispatchGateway?: (
+    method: string,
+    params: Record<string, unknown>,
+    client?: unknown,
+  ) => Promise<unknown>;
 }) => void | Promise<void>;
 
 type SimpleHandlers = Record<string, SimpleHandler>;
@@ -100,6 +100,7 @@ export async function createMas4sGatewayPlugin(
   const { join } = await import("node:path");
   const dbPath = config?.dbPath ?? join(homedir(), ".openclaw", "aiemas", "mas4s.db");
   const db = initDatabase(dbPath);
+  const sessionStore = createAiemasSessionsStore(db);
 
   // Log user count on startup for operational visibility
   const userCountRow = db.prepare("SELECT COUNT(*) AS count FROM users").get() as {
@@ -126,17 +127,17 @@ export async function createMas4sGatewayPlugin(
   transcriptStore.start();
 
   const bridge = new GatewayAuthBridge(tenantService, db, config?.llm, transcriptStore);
-  // Subscribe to session lifecycle events to persist label/displayName into mas4s.db.
+  // Subscribe to session lifecycle events to persist label into aiemas_sessions.
   // This survives session resets because sessionKey is stable across resets.
   const { onSessionLifecycleEvent } =
     await import("../../../src/sessions/session-lifecycle-events.js");
   const stopLabelSync = onSessionLifecycleEvent((event) => {
     try {
-      // On session delete, remove the label, all messages, and summary from message DB.
+      // On session delete, remove the record, all messages, and summary from message DB.
       if (event.reason === "session-delete") {
         const { extractUuidFromKey } = require("../utils/session-utils.js");
         const uuid = extractUuidFromKey(event.sessionKey);
-        deleteSessionLabel(db, uuid);
+        sessionStore.deleteSessionByUuid(uuid);
         deleteSummary(messageDb, uuid);
         deleteSessionMessages(messageDb, uuid);
         return;
@@ -146,9 +147,10 @@ export async function createMas4sGatewayPlugin(
       if (!hasLabel && !hasDisplayName) {
         return;
       }
-      upsertSessionLabel(db, event.sessionKey, {
+      sessionStore.upsertSessionLabel(event.sessionKey, {
+        // displayName maps to label (merged)
         ...(hasLabel ? { label: event.label ?? null } : {}),
-        ...(hasDisplayName ? { displayName: event.displayName ?? null } : {}),
+        ...(hasDisplayName && !hasLabel ? { label: event.displayName ?? null } : {}),
       });
     } catch (err) {
       console.error("[mas4s:label-sync] upsertSessionLabel error:", err);
@@ -183,9 +185,12 @@ export async function createMas4sGatewayPlugin(
 
         const { queryHistoryRange } = await import("../session-history/session-history-query.js");
 
-        // from/to are optional: when absent the query returns all messages.
-        const resolvedFrom = typeof params["from"] === "number" ? params["from"] : undefined;
-        const resolvedTo = typeof params["to"] === "number" ? params["to"] : undefined;
+        // from/to are optional: when absent the query returns the last 30 days.
+        const resolvedTo = typeof params["to"] === "number" ? params["to"] : Date.now();
+        const resolvedFrom =
+          typeof params["from"] === "number"
+            ? params["from"]
+            : resolvedTo - 30 * 24 * 60 * 60 * 1000;
         const resolvedSid =
           typeof params["sessionId"] === "string" ? params["sessionId"] : undefined;
         const buffered = transcriptStore.getBuffered(
@@ -605,13 +610,12 @@ export async function createMas4sGatewayPlugin(
             return;
           }
         }
-        const entry = getSessionLabel(db, sessionKey);
+        const entry = sessionStore.getSessionLabel(sessionKey);
         respond(
           true,
           {
             sessionKey,
             label: entry?.label ?? null,
-            displayName: entry?.displayName ?? null,
             updatedAt: entry?.updatedAt ?? null,
           },
           undefined,
@@ -630,7 +634,7 @@ export async function createMas4sGatewayPlugin(
           respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
           return;
         }
-        const all = listSessionLabels(db);
+        const all = sessionStore.listSessionLabels();
         respond(true, { labels: all }, undefined);
       } catch (err) {
         const e =
@@ -716,7 +720,7 @@ export async function createMas4sGatewayPlugin(
           return;
         }
 
-        upsertSessionLabel(db, sessionKey, { currentAgentId: agentId });
+        sessionStore.upsertSessionLabel(sessionKey, { currentAgentId: agentId });
         respond(true, { ok: true, agentId }, undefined);
       } catch (err) {
         const e =
@@ -732,10 +736,7 @@ export async function createMas4sGatewayPlugin(
           respond(false, undefined, errorShape("INVALID_PARAMS", "agentId required"));
           return;
         }
-        const row = db
-          .prepare("SELECT COUNT(*) AS count FROM session_labels WHERE currentAgentId = ?")
-          .get(agentId) as { count: number };
-        const count = row.count;
+        const count = sessionStore.countByCurrentAgentId(agentId);
         if (count === 0) {
           respond(true, { ok: true }, undefined);
         } else {
@@ -911,7 +912,7 @@ export async function createMas4sGatewayPlugin(
       }
     },
 
-    "aiemas.sessions.create": async ({ params, client, respond }) => {
+    "aiemas.sessions.create": async ({ params, client, respond, dispatchGateway }) => {
       const auth = getCallerAuth(client);
       try {
         const agentId = str(params["agentId"]);
@@ -922,15 +923,17 @@ export async function createMas4sGatewayPlugin(
         const label = typeof params["label"] === "string" ? params["label"] : undefined;
         const userId = auth.userId ?? null;
         const tenantId = str(auth.tenantId ?? "");
-
         const { createSessionCascadeService } = await import("./aiemas-session.js");
         const cascadeService = createSessionCascadeService({
           db,
           callGateway: async (method, callParams) => {
+            if (dispatchGateway) {
+              return await dispatchGateway(method, callParams, client);
+            }
             if (!plugin.gatewayDispatch) {
               throw new Error("gatewayDispatch not available");
             }
-            return plugin.gatewayDispatch(method, callParams, null);
+            return await plugin.gatewayDispatch(method, callParams, client);
           },
           topologyCache: tenantService.cacheService.topologyCache,
           recordSessionCreated: (sessionKey, uid, tid) => {
@@ -960,7 +963,7 @@ export async function createMas4sGatewayPlugin(
       }
     },
 
-    "aiemas.sessions.delete": async ({ params, client, respond }) => {
+    "aiemas.sessions.delete": async ({ params, client, respond, dispatchGateway }) => {
       const auth = getCallerAuth(client);
       try {
         const sessionKey = str(params["sessionKey"]);
@@ -982,10 +985,13 @@ export async function createMas4sGatewayPlugin(
         const cascadeService = createSessionCascadeService({
           db,
           callGateway: async (method, callParams) => {
+            if (dispatchGateway) {
+              return await dispatchGateway(method, callParams, client);
+            }
             if (!plugin.gatewayDispatch) {
               throw new Error("gatewayDispatch not available");
             }
-            return plugin.gatewayDispatch(method, callParams, null);
+            return await plugin.gatewayDispatch(method, callParams, client);
           },
           topologyCache: tenantService.cacheService.topologyCache,
           recordSessionCreated: (sessionKey: string, uid: string, tid: string) => {
@@ -1015,16 +1021,19 @@ export async function createMas4sGatewayPlugin(
       }
     },
 
-    "aiemas.sessions.list": async ({ respond }) => {
+    "aiemas.sessions.list": async ({ client, respond, dispatchGateway }) => {
       try {
         const { createSessionCascadeService } = await import("./aiemas-session.js");
         const cascadeService = createSessionCascadeService({
           db,
           callGateway: async (method, callParams) => {
+            if (dispatchGateway) {
+              return await dispatchGateway(method, callParams, client);
+            }
             if (!plugin.gatewayDispatch) {
               throw new Error("gatewayDispatch not available");
             }
-            return plugin.gatewayDispatch(method, callParams, null);
+            return await plugin.gatewayDispatch(method, callParams, client);
           },
           topologyCache: tenantService.cacheService.topologyCache,
           recordSessionCreated: (sessionKey: string, uid: string, tid: string) => {
@@ -1050,7 +1059,7 @@ export async function createMas4sGatewayPlugin(
       }
     },
 
-    "aiemas.agents.import": async ({ params, client, respond }) => {
+    "aiemas.agents.import": async ({ params, client, respond, dispatchGateway }) => {
       try {
         const archivePath = str(params["archivePath"]);
         if (!archivePath) {
@@ -1090,7 +1099,11 @@ export async function createMas4sGatewayPlugin(
         const workspace =
           str(params["workspace"]) ||
           nodePath.join(nodeOs.homedir(), `.openclaw`, `workspace-${agentId}`);
-        const agentCreateResult = (await plugin.gatewayDispatch!(
+        const dispatch = dispatchGateway ?? plugin.gatewayDispatch;
+        if (!dispatch) {
+          throw new Error("Gateway dispatch not available");
+        }
+        const agentCreateResult = (await dispatch(
           "agents.create",
           { name: agentName, workspace },
           client,

@@ -94,16 +94,6 @@ export function ensureMas4sSchema(db: DatabaseSync): void {
   `);
 
   db.exec(`
-    CREATE TABLE IF NOT EXISTS session_labels (
-      sessionUuid   TEXT    PRIMARY KEY,
-      label         TEXT    NULL,
-      displayName   TEXT    NULL,
-      currentAgentId TEXT   NULL,
-      updatedAt     INTEGER NOT NULL
-    );
-  `);
-
-  db.exec(`
     CREATE TABLE IF NOT EXISTS user_presence (
       userId TEXT PRIMARY KEY REFERENCES users(userId),
       lastSeenAt INTEGER NOT NULL,
@@ -133,15 +123,17 @@ export function ensureMas4sSchema(db: DatabaseSync): void {
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS aiemas_sessions (
-      sessionKey        TEXT PRIMARY KEY,
+      sessionUuid       TEXT PRIMARY KEY,
+      sessionKey        TEXT NOT NULL UNIQUE,
       sessionId         TEXT NOT NULL,
       agentId           TEXT NOT NULL,
-      sessionUuid       TEXT NOT NULL,
       label             TEXT,
+      currentAgentId    TEXT,
       userId            TEXT NOT NULL,
       tenantId          TEXT NOT NULL,
       descendantSessions TEXT NOT NULL,
-      createdAt         INTEGER NOT NULL
+      createdAt         INTEGER NOT NULL,
+      updatedAt         INTEGER NOT NULL
     );
   `);
 
@@ -159,6 +151,56 @@ export function ensureMas4sSchema(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_aiemas_sessions_tenantId
     ON aiemas_sessions(tenantId);
   `);
+
+  // ── Migration: add new columns if upgrading from old schema ──
+  try {
+    db.exec("ALTER TABLE aiemas_sessions ADD COLUMN currentAgentId TEXT;");
+  } catch {
+    // Already exists
+  }
+  try {
+    db.exec("ALTER TABLE aiemas_sessions ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0;");
+  } catch {
+    // Already exists
+  }
+
+  // Drop legacy session_labels table if it still exists
+  db.exec("DROP TABLE IF EXISTS session_labels;");
+
+  // Migration: if old schema had sessionKey as PK,
+  // recreate the table with sessionUuid as PK.
+  const pkCol = (
+    db.prepare("PRAGMA table_info(aiemas_sessions)").all() as Array<{
+      name: string;
+      pk: number;
+    }>
+  ).find((c) => c.pk === 1);
+  if (pkCol && pkCol.name === "sessionKey") {
+    db.exec(`
+      CREATE TABLE aiemas_sessions_new (
+        sessionUuid       TEXT PRIMARY KEY,
+        sessionKey        TEXT NOT NULL UNIQUE,
+        sessionId         TEXT NOT NULL,
+        agentId           TEXT NOT NULL,
+        label             TEXT,
+        currentAgentId    TEXT,
+        userId            TEXT NOT NULL,
+        tenantId          TEXT NOT NULL,
+        descendantSessions TEXT NOT NULL,
+        createdAt         INTEGER NOT NULL,
+        updatedAt         INTEGER NOT NULL DEFAULT 0
+      );
+      INSERT INTO aiemas_sessions_new
+        (sessionUuid, sessionKey, sessionId, agentId, label, currentAgentId, userId, tenantId, descendantSessions, createdAt, updatedAt)
+      SELECT sessionUuid, sessionKey, sessionId, agentId, label, currentAgentId, userId, tenantId, descendantSessions, createdAt, updatedAt
+      FROM aiemas_sessions;
+      DROP TABLE aiemas_sessions;
+      ALTER TABLE aiemas_sessions_new RENAME TO aiemas_sessions;
+      CREATE INDEX IF NOT EXISTS idx_aiemas_sessions_agentId ON aiemas_sessions(agentId);
+      CREATE INDEX IF NOT EXISTS idx_aiemas_sessions_userId ON aiemas_sessions(userId);
+      CREATE INDEX IF NOT EXISTS idx_aiemas_sessions_tenantId ON aiemas_sessions(tenantId);
+    `);
+  }
 }
 
 /**

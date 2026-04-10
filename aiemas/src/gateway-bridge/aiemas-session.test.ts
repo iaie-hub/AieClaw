@@ -90,7 +90,7 @@ function mockCallGateway(opts: { failCreateFor?: Set<string> } = {}) {
       const explicitKey = typeof params["key"] === "string" ? params["key"] : undefined;
       return {
         key: explicitKey ?? `agent:${agentId}:group:${uuid}`,
-        id: `sess-${randomUUID().slice(0, 8)}`,
+        sessionId: `sess-${randomUUID().slice(0, 8)}`,
       };
     }
     if (method === "sessions.delete") {
@@ -192,7 +192,7 @@ describe("cascadeCreate - success path with root agent", () => {
 
     const createCalls = mock.getCreateCalls();
     const rootSessionKey = createCalls[0]?.params["key"] as string | undefined;
-    expect(rootSessionKey).toBeUndefined();
+    expect(rootSessionKey).toBe(result.sessionKey);
     const rootUuid = extractUuidFromKey(result.sessionKey);
     expect(rootUuid).toBeTruthy();
     expect(createCalls.slice(1)).toEqual(
@@ -297,10 +297,12 @@ describe("cascadeCreate - non-root agent (no topology)", () => {
     expect(result.sessionKey).toMatch(/^agent:non-root-agent:group:/);
     expect(mock.getCallCount()).toBe(1);
     expect(mock.getCreateCount()).toBe(1);
+    expect(mock.getCreateCalls()[0].params["key"]).toBe(result.sessionKey);
 
-    // No DB record saved
+    // DB record saved (even for non-root)
     const listed = await svc.listRootSessions();
-    expect(listed.sessions).toHaveLength(0);
+    expect(listed.sessions).toHaveLength(1);
+    expect(listed.sessions[0].agentId).toBe("non-root-agent");
   });
 });
 
@@ -340,6 +342,7 @@ describe("cascadeCreate - compatibility mode (userId=null)", () => {
     expect(result.sessionKey).toMatch(/^agent:root-agent:group:/);
     expect(mock.getCallCount()).toBe(1);
     expect(mock.getCreateCount()).toBe(1);
+    expect(mock.getCreateCalls()[0].params["key"]).toBe(result.sessionKey);
 
     // No DB record saved (compat mode)
     const listed = await svc.listRootSessions();
@@ -613,13 +616,14 @@ describe("listRootSessions - returns sessions from DB", () => {
       deleteSessionRecords: () => {},
       loadGatewaySessionRow: loadGatewayRowFromStore(db),
     });
-    // This one won't be persisted (non-root)
+    // This one WILL be persisted (it has a user)
     await svc2.cascadeCreate({ agentId: "non-root", userId: "user-2", tenantId: "tenant-1" });
 
     const listed = await svc.listRootSessions();
-    expect(listed.sessions).toHaveLength(1);
+    expect(listed.sessions).toHaveLength(2);
 
-    const s = listed.sessions[0];
+    const s = listed.sessions.find((x: any) => x.agentId === "root-a");
+    expect(s).toBeDefined();
     expect(s.sessionKey).toBe(r1.sessionKey);
     expect(s.sessionId).toBe(r1.sessionId);
     expect(s.agentId).toBe("root-a");

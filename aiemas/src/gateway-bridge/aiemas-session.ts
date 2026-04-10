@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { TopologyCache } from "../cache/topology-cache.js";
 import type { TopologyTree } from "../models.js";
 import { createAiemasSessionsStore } from "../store/aiemas-sessions-store.js";
@@ -6,7 +7,7 @@ import { str, sendToConnId, buildConnectedUsers, type GatewayClient } from "./ai
 import { GatewayAuthBridge } from "./bridge.js";
 import { MasAuthContext, NULL_MAS_AUTH } from "./context.js";
 import type { Mas4sGatewayPlugin } from "./mas4s-gateway-plugin.js";
-import { extractDescendantAgentIds, extractSessionUuid } from "./topology-utils.js";
+import { extractDescendantAgentIds } from "./topology-utils.js";
 
 export interface SessionContext {
   plugin: Mas4sGatewayPlugin;
@@ -53,49 +54,48 @@ export async function cascadeCreate(params: {
 }): Promise<{ sessionKey: string; sessionId: string }> {
   const { agentId, userId, tenantId, label, topologyCache, gatewayDispatch, db, bridge } = params;
 
+  const sessionUuid = randomUUID();
+  const suggestedKey = constructKeyFromUuid(agentId, sessionUuid);
+
   // 步骤 1：检查兼容模式
   if (userId === null) {
     // 兼容模式：仅为该 Agent 创建 session，不执行级联操作
     if (!gatewayDispatch) {
       throw new Error("gatewayDispatch not available");
     }
-    const result = (await gatewayDispatch("sessions.create", { agentId, label }, null)) as {
+    const result = (await gatewayDispatch(
+      "sessions.create",
+      { agentId, label, key: suggestedKey },
+      null,
+    )) as {
       key: string;
-      id: string;
+      sessionId: string;
     };
-    return { sessionKey: result.key, sessionId: result.id };
+    return { sessionKey: result.key, sessionId: result.sessionId };
   }
 
   // 步骤 2：查询拓扑关系
   const topology = topologyCache.getTopology(agentId);
 
-  // 步骤 3：如果不是 rootAgentId，仅为该 Agent 创建 session
-  if (topology === undefined) {
-    if (!gatewayDispatch) {
-      throw new Error("gatewayDispatch not available");
-    }
-    const result = (await gatewayDispatch("sessions.create", { agentId, label }, null)) as {
-      key: string;
-      id: string;
-    };
-    return { sessionKey: result.key, sessionId: result.id };
-  }
-
-  // 步骤 4：是 rootAgentId，提取后代 Agent ID 列表
-  const descendantAgentIds = extractDescendantAgentIds(topology.edges, agentId);
+  // 步骤 3：提取后代 Agent ID 列表（如果非 rootAgentId，则为空列表）
+  const descendantAgentIds = topology ? extractDescendantAgentIds(topology.edges, agentId) : [];
 
   if (!gatewayDispatch) {
     throw new Error("gatewayDispatch not available");
   }
 
   // 为根 Agent 创建 session
-  const rootResult = (await gatewayDispatch("sessions.create", { agentId, label }, null)) as {
+  const rootResult = (await gatewayDispatch(
+    "sessions.create",
+    { agentId, label, key: suggestedKey },
+    null,
+  )) as {
     key: string;
-    id: string;
+    sessionId: string;
   };
   const rootSessionKey = rootResult.key;
-  const rootSessionId = rootResult.id;
-  const sessionUuid = extractSessionUuid(rootSessionKey);
+  const rootSessionId = rootResult.sessionId;
+  // Use the sessionUuid already generated
 
   // 为后代 Agent 创建 session
   const descendantSessions: Array<{
@@ -256,37 +256,42 @@ export function createSessionCascadeService(
     }): Promise<{ sessionKey: string; sessionId: string }> {
       const { agentId, userId, tenantId, label } = params;
 
+      const sessionUuid = randomUUID();
+      const suggestedRootKey = constructKeyFromUuid(agentId, sessionUuid);
+
       // 步骤 1：兼容模式 — userId 为 null 时跳过级联，仅创建根 Agent session
       if (userId === null) {
-        const result = (await callGateway("sessions.create", { agentId, label })) as {
+        const result = (await callGateway("sessions.create", {
+          agentId,
+          label,
+          key: suggestedRootKey,
+        })) as {
           key: string;
-          id: string;
+          sessionId: string;
         };
-        return { sessionKey: result.key, sessionId: result.id };
+        return { sessionKey: result.key, sessionId: result.sessionId };
       }
 
       // 步骤 2：查询拓扑关系，判断是否为 rootAgentId
       const topology = topologyCache.getTopology(agentId);
-      if (topology === undefined) {
-        // 非 rootAgentId，仅为该 Agent 创建 session
-        const result = (await callGateway("sessions.create", { agentId, label })) as {
-          key: string;
-          id: string;
-        };
-        return { sessionKey: result.key, sessionId: result.id };
-      }
 
-      // 步骤 3：提取后代 Agent ID 列表（排除 rootAgentId 自身）
-      const descendantAgentIds = extractDescendantAgentIds(topology.edges, agentId);
+      // 步骤 3：如果 Agent 不在拓扑根节点，则其后代 Agent 列表为空
+      const descendantAgentIds = topology ? extractDescendantAgentIds(topology.edges, agentId) : [];
 
       // 步骤 4：为根 Agent 创建 session
-      const rootResult = (await callGateway("sessions.create", { agentId, label })) as {
+      const rootResult = (await callGateway("sessions.create", {
+        agentId,
+        label,
+        key: suggestedRootKey,
+      })) as {
         key: string;
-        id: string;
+        sessionId: string;
       };
       const rootSessionKey = rootResult.key;
-      const rootSessionId = rootResult.id;
-      const sessionUuid = extractSessionUuid(rootSessionKey);
+      const rootSessionId = rootResult.sessionId;
+      // Use the sessionUuid already generated
+
+      console.log(`[mas4s] aiemas.sessions.create ← ok, sessionKey=${rootSessionKey}`);
 
       // 步骤 5：为每个后代 Agent 创建 session，失败时记录警告并继续
       const descendantSessions: Array<{
@@ -301,10 +306,10 @@ export function createSessionCascadeService(
           const descendantResult = (await callGateway("sessions.create", {
             agentId: descendantAgentId,
             ...(descendantKey ? { key: descendantKey } : {}),
-          })) as { key: string; id: string };
+          })) as { key: string; sessionId: string };
 
           const descendantSessionKey = descendantResult.key;
-          const descendantSessionId = descendantResult.id;
+          const descendantSessionId = descendantResult.sessionId;
 
           // 记录后代 Agent session 所有权（与根 Agent 共享 userId/tenantId）
           try {
@@ -349,6 +354,7 @@ export function createSessionCascadeService(
         );
       }
 
+      console.log(`[mas4s] aiemas.sessions.create ← ok, sessionKey=${rootSessionKey}`);
       return { sessionKey: rootSessionKey, sessionId: rootSessionId };
     },
 
@@ -361,20 +367,20 @@ export function createSessionCascadeService(
       const record = store.loadRootSession(sessionKey);
       if (record === undefined) {
         // 无记录：仅删除该 session 本身（兼容模式或非级联 session）
-        await callGateway("sessions.delete", { sessionKey });
+        await callGateway("sessions.delete", { key: sessionKey });
         return;
       }
 
       // 步骤 2：检查兼容模式（userId 为 null 时跳过级联）
       if (record.userId === null) {
-        await callGateway("sessions.delete", { sessionKey });
+        await callGateway("sessions.delete", { key: sessionKey });
         return;
       }
 
       // 步骤 3：删除后代 Agent session（失败时记录警告并继续）
       for (const descendantSession of record.descendantSessions) {
         try {
-          await callGateway("sessions.delete", { sessionKey: descendantSession.sessionKey });
+          await callGateway("sessions.delete", { key: descendantSession.sessionKey });
           deleteSessionRecords(descendantSession.sessionKey);
         } catch (err) {
           console.warn(
@@ -385,7 +391,7 @@ export function createSessionCascadeService(
       }
 
       // 步骤 4：删除根 Agent session
-      await callGateway("sessions.delete", { sessionKey });
+      await callGateway("sessions.delete", { key: sessionKey });
 
       // 步骤 5：清理记录
       deleteSessionRecords(sessionKey);
@@ -489,7 +495,7 @@ export function createSessionCascadeService(
           );
           if (descendantSession !== undefined) {
             try {
-              await callGateway("sessions.delete", { sessionKey: descendantSession.sessionKey });
+              await callGateway("sessions.delete", { key: descendantSession.sessionKey });
               try {
                 deleteSessionRecords(descendantSession.sessionKey);
               } catch (cleanupErr) {
@@ -563,7 +569,7 @@ export function registerSessionHandlers(
 
           const sessionRow = loadSessionRow(sessionKey);
           const sessionLabel =
-            str(sessionRow?.["displayName"] ?? sessionRow?.["label"] ?? sessionKey) ?? sessionKey;
+            str(sessionRow?.["label"] ?? sessionRow?.["displayName"] ?? sessionKey) ?? sessionKey;
 
           plugin.bridge.pushSessionJoined(
             targetUserId,

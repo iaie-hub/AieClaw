@@ -287,4 +287,119 @@ describe("aiemas-sessions-store", () => {
       expect(loaded?.descendantSessions).toEqual([]);
     });
   });
+
+  describe("upsertSessionLabel", () => {
+    it("should update label on existing session", () => {
+      store.saveRootSession({
+        sessionKey: "agent:aie-iaas:group:mas-d4548844",
+        sessionId: "sess-uuid-1",
+        agentId: "aie-iaas",
+        sessionUuid: "mas-d4548844",
+        userId: "user-1",
+        tenantId: "tenant-1",
+        descendantSessions: [],
+      });
+
+      store.upsertSessionLabel("agent:aie-iaas:group:mas-d4548844", { label: "New Label" });
+
+      const entry = store.getSessionLabel("mas-d4548844");
+      expect(entry?.label).toBe("New Label");
+    });
+
+    it("should update currentAgentId on existing session", () => {
+      store.saveRootSession({
+        sessionKey: "agent:aie-iaas:group:mas-d4548844",
+        sessionId: "sess-uuid-1",
+        agentId: "aie-iaas",
+        sessionUuid: "mas-d4548844",
+        userId: "user-1",
+        tenantId: "tenant-1",
+        descendantSessions: [],
+      });
+
+      store.upsertSessionLabel("agent:aie-iaas:group:mas-d4548844", {
+        currentAgentId: "new-agent",
+      });
+
+      const entry = store.getSessionLabel("mas-d4548844");
+      expect(entry?.currentAgentId).toBe("new-agent");
+    });
+
+    it("should skip when session does not exist", () => {
+      store.upsertSessionLabel("agent:unknown:group:no-such-uuid", { label: "Ghost" });
+      const entry = store.getSessionLabel("no-such-uuid");
+      expect(entry).toBeNull();
+    });
+  });
+
+  describe("getSessionLabel", () => {
+    it("should return null for non-existent session", () => {
+      expect(store.getSessionLabel("non-existent")).toBeNull();
+    });
+
+    it("should accept sessionKey as identifier", () => {
+      store.saveRootSession({
+        sessionKey: "agent:aie-iaas:group:mas-d4548844",
+        sessionId: "sess-uuid-1",
+        agentId: "aie-iaas",
+        sessionUuid: "mas-d4548844",
+        label: "Test",
+        userId: "user-1",
+        tenantId: "tenant-1",
+        descendantSessions: [],
+      });
+
+      const entry = store.getSessionLabel("agent:aie-iaas:group:mas-d4548844");
+      expect(entry?.label).toBe("Test");
+    });
+  });
+
+  describe("countByCurrentAgentId", () => {
+    it("should count sessions by currentAgentId", () => {
+      store.saveRootSession({
+        sessionKey: "agent:aie-iaas:group:mas-d4548844",
+        sessionId: "sess-uuid-1",
+        agentId: "aie-iaas",
+        sessionUuid: "mas-d4548844",
+        userId: "user-1",
+        tenantId: "tenant-1",
+        descendantSessions: [],
+      });
+
+      expect(store.countByCurrentAgentId("aie-iaas")).toBe(1);
+      expect(store.countByCurrentAgentId("unknown")).toBe(0);
+    });
+  });
+
+  describe("deleteSessionByUuid", () => {
+    it("should delete by sessionUuid", () => {
+      store.saveRootSession({
+        sessionKey: "agent:aie-iaas:group:mas-d4548844",
+        sessionId: "sess-uuid-1",
+        agentId: "aie-iaas",
+        sessionUuid: "mas-d4548844",
+        userId: "user-1",
+        tenantId: "tenant-1",
+        descendantSessions: [],
+      });
+
+      store.deleteSessionByUuid("mas-d4548844");
+      expect(store.loadRootSession("agent:aie-iaas:group:mas-d4548844")).toBeUndefined();
+    });
+
+    it("should accept sessionKey as identifier", () => {
+      store.saveRootSession({
+        sessionKey: "agent:aie-iaas:group:mas-d4548844",
+        sessionId: "sess-uuid-1",
+        agentId: "aie-iaas",
+        sessionUuid: "mas-d4548844",
+        userId: "user-1",
+        tenantId: "tenant-1",
+        descendantSessions: [],
+      });
+
+      store.deleteSessionByUuid("agent:aie-iaas:group:mas-d4548844");
+      expect(store.loadRootSession("agent:aie-iaas:group:mas-d4548844")).toBeUndefined();
+    });
+  });
 });

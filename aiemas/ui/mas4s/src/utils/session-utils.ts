@@ -1,10 +1,15 @@
-import { normalizeAgentId, normalizeLowercaseStringOrEmpty } from "./string-utils.js";
+/**
+ * MAS session utilities for frontend.
+ */
 
 /**
  * Extract sessionUuid from sessionKey.
  * Format: agent:{agentId}:group:{sessionUuid} -> {sessionUuid}
  */
 export function extractUuidFromKey(sessionKey: string): string {
+  if (!sessionKey) {
+    return "";
+  }
   const parts = sessionKey.split(":");
   return parts[parts.length - 1];
 }
@@ -22,11 +27,4 @@ export function extractAgentNameFromKey(sessionKey: string): string {
     return parts[1];
   }
   return "Agent";
-}
-
-/**
- * Construct sessionKey from agentId and sessionUuid.
- */
-export function constructKeyFromUuid(agentId: string, sessionUuid: string): string {
-  return `agent:${normalizeAgentId(agentId)}:group:${normalizeLowercaseStringOrEmpty(sessionUuid)}`;
 }

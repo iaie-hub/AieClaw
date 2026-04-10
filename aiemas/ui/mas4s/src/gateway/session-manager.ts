@@ -77,13 +77,12 @@ function splitHistoryMessage(msg: ChatMessage): ChatMessage[] {
 interface SessionLabelResult {
   sessionKey: string;
   label: string | null;
-  displayName: string | null;
   updatedAt: number | null;
 }
 
 /**
- * 从 aiemas DB 查询持久化的 label/displayName。
- * 当 sessions.list 返回的 label/displayName 均为 null 时作为 fallback。
+ * 从 aiemas DB 查询持久化的 label。
+ * 当 sessions.list 返回的 label 为 null 时作为 fallback。
  */
 export async function fetchSessionLabel(
   client: GatewayBrowserClient,
@@ -166,8 +165,8 @@ export async function createSession(
 
 /**
  * 将 GatewaySessionRow 归一化为 MasSession。
- * label 优先使用 row.label，回退到 row.displayName（gateway 从 channel/subject 派生），
- * 再回退到 persistedLabel（来自 aiemas DB session_labels 表），
+ * label 优先使用 row.label，回退到 row.displayName（gateway 兼容），
+ * 再回退到 persistedLabel（来自 aiemas DB aiemas_sessions 表），
  * 确保渲染层始终有可用的显示名称。
  */
 function rowToMasSession(row: GatewaySessionRow, persistedLabel?: string | null): MasSession {
@@ -190,7 +189,7 @@ function rowToMasSession(row: GatewaySessionRow, persistedLabel?: string | null)
 /**
  * 拉取当前用户有权限的会话列表（按 session_memberships 过滤）。
  * 在连接成功后调用，用于恢复历史会话。
- * displayName 已由服务端 enrichSessionRow 从 session_labels 表注入，无需前端二次查询。
+ * label 已由服务端 enrichSessionRow 从 aiemas_sessions 表注入，无需前端二次查询。
  */
 export async function fetchSessions(client: GatewayBrowserClient): Promise<MasSession[]> {
   const result = await client.request<{ sessions: GatewaySessionRow[] }>(

@@ -4,9 +4,14 @@ import { createMas4sGatewayPlugin } from "./mas4s-gateway-plugin.js";
 // Mock dependencies
 vi.mock("../store/database.js", () => ({
   initDatabase: vi.fn(() => ({
-    prepare: vi.fn(() => ({
+    prepare: vi.fn((sql: string) => ({
       all: vi.fn(() => []),
-      get: vi.fn(() => ({ count: 0 })),
+      get: vi.fn(() => {
+        if (sql.toLowerCase().includes("count(*)")) {
+          return { count: 0 };
+        }
+        return undefined;
+      }),
       run: vi.fn(() => ({ changes: 0, lastInsertRowid: 0 })),
     })),
   })),
@@ -84,6 +89,121 @@ describe("mas4s-gateway-plugin handlers", () => {
           message: "Access denied",
         }),
       );
+    });
+  });
+
+  describe("aiemas.sessions.create", () => {
+    it("uses the request-scoped dispatch when creating gateway sessions", async () => {
+      const { setMasAuth } = await import("./context.js");
+      const handler = plugin.extraHandlers["aiemas.sessions.create"];
+      const respond = vi.fn();
+      const client = {};
+      const dispatchGateway = vi
+        .fn()
+        .mockResolvedValueOnce({ key: "agent:aieiaas-resource:group:abc123", id: "sess-1" });
+
+      setMasAuth(client, {
+        userId: "user-1",
+        tenantId: "tenant-1",
+        masRole: "member",
+      });
+      plugin.gatewayDispatch = vi
+        .fn()
+        .mockRejectedValue(new Error("Gateway context not available for internal dispatch"));
+
+      await handler({
+        params: { agentId: "aieiaas-resource", label: "res-1" },
+        client,
+        respond,
+        dispatchGateway,
+      });
+
+      expect(dispatchGateway).toHaveBeenCalledWith(
+        "sessions.create",
+        expect.objectContaining({ agentId: "aieiaas-resource", label: "res-1" }),
+        client,
+      );
+      expect(respond).toHaveBeenCalledWith(
+        true,
+        expect.objectContaining({
+          sessionKey: "agent:aieiaas-resource:group:abc123",
+          sessionId: "sess-1",
+        }),
+        undefined,
+      );
+      expect(plugin.gatewayDispatch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("aiemas.sessions.delete", () => {
+    it("uses the request-scoped dispatch when deleting gateway sessions", async () => {
+      const { setMasAuth } = await import("./context.js");
+      const handler = plugin.extraHandlers["aiemas.sessions.delete"];
+      const respond = vi.fn();
+      const client = {};
+      const dispatchGateway = vi.fn().mockResolvedValue({ ok: true });
+
+      setMasAuth(client, {
+        userId: "user-1",
+        tenantId: "tenant-1",
+        masRole: "member",
+      });
+      plugin.gatewayDispatch = vi
+        .fn()
+        .mockRejectedValue(new Error("Gateway context not available for internal dispatch"));
+
+      // Mock bridge.checkSessionAccess and loadGatewaySessionRow
+      vi.spyOn(plugin.bridge, "checkSessionAccess").mockReturnValue({ allowed: true });
+      vi.spyOn(plugin, "loadGatewaySessionRow").mockReturnValue({ sessionKey: "test-key" });
+
+      await handler({
+        params: { sessionKey: "test-key" },
+        client,
+        respond,
+        dispatchGateway,
+      });
+
+      expect(dispatchGateway).toHaveBeenCalledWith(
+        "sessions.delete",
+        expect.objectContaining({ sessionKey: "test-key" }),
+        client,
+      );
+      expect(respond).toHaveBeenCalledWith(true, expect.objectContaining({ ok: true }), undefined);
+      expect(plugin.gatewayDispatch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("aiemas.sessions.list", () => {
+    it("uses the request-scoped dispatch when listing gateway sessions", async () => {
+      const { setMasAuth } = await import("./context.js");
+      const handler = plugin.extraHandlers["aiemas.sessions.list"];
+      const respond = vi.fn();
+      const client = {};
+      const dispatchGateway = vi.fn().mockResolvedValue({ ts: 0, count: 0, sessions: [] });
+
+      setMasAuth(client, {
+        userId: "user-1",
+        tenantId: "tenant-1",
+        masRole: "member",
+      });
+      plugin.gatewayDispatch = vi
+        .fn()
+        .mockRejectedValue(new Error("Gateway context not available for internal dispatch"));
+
+      await handler({
+        client,
+        respond,
+        dispatchGateway,
+      });
+
+      // listRootSessions doesn't call callGateway in its current implementation,
+      // but the handler should respond with success.
+      expect(respond).toHaveBeenCalledWith(
+        true,
+        expect.objectContaining({ count: 0, sessions: [] }),
+        undefined,
+      );
+      expect(plugin.gatewayDispatch).not.toHaveBeenCalled();
     });
   });
 });

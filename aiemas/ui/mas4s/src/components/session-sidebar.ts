@@ -515,7 +515,7 @@ export class SessionSidebar extends LitElement {
     this._nameDialog = {
       mode: "rename",
       sessionKey: session.key,
-      value: session.label ?? session.displayName ?? "",
+      value: session.label ?? "",
       reasoningLevel: (session.reasoningLevel as "stream" | "on" | "off") ?? "stream",
     };
   }
@@ -524,7 +524,7 @@ export class SessionSidebar extends LitElement {
     e.stopPropagation();
     this._deleteConfirm = {
       sessionKey: session.key,
-      label: session.label ?? session.displayName ?? session.key,
+      label: session.label ?? session.key,
     };
   }
 
@@ -599,7 +599,7 @@ export class SessionSidebar extends LitElement {
   private _renderSession(session: MasSession) {
     const isActive = session.key === this.activeSessionKey;
     const isArchived = session.archivedAt != null;
-    const label = session.label ?? session.displayName ?? session.key;
+    const label = session.label ?? session.key;
     const timeStr = this._formatTime(session.updatedAt);
     return html`
       <div

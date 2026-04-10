@@ -386,7 +386,9 @@ export class AppStore {
   }
 
   removeSession(sessionUuid: string): void {
-    this.sessions = this.sessions.filter((s) => s.sessionUuid !== sessionUuid);
+    this.sessions = this.sessions.filter(
+      (s) => s.sessionUuid !== sessionUuid && s.key.split(":").pop() !== sessionUuid,
+    );
     if (this.activeSessionUuid === sessionUuid) {
       this.activeSessionUuid = null;
     }
@@ -399,10 +401,7 @@ export class AppStore {
   }
 
   /** 用 aiemas DB 的持久化值修补 label（仅在 gateway 返回值为空时使用） */
-  patchSessionLabelFromDb(
-    sessionKey: string,
-    patch: { label?: string | null; displayName?: string | null },
-  ): void {
+  patchSessionLabelFromDb(sessionKey: string, patch: { label?: string | null }): void {
     this.sessions = this.sessions.map((s) => {
       if (s.key !== sessionKey) {
         return s;
@@ -411,7 +410,7 @@ export class AppStore {
       if (s.label) {
         return s;
       }
-      const resolved = patch.label ?? patch.displayName ?? undefined;
+      const resolved = patch.label ?? undefined;
       return resolved ? { ...s, label: resolved } : s;
     });
     this.notify();
