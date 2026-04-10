@@ -1,3 +1,4 @@
+/** @vitest-environment jsdom */
 import { describe, it, expect, beforeEach } from "vitest";
 import { buildInviteUrl, parseInviteInput, parseInviteFromUrl } from "./session-invite.js";
 

@@ -499,6 +499,7 @@ export async function initMas4sIntegration(
       loadSessionRow: loadGatewaySessionRow,
       log,
     };
+    plugin.loadGatewaySessionRow = loadGatewaySessionRow;
     const authCtx = {
       ...commonCtx,
       integrationMod: {

@@ -130,6 +130,35 @@ export function ensureMas4sSchema(db: DatabaseSync): void {
       updatedAt   INTEGER NOT NULL
     );
   `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS aiemas_sessions (
+      sessionKey        TEXT PRIMARY KEY,
+      sessionId         TEXT NOT NULL,
+      agentId           TEXT NOT NULL,
+      sessionUuid       TEXT NOT NULL,
+      label             TEXT,
+      userId            TEXT NOT NULL,
+      tenantId          TEXT NOT NULL,
+      descendantSessions TEXT NOT NULL,
+      createdAt         INTEGER NOT NULL
+    );
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_aiemas_sessions_agentId
+    ON aiemas_sessions(agentId);
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_aiemas_sessions_userId
+    ON aiemas_sessions(userId);
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_aiemas_sessions_tenantId
+    ON aiemas_sessions(tenantId);
+  `);
 }
 
 /**

@@ -596,3 +596,192 @@
   "error": { "code": "PERMISSION_DENIED", "message": "权限不足" }
 }
 ```
+
+---
+
+## 六、Session 级联 API (Session Cascade API Detail)
+
+### 1. 级联创建 Session (aiemas.sessions.create)
+
+级联创建 session：若 `agentId` 是 TopologyCache 中已知的根 Agent，则同时为根 Agent 及其所有后代 Agent 创建 session；否则仅为该 Agent 自身创建 session。
+
+**权限**: admin, member
+
+**请求参数**:
+
+| 参数    | 类型   | 必填 | 说明                                         |
+| ------- | ------ | ---- | -------------------------------------------- |
+| agentId | string | 是   | 目标 Agent ID（可以是根 Agent 或普通 Agent） |
+| label   | string | 否   | 用户可读的 session 标签                      |
+
+**请求示例**（根 Agent，触发级联）：
+
+```json
+{
+  "type": "req",
+  "id": "30",
+  "method": "aiemas.sessions.create",
+  "params": {
+    "agentId": "aie-iaas",
+    "label": "生产环境会话"
+  }
+}
+```
+
+**成功响应**：
+
+```json
+{
+  "type": "res",
+  "id": "30",
+  "ok": true,
+  "payload": {
+    "sessionKey": "agent:aie-iaas:group:mas-d4548844",
+    "sessionId": "sess-uuid-root-001"
+  }
+}
+```
+
+> 响应返回根 Agent 的 `sessionKey` 和 `sessionId`。后代 Agent 的 session 在后台自动创建，共享相同的 `sessionUuid`（即 `mas-d4548844`）。
+
+**请求示例**（非根 Agent，仅创建自身 session）：
+
+```json
+{
+  "type": "req",
+  "id": "31",
+  "method": "aiemas.sessions.create",
+  "params": {
+    "agentId": "standalone-agent"
+  }
+}
+```
+
+**错误码**:
+
+| 错误码            | 说明                              |
+| ----------------- | --------------------------------- |
+| INVALID_PARAMS    | agentId 为空或参数格式错误        |
+| PERMISSION_DENIED | 角色权限不足（viewer 无写权限）   |
+| INTERNAL          | 数据库写入失败或 Gateway 调用异常 |
+
+---
+
+### 2. 级联删除 Session (aiemas.sessions.delete)
+
+级联删除 session：若 `sessionKey` 对应 `aiemas_sessions` 表中的根 Agent 记录，则同时删除根 Agent 及所有后代 Agent 的 session；否则仅删除该 session 自身。
+
+**权限**: admin, member
+
+**请求参数**:
+
+| 参数       | 类型   | 必填 | 说明                                                       |
+| ---------- | ------ | ---- | ---------------------------------------------------------- |
+| sessionKey | string | 是   | 要删除的 session key，格式 `agent:{agentId}:{kind}:{uuid}` |
+
+**请求示例**（根 Agent session，触发级联删除）：
+
+```json
+{
+  "type": "req",
+  "id": "32",
+  "method": "aiemas.sessions.delete",
+  "params": {
+    "sessionKey": "agent:aie-iaas:group:mas-d4548844"
+  }
+}
+```
+
+**成功响应**：
+
+```json
+{
+  "type": "res",
+  "id": "32",
+  "ok": true,
+  "payload": { "ok": true }
+}
+```
+
+**错误码**:
+
+| 错误码            | 说明                             |
+| ----------------- | -------------------------------- |
+| INVALID_PARAMS    | sessionKey 为空或格式错误        |
+| PERMISSION_DENIED | 角色权限不足（viewer 无写权限）  |
+| INTERNAL          | Gateway 调用异常或数据库操作失败 |
+
+---
+
+### 3. 查询根 Agent Session 列表 (aiemas.sessions.list)
+
+查询当前租户下所有根 Agent 的 session 列表。仅返回 `aiemas_sessions` 表中持久化的根 Agent session 记录，不包含后代 Agent 的级联 session。
+
+**权限**: admin, member, viewer
+
+**请求参数**: 无（传空对象即可）
+
+**请求示例**：
+
+```json
+{
+  "type": "req",
+  "id": "33",
+  "method": "aiemas.sessions.list",
+  "params": {}
+}
+```
+
+**成功响应**：
+
+```json
+{
+  "type": "res",
+  "id": "33",
+  "ok": true,
+  "payload": {
+    "sessions": [
+      {
+        "sessionKey": "agent:aie-iaas:group:mas-d4548844",
+        "sessionId": "sess-uuid-root-001",
+        "agentId": "aie-iaas",
+        "sessionUuid": "mas-d4548844",
+        "label": "生产环境会话",
+        "userId": "user-abc",
+        "tenantId": "default",
+        "createdAt": 1711618000000
+      },
+      {
+        "sessionKey": "agent:aie-iaas:group:mas-e7f91234",
+        "sessionId": "sess-uuid-root-002",
+        "agentId": "aie-iaas",
+        "sessionUuid": "mas-e7f91234",
+        "label": null,
+        "userId": "user-abc",
+        "tenantId": "default",
+        "createdAt": 1711619000000
+      }
+    ]
+  }
+}
+```
+
+**响应字段说明**:
+
+| 字段        | 类型           | 说明                                                                 |
+| ----------- | -------------- | -------------------------------------------------------------------- |
+| sessionKey  | string         | 根 Agent 的 session key，格式 `agent:{agentId}:{kind}:{sessionUuid}` |
+| sessionId   | string         | 根 Agent 的 session ID（由 Gateway 分配）                            |
+| agentId     | string         | 根 Agent ID                                                          |
+| sessionUuid | string         | 会话组唯一标识，根 Agent 与所有后代 Agent 共享相同值                 |
+| label       | string \| null | 用户可读的 session 标签（创建时未指定则为 null）                     |
+| userId      | string         | 创建者用户 ID                                                        |
+| tenantId    | string         | 所属租户 ID                                                          |
+| createdAt   | number         | 创建时间戳（毫秒）                                                   |
+
+**错误码**:
+
+| 错误码            | 说明           |
+| ----------------- | -------------- |
+| PERMISSION_DENIED | 角色权限不足   |
+| INTERNAL          | 数据库查询失败 |

@@ -82,7 +82,10 @@ export async function joinSessionFromInvite(
 
   const canonicalKey = resolved.key;
 
-  const listResult = await client.request<{ sessions: GatewaySessionRow[] }>("sessions.list", {});
+  const listResult = await client.request<{ sessions: GatewaySessionRow[] }>(
+    "aiemas.sessions.list",
+    {},
+  );
   const row = listResult.sessions.find((s) => s.key === canonicalKey);
 
   return {

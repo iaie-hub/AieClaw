@@ -10,6 +10,17 @@ export interface AgentContext {
   cacheService: CacheService;
   setCurrentRequestContext?: (context: GatewayContext, client: GatewayClient) => void;
   clearRequestContext?: () => void;
+  /** Optional: factory for callGateway, used for topology sync. Provided at runtime. */
+  getCallGateway?: () =>
+    | ((method: string, params: Record<string, unknown>) => Promise<unknown>)
+    | null;
+  /** Optional: load gateway session row for cascade service. */
+  loadGatewaySessionRow?: (sessionKey: string) => unknown;
+  /** Optional: callbacks for session ownership, used for topology sync. */
+  sessionCallbacks?: {
+    recordSessionCreated: (sessionKey: string, userId: string, tenantId: string) => void;
+    deleteSessionRecords: (sessionKey: string) => void;
+  };
 }
 
 export function registerAgentHandlers(extraHandlers: Record<string, unknown>, ctx: AgentContext) {
@@ -54,7 +65,7 @@ export function registerAgentHandlers(extraHandlers: Record<string, unknown>, ct
   };
 
   // ── aiemas.agents.topology.save ──
-  extraHandlers["aiemas.agents.topology.save"] = (opts: {
+  extraHandlers["aiemas.agents.topology.save"] = async (opts: {
     params: Record<string, unknown>;
     respond: (ok: boolean, payload: unknown, error: unknown) => void;
   }) => {
@@ -78,10 +89,42 @@ export function registerAgentHandlers(extraHandlers: Record<string, unknown>, ct
       return;
     }
 
+    // Capture old topology BEFORE updating the cache
+    const oldTopology = ctx.cacheService.topologyCache.getTopology(rootAgentId);
+
     const topologyTree = { edges: topology.edges };
     saveTopology(ctx.db, rootAgentId, topologyTree);
     ctx.cacheService.topologyCache.update(rootAgentId, topologyTree);
 
     respond(true, { ok: true }, null);
+
+    // Trigger incremental session sync after cache is updated (fire-and-forget, wrapped in try/catch)
+    if (ctx.getCallGateway && ctx.sessionCallbacks) {
+      const callGateway = ctx.getCallGateway();
+      if (callGateway) {
+        const tenantId = typeof params.tenantId === "string" ? params.tenantId : "";
+        try {
+          const { createSessionCascadeService } = await import("./aiemas-session.js");
+          const cascadeService = createSessionCascadeService({
+            db: ctx.db,
+            callGateway,
+            topologyCache: ctx.cacheService.topologyCache,
+            recordSessionCreated: ctx.sessionCallbacks.recordSessionCreated,
+            deleteSessionRecords: ctx.sessionCallbacks.deleteSessionRecords,
+            loadGatewaySessionRow: ctx.loadGatewaySessionRow ?? (() => null),
+          });
+          await cascadeService.syncTopologyChanges({
+            rootAgentId,
+            oldTopology,
+            newTopology: topologyTree,
+            tenantId,
+          });
+        } catch (syncErr) {
+          console.warn(
+            `[mas4s:topology.save] syncTopologyChanges failed for rootAgentId=${rootAgentId}: ${String(syncErr)}`,
+          );
+        }
+      }
+    }
   };
 }

@@ -130,29 +130,25 @@ export async function createSession(
     reasoningLevel?: "stream" | "on" | "off";
   },
 ): Promise<MasSession> {
-  const uuid = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
   const agentId = opts.agentId ?? "default";
-  const key = `agent:${agentId}:group:mas-${uuid}`;
   const reasoningLevel = opts.reasoningLevel ?? "stream";
 
   const result = await client.request<{
-    ok?: boolean;
-    key?: string;
+    sessionKey?: string;
     sessionId?: string;
     error?: { message?: string };
-  }>("sessions.create", {
-    key,
+  }>("aiemas.sessions.create", {
+    agentId,
     label: opts.label,
     reasoningLevel,
   });
 
-  // gateway returns ok:false with an error shape on failure (e.g. label conflict)
-  if (result.ok === false) {
-    throw new Error(result.error?.message ?? "sessions.create failed");
+  if (!result.sessionKey) {
+    throw new Error(result.error?.message ?? "aiemas.sessions.create failed");
   }
 
   return {
-    key: result.key ?? key,
+    key: result.sessionKey,
     kind: "group",
     label: opts.label,
     updatedAt: Date.now(),
@@ -197,7 +193,10 @@ function rowToMasSession(row: GatewaySessionRow, persistedLabel?: string | null)
  * displayName 已由服务端 enrichSessionRow 从 session_labels 表注入，无需前端二次查询。
  */
 export async function fetchSessions(client: GatewayBrowserClient): Promise<MasSession[]> {
-  const result = await client.request<{ sessions: GatewaySessionRow[] }>("sessions.list", {});
+  const result = await client.request<{ sessions: GatewaySessionRow[] }>(
+    "aiemas.sessions.list",
+    {},
+  );
   const rows = result.sessions ?? [];
   const sessions = rows.map((row) => rowToMasSession(row));
 
@@ -310,7 +309,7 @@ export async function deleteSession(
   client: GatewayBrowserClient,
   sessionKey: string,
 ): Promise<void> {
-  await client.request("sessions.delete", { key: sessionKey, deleteTranscript: true });
+  await client.request("aiemas.sessions.delete", { sessionKey });
 }
 
 /**
@@ -331,8 +330,11 @@ export async function joinSession(
 
   const canonicalKey = resolved.key;
 
-  // 通过 sessions.list 获取完整 row（含 label/status 等）
-  const listResult = await client.request<{ sessions: GatewaySessionRow[] }>("sessions.list", {});
+  // 通过 aiemas.sessions.list 获取完整 row（含 label/status 等）
+  const listResult = await client.request<{ sessions: GatewaySessionRow[] }>(
+    "aiemas.sessions.list",
+    {},
+  );
   const row = listResult.sessions.find((s) => s.key === canonicalKey);
 
   if (row) {

@@ -10,37 +10,31 @@ function makeClient(overrides: Partial<Record<string, unknown>> = {}): GatewayBr
 }
 
 describe("createSession（属性 1：sessionKey 格式）", () => {
-  it("生成的 key 包含 :group:", async () => {
+  it("生成的 key 由 gateway 返回", async () => {
     const client = makeClient({
-      request: vi.fn().mockResolvedValue({ key: undefined, sessionId: "sid-1" }),
-    });
-    const session = await createSession(client, { label: "测试会话" });
-    expect(session.key).toMatch(/:group:/);
-  });
-
-  it("key 符合 agent:{agentId}:group:mas-{uuid} 格式", async () => {
-    const client = makeClient({
-      request: vi.fn().mockResolvedValue({ key: undefined }),
+      request: vi
+        .fn()
+        .mockResolvedValue({ sessionKey: "agent:myagent:group:mas-123", sessionId: "sid-1" }),
     });
     const session = await createSession(client, {
       label: "测试",
       agentId: "myagent",
     });
-    expect(session.key).toMatch(/^agent:myagent:group:mas-[0-9a-f]+$/);
+    expect(session.key).toBe("agent:myagent:group:mas-123");
   });
 
   it("masType 为 initiated", async () => {
     const client = makeClient({
-      request: vi.fn().mockResolvedValue({ key: "agent:default:group:mas-abc12345" }),
+      request: vi.fn().mockResolvedValue({ sessionKey: "agent:default:group:mas-abc12345" }),
     });
     const session = await createSession(client, { label: "会话" });
     expect(session.masType).toBe("initiated");
   });
 
-  it("使用 gateway 返回的 key（若有）", async () => {
+  it("使用 gateway 返回的 key", async () => {
     const returnedKey = "agent:default:group:mas-returned";
     const client = makeClient({
-      request: vi.fn().mockResolvedValue({ key: returnedKey }),
+      request: vi.fn().mockResolvedValue({ sessionKey: returnedKey }),
     });
     const session = await createSession(client, { label: "会话" });
     expect(session.key).toBe(returnedKey);
@@ -68,7 +62,7 @@ describe("joinSession（属性 2：masType）", () => {
     );
   });
 
-  it("从 sessions.list 获取完整 row", async () => {
+  it("从 aiemas.sessions.list 获取完整 row", async () => {
     const fullRow = {
       key: "agent:default:group:mas-abc",
       kind: "group",

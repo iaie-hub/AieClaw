@@ -1,20 +1,17 @@
 {
-	"folders": [
-		{
-			"path": "."
-		},
-		{
-			"path": "../xstack-backend"
-		},
-		{
-			"path": "../../../.openclaw"
-		}
-	],
-	"settings": {
-		"typescript.reportStyleChecksAsWarnings": false,
-		"typescript.tsdk": "node_modules/typescript/lib",
-		"typescript.experimental.useTsgo": true,
-		"java.configuration.updateBuildConfiguration": "disabled",
-		"java.compile.nullAnalysis.mode": "disabled"
-	}
+  "folders": [
+    {
+      "path": "."
+    },
+    {
+      "path": "../../../.openclaw"
+    }
+  ],
+  "settings": {
+    "typescript.reportStyleChecksAsWarnings": false,
+    "typescript.tsdk": "node_modules/typescript/lib",
+    "typescript.experimental.useTsgo": true,
+    "java.configuration.updateBuildConfiguration": "disabled",
+    "java.compile.nullAnalysis.mode": "disabled",
+  },
 }

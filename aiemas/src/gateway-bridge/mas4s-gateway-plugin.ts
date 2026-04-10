@@ -60,6 +60,8 @@ export interface Mas4sGatewayPlugin {
   clearRunState: (sessionUuid: string) => void;
   /** SQLite database handle for direct DB operations. */
   db: import("node:sqlite").DatabaseSync;
+  /** Load a full GatewaySessionRow (injected from core gateway). */
+  loadGatewaySessionRow: (sessionKey: string) => unknown;
 }
 
 function errorShape(code: string, message: string): { code: string; message: string } {
@@ -909,6 +911,145 @@ export async function createMas4sGatewayPlugin(
       }
     },
 
+    "aiemas.sessions.create": async ({ params, client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        const agentId = str(params["agentId"]);
+        if (!agentId) {
+          respond(false, undefined, errorShape("INVALID_PARAMS", "agentId required"));
+          return;
+        }
+        const label = typeof params["label"] === "string" ? params["label"] : undefined;
+        const userId = auth.userId ?? null;
+        const tenantId = str(auth.tenantId ?? "");
+
+        const { createSessionCascadeService } = await import("./aiemas-session.js");
+        const cascadeService = createSessionCascadeService({
+          db,
+          callGateway: async (method, callParams) => {
+            if (!plugin.gatewayDispatch) {
+              throw new Error("gatewayDispatch not available");
+            }
+            return plugin.gatewayDispatch(method, callParams, null);
+          },
+          topologyCache: tenantService.cacheService.topologyCache,
+          recordSessionCreated: (sessionKey, uid, tid) => {
+            bridge.onSessionCreated(sessionKey, "", {
+              userId: uid,
+              tenantId: tid,
+              masRole: auth.masRole,
+            });
+          },
+          deleteSessionRecords: (sessionKey) => {
+            bridge.onSessionDeleted(sessionKey);
+          },
+          loadGatewaySessionRow: (sessionKey: string) => {
+            if (!plugin.loadGatewaySessionRow) {
+              throw new Error("loadGatewaySessionRow not available");
+            }
+            return plugin.loadGatewaySessionRow(sessionKey);
+          },
+        });
+
+        const result = await cascadeService.cascadeCreate({ agentId, userId, tenantId, label });
+        respond(true, result, undefined);
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
+
+    "aiemas.sessions.delete": async ({ params, client, respond }) => {
+      const auth = getCallerAuth(client);
+      try {
+        const sessionKey = str(params["sessionKey"]);
+        if (!sessionKey) {
+          respond(false, undefined, errorShape("INVALID_PARAMS", "sessionKey required"));
+          return;
+        }
+
+        // Permission check: only allow access when userId is present
+        if (auth.userId) {
+          const access = bridge.checkSessionAccess(sessionKey, auth);
+          if (!access.allowed) {
+            respond(false, undefined, errorShape(access.code, access.message));
+            return;
+          }
+        }
+
+        const { createSessionCascadeService } = await import("./aiemas-session.js");
+        const cascadeService = createSessionCascadeService({
+          db,
+          callGateway: async (method, callParams) => {
+            if (!plugin.gatewayDispatch) {
+              throw new Error("gatewayDispatch not available");
+            }
+            return plugin.gatewayDispatch(method, callParams, null);
+          },
+          topologyCache: tenantService.cacheService.topologyCache,
+          recordSessionCreated: (sessionKey: string, uid: string, tid: string) => {
+            bridge.onSessionCreated(sessionKey, "", {
+              userId: uid,
+              tenantId: tid,
+              masRole: auth.masRole,
+            });
+          },
+          deleteSessionRecords: (sk: string) => {
+            bridge.onSessionDeleted(sk);
+          },
+          loadGatewaySessionRow: (sessionKey: string) => {
+            if (!plugin.loadGatewaySessionRow) {
+              throw new Error("loadGatewaySessionRow not available");
+            }
+            return plugin.loadGatewaySessionRow(sessionKey);
+          },
+        });
+
+        await cascadeService.cascadeDelete({ sessionKey });
+        respond(true, { ok: true }, undefined);
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
+
+    "aiemas.sessions.list": async ({ respond }) => {
+      try {
+        const { createSessionCascadeService } = await import("./aiemas-session.js");
+        const cascadeService = createSessionCascadeService({
+          db,
+          callGateway: async (method, callParams) => {
+            if (!plugin.gatewayDispatch) {
+              throw new Error("gatewayDispatch not available");
+            }
+            return plugin.gatewayDispatch(method, callParams, null);
+          },
+          topologyCache: tenantService.cacheService.topologyCache,
+          recordSessionCreated: (sessionKey: string, uid: string, tid: string) => {
+            bridge.onSessionCreated(sessionKey, "", { userId: uid, tenantId: tid, masRole: null });
+          },
+          deleteSessionRecords: (sk: string) => {
+            bridge.onSessionDeleted(sk);
+          },
+          loadGatewaySessionRow: (sessionKey: string) => {
+            if (!plugin.loadGatewaySessionRow) {
+              throw new Error("loadGatewaySessionRow not available");
+            }
+            return plugin.loadGatewaySessionRow(sessionKey);
+          },
+        });
+
+        const result = await cascadeService.listRootSessions();
+        respond(true, result, undefined);
+      } catch (err) {
+        const e =
+          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+        respond(false, undefined, errorShape(e.code, e.message));
+      }
+    },
+
     "aiemas.agents.import": async ({ params, client, respond }) => {
       try {
         const archivePath = str(params["archivePath"]);
@@ -988,6 +1129,27 @@ export async function createMas4sGatewayPlugin(
     clearRequestContext: () => {
       // Request context management not needed for topology handlers
     },
+    getCallGateway: () => {
+      if (!plugin.gatewayDispatch) {
+        return null;
+      }
+      const dispatch = plugin.gatewayDispatch;
+      return (method, callParams) => dispatch(method, callParams, null);
+    },
+    loadGatewaySessionRow: (sessionKey: string) => {
+      if (!plugin.loadGatewaySessionRow) {
+        throw new Error("loadGatewaySessionRow not available");
+      }
+      return plugin.loadGatewaySessionRow(sessionKey);
+    },
+    sessionCallbacks: {
+      recordSessionCreated: (sessionKey, uid, tid) => {
+        bridge.onSessionCreated(sessionKey, "", { userId: uid, tenantId: tid, masRole: null });
+      },
+      deleteSessionRecords: (sessionKey) => {
+        bridge.onSessionDeleted(sessionKey);
+      },
+    },
   });
 
   const { upsertRunState: _upsertRunState, clearRunState: _clearRunState } =
@@ -1003,6 +1165,7 @@ export async function createMas4sGatewayPlugin(
     stopLabelSync,
     upsertRunState: (sessionUuid, patch) => _upsertRunState(db, sessionUuid, patch),
     clearRunState: (sessionUuid) => _clearRunState(db, sessionUuid),
+    loadGatewaySessionRow: (_sessionKey: string) => null,
     db,
   };
 

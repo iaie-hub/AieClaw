@@ -1,6 +1,12 @@
+import type { TopologyCache } from "../cache/topology-cache.js";
+import type { TopologyTree } from "../models.js";
+import { createAiemasSessionsStore } from "../store/aiemas-sessions-store.js";
+import { constructKeyFromUuid } from "../utils/session-utils.js";
 import { str, sendToConnId, buildConnectedUsers, type GatewayClient } from "./aiemas-utils.js";
+import { GatewayAuthBridge } from "./bridge.js";
 import { MasAuthContext, NULL_MAS_AUTH } from "./context.js";
 import type { Mas4sGatewayPlugin } from "./mas4s-gateway-plugin.js";
+import { extractDescendantAgentIds, extractSessionUuid } from "./topology-utils.js";
 
 export interface SessionContext {
   plugin: Mas4sGatewayPlugin;
@@ -12,6 +18,506 @@ export interface SessionContext {
     info: (msg: string) => void;
     warn: (msg: string) => void;
     error: (msg: string) => void;
+  };
+}
+
+function buildDescendantSessionKey(agentId: string, sessionUuid: string): string | undefined {
+  if (!sessionUuid) {
+    return undefined;
+  }
+  return constructKeyFromUuid(agentId, sessionUuid);
+}
+
+/**
+ * 级联创建 session
+ *
+ * 流程：
+ * 1. 检查兼容模式：如果 userId 为 null，仅为该 Agent 创建 session
+ * 2. 查询拓扑关系：检查 agentId 是否为 rootAgentId
+ * 3. 如果不是 rootAgentId，仅为该 Agent 创建 session
+ * 4. 如果是 rootAgentId 且有后代 Agent，为根 Agent 和所有后代 Agent 创建 session
+ * 5. 持久化根 Agent 记录到 aiemas_sessions 表
+ * 6. 记录所有权
+ */
+export async function cascadeCreate(params: {
+  agentId: string;
+  userId: string | null;
+  tenantId: string;
+  label?: string;
+  topologyCache: TopologyCache;
+  gatewayDispatch:
+    | ((method: string, params: Record<string, unknown>, client: unknown) => Promise<unknown>)
+    | null;
+  db: import("node:sqlite").DatabaseSync;
+  bridge: unknown; // GatewayAuthBridge
+}): Promise<{ sessionKey: string; sessionId: string }> {
+  const { agentId, userId, tenantId, label, topologyCache, gatewayDispatch, db, bridge } = params;
+
+  // 步骤 1：检查兼容模式
+  if (userId === null) {
+    // 兼容模式：仅为该 Agent 创建 session，不执行级联操作
+    if (!gatewayDispatch) {
+      throw new Error("gatewayDispatch not available");
+    }
+    const result = (await gatewayDispatch("sessions.create", { agentId, label }, null)) as {
+      key: string;
+      id: string;
+    };
+    return { sessionKey: result.key, sessionId: result.id };
+  }
+
+  // 步骤 2：查询拓扑关系
+  const topology = topologyCache.getTopology(agentId);
+
+  // 步骤 3：如果不是 rootAgentId，仅为该 Agent 创建 session
+  if (topology === undefined) {
+    if (!gatewayDispatch) {
+      throw new Error("gatewayDispatch not available");
+    }
+    const result = (await gatewayDispatch("sessions.create", { agentId, label }, null)) as {
+      key: string;
+      id: string;
+    };
+    return { sessionKey: result.key, sessionId: result.id };
+  }
+
+  // 步骤 4：是 rootAgentId，提取后代 Agent ID 列表
+  const descendantAgentIds = extractDescendantAgentIds(topology.edges, agentId);
+
+  if (!gatewayDispatch) {
+    throw new Error("gatewayDispatch not available");
+  }
+
+  // 为根 Agent 创建 session
+  const rootResult = (await gatewayDispatch("sessions.create", { agentId, label }, null)) as {
+    key: string;
+    id: string;
+  };
+  const rootSessionKey = rootResult.key;
+  const rootSessionId = rootResult.id;
+  const sessionUuid = extractSessionUuid(rootSessionKey);
+
+  // 为后代 Agent 创建 session
+  const descendantSessions: Array<{
+    agentId: string;
+    sessionKey: string;
+    sessionId: string;
+  }> = [];
+
+  for (const descendantAgentId of descendantAgentIds) {
+    try {
+      const descendantKey = buildDescendantSessionKey(descendantAgentId, sessionUuid);
+      const descendantResult = (await gatewayDispatch(
+        "sessions.create",
+        { agentId: descendantAgentId, ...(descendantKey ? { key: descendantKey } : {}) },
+        null,
+      )) as {
+        key: string;
+        id: string;
+      };
+      const descendantSessionKey = descendantResult.key;
+      const descendantSessionId = descendantResult.id;
+
+      // 记录后代 Agent session 所有权
+      try {
+        (bridge as GatewayAuthBridge).onSessionCreated(descendantSessionKey, "", {
+          userId,
+          tenantId,
+          masRole: null,
+        });
+      } catch (err) {
+        console.warn(
+          `[mas4s:cascadeCreate] Failed to record descendant session ownership for ${descendantAgentId}: ${String(err)}`,
+        );
+      }
+
+      descendantSessions.push({
+        agentId: descendantAgentId,
+        sessionKey: descendantSessionKey,
+        sessionId: descendantSessionId,
+      });
+    } catch (err) {
+      console.warn(
+        `[mas4s:cascadeCreate] Failed to create descendant session for ${descendantAgentId}: ${String(err)}`,
+      );
+      // 继续处理其余后代 Agent
+    }
+  }
+
+  // 步骤 5：持久化根 Agent 记录
+  const store = createAiemasSessionsStore(db);
+  store.saveRootSession({
+    sessionKey: rootSessionKey,
+    sessionId: rootSessionId,
+    agentId,
+    sessionUuid,
+    label,
+    userId,
+    tenantId,
+    descendantSessions,
+  });
+
+  // 步骤 6：记录根 Agent 所有权
+  try {
+    (bridge as GatewayAuthBridge).onSessionCreated(rootSessionKey, label ?? "", {
+      userId,
+      tenantId,
+      masRole: null,
+    });
+  } catch (err) {
+    console.warn(`[mas4s:cascadeCreate] Failed to record root session ownership: ${String(err)}`);
+  }
+
+  return { sessionKey: rootSessionKey, sessionId: rootSessionId };
+}
+
+// ── Session_Cascade_Service factory ──────────────────────────────────────────
+
+/**
+ * Dependencies injected into the Session_Cascade_Service.
+ * Using a factory pattern for testability and clean dependency injection.
+ */
+export interface SessionCascadeServiceDeps {
+  db: import("node:sqlite").DatabaseSync;
+  /** Dispatch a Gateway RPC call and return the response payload */
+  callGateway: (method: string, params: Record<string, unknown>) => Promise<unknown>;
+  topologyCache: TopologyCache;
+  /** Record session ownership and membership for a newly created session */
+  recordSessionCreated: (sessionKey: string, userId: string, tenantId: string) => void;
+  /** Delete session ownership and membership records for a deleted session */
+  deleteSessionRecords: (sessionKey: string) => void;
+  /** Load a full GatewaySessionRow for a session key */
+  loadGatewaySessionRow: (sessionKey: string) => unknown;
+}
+
+/**
+ * Public interface of the Session_Cascade_Service.
+ */
+export interface SessionCascadeService {
+  /** 级联创建 session（根 Agent + 所有后代 Agent） */
+  cascadeCreate(params: {
+    agentId: string;
+    userId: string | null;
+    tenantId: string;
+    label?: string;
+  }): Promise<{ sessionKey: string; sessionId: string }>;
+
+  /** 级联删除 session（根 Agent + 所有后代 Agent）— 后续任务实现 */
+  cascadeDelete(params: { sessionKey: string }): Promise<void>;
+
+  /** 查询根 Agent session 列表（返回与 sessions.list 兼容的结构） */
+  listRootSessions(): Promise<{
+    ts: number;
+    count: number;
+    sessions: unknown[];
+  }>;
+
+  /** 拓扑变更时增量同步 session — 后续任务实现 */
+  syncTopologyChanges(params: {
+    rootAgentId: string;
+    oldTopology: TopologyTree | undefined;
+    newTopology: TopologyTree;
+    tenantId: string;
+  }): Promise<void>;
+}
+
+/**
+ * 创建 Session_Cascade_Service 实例。
+ *
+ * 工厂函数接受所有外部依赖，便于单元测试时注入 mock。
+ *
+ * @param deps - 注入的依赖项
+ * @returns SessionCascadeService 实例
+ */
+export function createSessionCascadeService(
+  deps: SessionCascadeServiceDeps,
+): SessionCascadeService {
+  const { db, callGateway, topologyCache, recordSessionCreated, deleteSessionRecords } = deps;
+  const store = createAiemasSessionsStore(db);
+
+  return {
+    /**
+     * 级联创建 session。
+     *
+     * 步骤：
+     * 1. 兼容模式检查（userId === null → 仅创建根 Agent session）
+     * 2. 查询拓扑关系（非 rootAgentId → 仅创建该 Agent session）
+     * 3. 提取后代 Agent ID 列表
+     * 4. 为根 Agent 创建 session
+     * 5. 为每个后代 Agent 创建 session（失败时记录警告并继续）
+     * 6. 持久化根 Agent 记录到 aiemas_sessions 表
+     * 7. 记录根 Agent 所有权
+     */
+    async cascadeCreate(params: {
+      agentId: string;
+      userId: string | null;
+      tenantId: string;
+      label?: string;
+    }): Promise<{ sessionKey: string; sessionId: string }> {
+      const { agentId, userId, tenantId, label } = params;
+
+      // 步骤 1：兼容模式 — userId 为 null 时跳过级联，仅创建根 Agent session
+      if (userId === null) {
+        const result = (await callGateway("sessions.create", { agentId, label })) as {
+          key: string;
+          id: string;
+        };
+        return { sessionKey: result.key, sessionId: result.id };
+      }
+
+      // 步骤 2：查询拓扑关系，判断是否为 rootAgentId
+      const topology = topologyCache.getTopology(agentId);
+      if (topology === undefined) {
+        // 非 rootAgentId，仅为该 Agent 创建 session
+        const result = (await callGateway("sessions.create", { agentId, label })) as {
+          key: string;
+          id: string;
+        };
+        return { sessionKey: result.key, sessionId: result.id };
+      }
+
+      // 步骤 3：提取后代 Agent ID 列表（排除 rootAgentId 自身）
+      const descendantAgentIds = extractDescendantAgentIds(topology.edges, agentId);
+
+      // 步骤 4：为根 Agent 创建 session
+      const rootResult = (await callGateway("sessions.create", { agentId, label })) as {
+        key: string;
+        id: string;
+      };
+      const rootSessionKey = rootResult.key;
+      const rootSessionId = rootResult.id;
+      const sessionUuid = extractSessionUuid(rootSessionKey);
+
+      // 步骤 5：为每个后代 Agent 创建 session，失败时记录警告并继续
+      const descendantSessions: Array<{
+        agentId: string;
+        sessionKey: string;
+        sessionId: string;
+      }> = [];
+
+      for (const descendantAgentId of descendantAgentIds) {
+        try {
+          const descendantKey = buildDescendantSessionKey(descendantAgentId, sessionUuid);
+          const descendantResult = (await callGateway("sessions.create", {
+            agentId: descendantAgentId,
+            ...(descendantKey ? { key: descendantKey } : {}),
+          })) as { key: string; id: string };
+
+          const descendantSessionKey = descendantResult.key;
+          const descendantSessionId = descendantResult.id;
+
+          // 记录后代 Agent session 所有权（与根 Agent 共享 userId/tenantId）
+          try {
+            recordSessionCreated(descendantSessionKey, userId, tenantId);
+          } catch (ownershipErr) {
+            console.warn(
+              `[mas4s:cascadeCreate] Failed to record ownership for descendant ${descendantAgentId}: ${String(ownershipErr)}`,
+            );
+          }
+
+          descendantSessions.push({
+            agentId: descendantAgentId,
+            sessionKey: descendantSessionKey,
+            sessionId: descendantSessionId,
+          });
+        } catch (err) {
+          // 后代 Agent session 创建失败：记录警告并继续处理其余后代 Agent
+          console.warn(
+            `[mas4s:cascadeCreate] Failed to create session for descendant ${descendantAgentId}: ${String(err)}`,
+          );
+        }
+      }
+
+      // 步骤 6：持久化根 Agent 记录到 aiemas_sessions 表
+      store.saveRootSession({
+        sessionKey: rootSessionKey,
+        sessionId: rootSessionId,
+        agentId,
+        sessionUuid,
+        label,
+        userId,
+        tenantId,
+        descendantSessions,
+      });
+
+      // 步骤 7：记录根 Agent 所有权
+      try {
+        recordSessionCreated(rootSessionKey, userId, tenantId);
+      } catch (ownershipErr) {
+        console.warn(
+          `[mas4s:cascadeCreate] Failed to record root session ownership: ${String(ownershipErr)}`,
+        );
+      }
+
+      return { sessionKey: rootSessionKey, sessionId: rootSessionId };
+    },
+
+    // ── 后续任务实现的方法（stubs）────────────────────────────────────────
+
+    async cascadeDelete(params: { sessionKey: string }): Promise<void> {
+      const { sessionKey } = params;
+
+      // 步骤 1：加载根 Agent 记录
+      const record = store.loadRootSession(sessionKey);
+      if (record === undefined) {
+        // 无记录：仅删除该 session 本身（兼容模式或非级联 session）
+        await callGateway("sessions.delete", { sessionKey });
+        return;
+      }
+
+      // 步骤 2：检查兼容模式（userId 为 null 时跳过级联）
+      if (record.userId === null) {
+        await callGateway("sessions.delete", { sessionKey });
+        return;
+      }
+
+      // 步骤 3：删除后代 Agent session（失败时记录警告并继续）
+      for (const descendantSession of record.descendantSessions) {
+        try {
+          await callGateway("sessions.delete", { sessionKey: descendantSession.sessionKey });
+          deleteSessionRecords(descendantSession.sessionKey);
+        } catch (err) {
+          console.warn(
+            `[mas4s:cascadeDelete] Failed to delete descendant session for ${descendantSession.agentId}: ${String(err)}`,
+          );
+          // 继续处理其余后代 Agent
+        }
+      }
+
+      // 步骤 4：删除根 Agent session
+      await callGateway("sessions.delete", { sessionKey });
+
+      // 步骤 5：清理记录
+      deleteSessionRecords(sessionKey);
+      store.deleteRootSession(sessionKey);
+    },
+
+    async listRootSessions(): Promise<{
+      ts: number;
+      count: number;
+      sessions: unknown[];
+    }> {
+      const records = store.listRootSessions();
+      const sessions = records
+        .map((r) => {
+          try {
+            return deps.loadGatewaySessionRow(r.sessionKey);
+          } catch (err) {
+            console.warn(
+              `[mas4s:listRootSessions] Failed to load row for ${r.sessionKey}: ${String(err)}`,
+            );
+            return null;
+          }
+        })
+        .filter((s) => s !== null);
+
+      return {
+        ts: Date.now(),
+        count: sessions.length,
+        sessions,
+      };
+    },
+
+    async syncTopologyChanges(params: {
+      rootAgentId: string;
+      oldTopology: TopologyTree | undefined;
+      newTopology: TopologyTree;
+      tenantId: string;
+    }): Promise<void> {
+      const { rootAgentId, oldTopology, newTopology, tenantId } = params;
+
+      // 步骤 1：计算拓扑差异
+      const oldDescendantIds = extractDescendantAgentIds(oldTopology?.edges ?? [], rootAgentId);
+      const newDescendantIds = extractDescendantAgentIds(newTopology.edges, rootAgentId);
+
+      const addedAgentIds = newDescendantIds.filter((id) => !oldDescendantIds.includes(id));
+      const removedAgentIds = oldDescendantIds.filter((id) => !newDescendantIds.includes(id));
+
+      // 步骤 2：查询活跃 session 记录（过滤出属于该 rootAgentId 的记录）
+      const allSessions = store.listRootSessions();
+      // 使用可变副本，因为后续会修改 descendantSessions
+      const activeSessions = allSessions
+        .filter((s) => s.agentId === rootAgentId)
+        .map((s) => ({ ...s, descendantSessions: [...s.descendantSessions] }));
+
+      // 步骤 3：如果没有活跃 session，直接返回（跳过增量同步）
+      if (activeSessions.length === 0) {
+        return;
+      }
+
+      // 步骤 4：为新增后代 Agent 创建 session
+      for (const activeSession of activeSessions) {
+        for (const addedAgentId of addedAgentIds) {
+          try {
+            const descendantKey = buildDescendantSessionKey(
+              addedAgentId,
+              activeSession.sessionUuid,
+            );
+            const descendantResult = (await callGateway("sessions.create", {
+              agentId: addedAgentId,
+              ...(descendantKey ? { key: descendantKey } : {}),
+            })) as { key: string; id: string };
+
+            // 记录后代 Agent session 所有权
+            try {
+              recordSessionCreated(descendantResult.key, activeSession.userId, tenantId);
+            } catch (ownershipErr) {
+              console.warn(
+                `[mas4s:syncTopologyChanges] Failed to record ownership for added agent ${addedAgentId}: ${String(ownershipErr)}`,
+              );
+            }
+
+            activeSession.descendantSessions.push({
+              agentId: addedAgentId,
+              sessionKey: descendantResult.key,
+              sessionId: descendantResult.id,
+            });
+          } catch (err) {
+            console.warn(
+              `[mas4s:syncTopologyChanges] Failed to create session for added agent ${addedAgentId}: ${String(err)}`,
+            );
+            // 继续处理其余新增 Agent
+          }
+        }
+      }
+
+      // 步骤 5：为移除后代 Agent 删除 session
+      for (const activeSession of activeSessions) {
+        for (const removedAgentId of removedAgentIds) {
+          const descendantSession = activeSession.descendantSessions.find(
+            (s) => s.agentId === removedAgentId,
+          );
+          if (descendantSession !== undefined) {
+            try {
+              await callGateway("sessions.delete", { sessionKey: descendantSession.sessionKey });
+              try {
+                deleteSessionRecords(descendantSession.sessionKey);
+              } catch (cleanupErr) {
+                console.warn(
+                  `[mas4s:syncTopologyChanges] Failed to delete session records for removed agent ${removedAgentId}: ${String(cleanupErr)}`,
+                );
+              }
+              activeSession.descendantSessions = activeSession.descendantSessions.filter(
+                (s) => s.agentId !== removedAgentId,
+              );
+            } catch (err) {
+              console.warn(
+                `[mas4s:syncTopologyChanges] Failed to delete session for removed agent ${removedAgentId}: ${String(err)}`,
+              );
+              // 继续处理其余移除 Agent
+            }
+          }
+        }
+      }
+
+      // 步骤 6：更新持久化记录
+      for (const activeSession of activeSessions) {
+        store.updateDescendantSessions({
+          sessionKey: activeSession.sessionKey,
+          descendantSessions: activeSession.descendantSessions,
+        });
+      }
+    },
   };
 }
 

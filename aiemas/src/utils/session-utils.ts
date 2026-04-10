@@ -1,3 +1,6 @@
+import { normalizeAgentId } from "../../../src/routing/session-key.js";
+import { normalizeLowercaseStringOrEmpty } from "../../../src/shared/string-coerce.js";
+
 /**
  * Extract sessionUuid from sessionKey.
  * Format: agent:{agentId}:group:{sessionUuid} -> {sessionUuid}
@@ -26,5 +29,5 @@ export function extractAgentNameFromKey(sessionKey: string): string {
  * Construct sessionKey from agentId and sessionUuid.
  */
 export function constructKeyFromUuid(agentId: string, sessionUuid: string): string {
-  return `agent:${agentId}:group:${sessionUuid}`;
+  return `agent:${normalizeAgentId(agentId)}:group:${normalizeLowercaseStringOrEmpty(sessionUuid)}`;
 }

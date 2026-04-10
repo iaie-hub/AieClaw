@@ -58,6 +58,9 @@ export const GLOBAL_ROLE_PERMISSIONS: Record<string, Set<GlobalRole>> = {
   "aiemas.fs.list": new Set(["admin", "member", "viewer"]),
   "aiemas.agents.topology.list": new Set(["admin", "member", "viewer"]),
   "aiemas.agents.topology.save": new Set(["admin", "member"]),
+  "aiemas.sessions.create": new Set(["admin", "member"]),
+  "aiemas.sessions.delete": new Set(["admin", "member"]),
+  "aiemas.sessions.list": new Set(["admin", "member", "viewer"]),
 };
 
 /**
