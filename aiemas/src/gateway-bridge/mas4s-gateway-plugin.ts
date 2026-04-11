@@ -3,27 +3,10 @@ import type { TenantService, TenantServiceConfig } from "../index.js";
 import { createTenantService } from "../index.js";
 import { deleteSummary, deleteSessionMessages } from "../session-history/session-summary-store.js";
 import { createAiemasSessionsStore } from "../store/aiemas-sessions-store.js";
+import type { SimpleHandlers } from "./aiemas-utils.js";
+import { errorShape } from "./aiemas-utils.js";
 import { GatewayAuthBridge } from "./bridge.js";
-import { getMasAuth, NULL_MAS_AUTH } from "./context.js";
 import { extractMasTokenFromUrl } from "./integration.js";
-import type { StoredMessageForSummary } from "./summary-llm.js";
-
-/**
- * Generic handler type that avoids importing from src/gateway/ directly.
- * Matches the shape of GatewayRequestHandlers entries.
- */
-type SimpleHandler = (opts: {
-  params: Record<string, unknown>;
-  client: unknown;
-  respond: (ok: boolean, payload: unknown, error: unknown) => void;
-  dispatchGateway?: (
-    method: string,
-    params: Record<string, unknown>,
-    client?: unknown,
-  ) => Promise<unknown>;
-}) => void | Promise<void>;
-
-type SimpleHandlers = Record<string, SimpleHandler>;
 
 /**
  * Callback to dispatch an internal gateway request.
@@ -64,37 +47,12 @@ export interface Mas4sGatewayPlugin {
   loadGatewaySessionRow: (sessionKey: string) => unknown;
 }
 
-function errorShape(code: string, message: string): { code: string; message: string } {
-  return { code, message };
-}
-
-function getCallerAuth(client: unknown) {
-  if (client != null && typeof client === "object") {
-    return getMasAuth(client) ?? NULL_MAS_AUTH;
-  }
-  return NULL_MAS_AUTH;
-}
-
-function str(v: unknown): string {
-  return typeof v === "string"
-    ? v
-    : v == null
-      ? ""
-      : typeof v === "object"
-        ? JSON.stringify(v)
-        : String(v as string | number | boolean | symbol | bigint);
-}
-
 export async function createMas4sGatewayPlugin(
   config?: TenantServiceConfig,
 ): Promise<Mas4sGatewayPlugin> {
   const tenantService = createTenantService(config);
   await tenantService.init();
 
-  // Access the internal db via a small workaround: bridge needs db directly.
-  // We expose a factory that creates the bridge after init so db is available.
-  // Since TenantService doesn't expose db publicly, we create a parallel db ref
-  // by re-using the same dbPath via initDatabase.
   const { initDatabase } = await import("../store/database.js");
   const { homedir } = await import("node:os");
   const { join } = await import("node:path");
@@ -109,8 +67,6 @@ export async function createMas4sGatewayPlugin(
   console.log(`[mas4s] Gateway started: ${userCountRow.count} user(s) in database`);
 
   // Reset stale SOP run states from the previous gateway session.
-  // When the gateway stops, all running SOP processes are interrupted but the DB
-  // retains isChatting=true and "running" step statuses. Clean them up on startup.
   const { resetAllRunStatesOnStartup } = await import("./run-state-store.js");
   const resetCount = resetAllRunStatesOnStartup(db);
   if (resetCount > 0) {
@@ -127,13 +83,12 @@ export async function createMas4sGatewayPlugin(
   transcriptStore.start();
 
   const bridge = new GatewayAuthBridge(tenantService, db, config?.llm, transcriptStore);
+
   // Subscribe to session lifecycle events to persist label into aiemas_sessions.
-  // This survives session resets because sessionKey is stable across resets.
   const { onSessionLifecycleEvent } =
     await import("../../../src/sessions/session-lifecycle-events.js");
   const stopLabelSync = onSessionLifecycleEvent((event) => {
     try {
-      // On session delete, remove the record, all messages, and summary from message DB.
       if (event.reason === "session-delete") {
         const { extractUuidFromKey } = require("../utils/session-utils.js");
         const uuid = extractUuidFromKey(event.sessionKey);
@@ -148,7 +103,6 @@ export async function createMas4sGatewayPlugin(
         return;
       }
       sessionStore.upsertSessionLabel(event.sessionKey, {
-        // displayName maps to label (merged)
         ...(hasLabel ? { label: event.label ?? null } : {}),
         ...(hasDisplayName && !hasLabel ? { label: event.displayName ?? null } : {}),
       });
@@ -157,1003 +111,73 @@ export async function createMas4sGatewayPlugin(
     }
   });
 
-  const extraHandlers: SimpleHandlers = {
-    "chat.send": async ({ params: _params, client: _client, respond }) => {
-      // Note: This handler is replaced by the mas4s-integration wrapper,
-      // which calls recordSenderContext before the core handler.
-      // This handler is kept for reference but is not actually invoked.
-      respond(true, {}, undefined);
-    },
-
-    "session.history.range": async ({ params, client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const sessionKey = str(params["sessionKey"]);
-        if (!sessionKey) {
-          respond(false, undefined, errorShape("INVALID_PARAMS", "sessionKey required"));
-          return;
-        }
-
-        // Permission check: verify access when userId is present
-        if (auth.userId) {
-          const access = bridge.checkSessionAccess(sessionKey, auth);
-          if (!access.allowed) {
-            respond(false, undefined, errorShape(access.code, access.message));
-            return;
-          }
-        }
-
-        const { queryHistoryRange } = await import("../session-history/session-history-query.js");
-
-        // from/to are optional: when absent the query returns the last 30 days.
-        const resolvedTo = typeof params["to"] === "number" ? params["to"] : Date.now();
-        const resolvedFrom =
-          typeof params["from"] === "number"
-            ? params["from"]
-            : resolvedTo - 30 * 24 * 60 * 60 * 1000;
-        const resolvedSid =
-          typeof params["sessionId"] === "string" ? params["sessionId"] : undefined;
-        const buffered = transcriptStore.getBuffered(
-          sessionKey,
-          resolvedFrom,
-          resolvedTo,
-          resolvedSid,
-        );
-
-        const { extractUuidFromKey } = await import("../utils/session-utils.js");
-        const sessionUuid = extractUuidFromKey(sessionKey);
-
-        const queryParams = {
-          sessionUuid,
-          sessionKey,
-          sessionId: resolvedSid,
-          from: resolvedFrom,
-          to: resolvedTo,
-          page: typeof params["page"] === "number" ? params["page"] : undefined,
-          pageSize: typeof params["pageSize"] === "number" ? params["pageSize"] : undefined,
-          bufferedCount: buffered.length,
-        };
-        console.log("[mas4s:session.history.range] params:", JSON.stringify(queryParams));
-        const result = queryHistoryRange(messageDb, {
-          sessionUuid,
-          sessionKey,
-          sessionId: resolvedSid,
-          from: resolvedFrom,
-          to: resolvedTo,
-          page: queryParams.page,
-          pageSize: queryParams.pageSize,
-          buffered,
-          resolveDisplayName: (userId) => tenantService.resolveDisplayName(userId),
-        });
-        console.log(
-          `[mas4s:session.history.range] result: total=${result.total} page=${result.page}/${result.totalPages} messages=${result.messages.length} hasSummary=${result.hasSummary}`,
-        );
-        respond(true, result, undefined);
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "system.status": async ({ respond }) => {
-      try {
-        const result = tenantService.getSystemStatus();
-        respond(true, result, undefined);
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "user.register": async ({ params, client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const result = tenantService.registerUser(
-          params as unknown as Parameters<TenantService["registerUser"]>[0],
-          auth.masRole ?? undefined,
-        );
-        respond(true, result, undefined);
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "user.list": async ({ params, client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const tenantId = str(params["tenantId"] ?? auth.tenantId ?? "");
-        const callerRole = auth.masRole;
-        if (!callerRole) {
-          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
-          return;
-        }
-        const result = tenantService.listUsers(tenantId, callerRole);
-        respond(true, result, undefined);
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "user.update": async ({ params, client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const callerRole = auth.masRole;
-        if (!callerRole) {
-          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
-          return;
-        }
-        const result = tenantService.updateUser(
-          params as unknown as Parameters<TenantService["updateUser"]>[0],
-          callerRole,
-        );
-        respond(true, result, undefined);
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "user.approve": async ({ params, client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const callerRole = auth.masRole;
-        if (!callerRole) {
-          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
-          return;
-        }
-        tenantService.approveUser(str(params["targetUserId"]), callerRole);
-        respond(true, { ok: true }, undefined);
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "user.reject": async ({ params, client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const callerRole = auth.masRole;
-        if (!callerRole) {
-          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
-          return;
-        }
-        tenantService.rejectUser(str(params["targetUserId"]), callerRole);
-        respond(true, { ok: true }, undefined);
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "auth.login": async ({ params, client, respond }) => {
-      try {
-        const c = client as {
-          remoteAddress?: string;
-          socket?: { _socket?: { remoteAddress?: string } };
-          _socket?: { remoteAddress?: string };
-        };
-        const clientIp =
-          c?.remoteAddress || c?.socket?._socket?.remoteAddress || c?._socket?.remoteAddress;
-
-        const loginParams = params as Parameters<TenantService["login"]>[0];
-        if (clientIp) {
-          loginParams.clientIp = clientIp;
-        }
-
-        const result = tenantService.login(loginParams);
-        if (result.ok) {
-          respond(true, result, undefined);
-        } else {
-          respond(false, undefined, errorShape(result.error, result.error));
-        }
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "auth.refresh": async ({ params, respond }) => {
-      try {
-        const token = str(params["token"]);
-        const result = tenantService.refresh(token);
-        if (result.ok) {
-          respond(true, result, undefined);
-        } else {
-          respond(false, undefined, errorShape(result.error, result.error));
-        }
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "auth.verify": async ({ params, respond }) => {
-      try {
-        const token = str(params["token"]);
-        const result = tenantService.verify(token);
-        if (result.ok) {
-          respond(true, result, undefined);
-        } else {
-          respond(false, undefined, errorShape(result.error, result.error));
-        }
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "session.invite": async ({ params, client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const callerUserId = auth.userId;
-        if (!callerUserId) {
-          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
-          return;
-        }
-        const result = bridge.inviteToSession({
-          sessionKey: str(params["sessionKey"]),
-          targetUserId: str(params["targetUserId"]),
-          callerUserId,
-        });
-        if (result.ok) {
-          respond(true, result, undefined);
-        } else {
-          respond(false, undefined, errorShape(result.code, result.message));
-        }
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "session.removeMember": async ({ params, client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const callerUserId = auth.userId;
-        if (!callerUserId) {
-          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
-          return;
-        }
-        const result = bridge.removeMember({
-          sessionKey: str(params["sessionKey"]),
-          targetUserId: str(params["targetUserId"]),
-          callerUserId,
-        });
-        if (result.ok) {
-          respond(true, result, undefined);
-        } else {
-          respond(false, undefined, errorShape(result.code, result.message));
-        }
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "session.members": async ({ params, client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const callerUserId = auth.userId;
-        if (!callerUserId) {
-          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
-          return;
-        }
-        const members = bridge.listSessionMembers(str(params["sessionKey"]), callerUserId);
-        respond(true, { members }, undefined);
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "session.leave": async ({ params, client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const callerUserId = auth.userId;
-        if (!callerUserId) {
-          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
-          return;
-        }
-        const result = bridge.leaveSession(str(params["sessionKey"]), callerUserId);
-        if (result.ok) {
-          respond(true, result, undefined);
-        } else {
-          respond(false, undefined, errorShape(result.code, result.message));
-        }
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "user.logout": async ({ client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        console.log(`[mas4s:plugin] user.logout userId=${auth.userId ?? "null"}`);
-        if (auth.userId) {
-          bridge.logout(auth.userId);
-        }
-        respond(true, { ok: true }, undefined);
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "session.archive": async ({ params, client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const callerUserId = auth.userId;
-        if (!callerUserId) {
-          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
-          return;
-        }
-        const sessionKey = str(params["sessionKey"]);
-        const fetchHistory = buildFetchHistory(plugin, sessionKey, client);
-        const result = await bridge.archiveSession({ sessionKey, callerUserId, fetchHistory });
-        if (result.ok) {
-          respond(true, result, undefined);
-        } else {
-          respond(false, undefined, errorShape(result.code, result.message));
-        }
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "session.unarchive": async ({ params, client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const callerUserId = auth.userId;
-        if (!callerUserId) {
-          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
-          return;
-        }
-        const sessionKey = str(params["sessionKey"]);
-        const result = bridge.unarchiveSession({ sessionKey, callerUserId });
-        if (result.ok) {
-          respond(true, result, undefined);
-        } else {
-          respond(false, undefined, errorShape(result.code, result.message));
-        }
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "session.summary.generate": async ({ params, client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const callerUserId = auth.userId;
-        if (!callerUserId) {
-          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
-          return;
-        }
-        const sessionKey = str(params["sessionKey"]);
-        const fetchHistory = buildFetchHistory(plugin, sessionKey, client);
-        const result = await bridge.generateSummary({ sessionKey, callerUserId, fetchHistory });
-        if (result.ok) {
-          respond(true, result, undefined);
-        } else {
-          respond(false, undefined, errorShape(result.code, result.message));
-        }
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "session.summary.get": async ({ params, client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const callerUserId = auth.userId;
-        if (!callerUserId) {
-          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
-          return;
-        }
-        const sessionKey = str(params["sessionKey"]);
-
-        // Access check
-        const access = bridge.checkSessionAccess(sessionKey, { ...auth, userId: callerUserId });
-        if (!access.allowed) {
-          respond(false, undefined, errorShape(access.code, access.message));
-          return;
-        }
-
-        const { extractUuidFromKey } = await import("../utils/session-utils.js");
-        const uuid = extractUuidFromKey(sessionKey);
-
-        const { getSummary } = await import("../session-history/session-summary-store.js");
-        const summary = getSummary(messageDb, uuid);
-        respond(true, { summary }, undefined);
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "session.label.get": async ({ params, client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const sessionKey = str(params["sessionKey"]);
-        if (!sessionKey) {
-          respond(false, undefined, errorShape("INVALID_PARAMS", "sessionKey required"));
-          return;
-        }
-        if (auth.userId) {
-          const access = bridge.checkSessionAccess(sessionKey, auth);
-          if (!access.allowed) {
-            respond(false, undefined, errorShape(access.code, access.message));
-            return;
-          }
-        }
-        const entry = sessionStore.getSessionLabel(sessionKey);
-        respond(
-          true,
-          {
-            sessionKey,
-            label: entry?.label ?? null,
-            updatedAt: entry?.updatedAt ?? null,
-          },
-          undefined,
-        );
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "session.label.list": async ({ client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        if (!auth.userId) {
-          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
-          return;
-        }
-        const all = sessionStore.listSessionLabels();
-        respond(true, { labels: all }, undefined);
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "session.run.state": async ({ params, client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const sessionKey = str(params["sessionKey"]);
-        if (!sessionKey) {
-          respond(false, undefined, errorShape("INVALID_PARAMS", "sessionKey required"));
-          return;
-        }
-        // Permission check: verify access when userId is present (compat mode skips)
-        if (auth.userId) {
-          const access = bridge.checkSessionAccess(sessionKey, auth);
-          if (!access.allowed) {
-            respond(false, undefined, errorShape(access.code, access.message));
-            return;
-          }
-        }
-
-        const { extractUuidFromKey } = await import("../utils/session-utils.js");
-        const { getRunState } = await import("./run-state-store.js");
-        const sessionUuid = extractUuidFromKey(sessionKey);
-        const row = getRunState(db, sessionUuid);
-
-        const isChatting = row?.isChatting ?? false;
-        const runId = isChatting ? (row?.runId ?? undefined) : undefined;
-
-        // Return the minimal snapshot; mas4s-integration.ts wraps this handler
-        // to enrich stepStatuses with label/icon from live SOPTracker memory.
-        respond(
-          true,
-          {
-            sessionKey,
-            isChatting,
-            runId,
-            sopSnapshot: row?.sopSnapshot ?? null,
-          },
-          undefined,
-        );
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "session.agent.update": async ({ params, client, respond }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const sessionKey = str(params["sessionKey"]);
-        const agentId = str(params["agentId"]);
-        if (!sessionKey || !agentId) {
-          respond(
-            false,
-            undefined,
-            errorShape("INVALID_PARAMS", "sessionKey and agentId required"),
-          );
-          return;
-        }
-
-        const userId = auth.userId;
-        if (!userId) {
-          respond(false, undefined, errorShape("AUTH_REQUIRED", "Authentication required"));
-          return;
-        }
-
-        // Permission check: only owner can change agent
-        const { extractUuidFromKey } = await import("../utils/session-utils.js");
-        const uuid = extractUuidFromKey(sessionKey);
-        const role = bridge.getSessionRole(uuid, userId);
-        if (role !== "owner") {
-          respond(
-            false,
-            undefined,
-            errorShape("SESSION_ACCESS_DENIED", "Only the session owner can change the agent"),
-          );
-          return;
-        }
-
-        sessionStore.upsertSessionLabel(sessionKey, { currentAgentId: agentId });
-        respond(true, { ok: true, agentId }, undefined);
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "aiemas.agents.preDelete": async ({ params, respond }) => {
-      try {
-        const agentId = str(params["agentId"]);
-        if (!agentId) {
-          respond(false, undefined, errorShape("INVALID_PARAMS", "agentId required"));
-          return;
-        }
-        const count = sessionStore.countByCurrentAgentId(agentId);
-        if (count === 0) {
-          respond(true, { ok: true }, undefined);
-        } else {
-          respond(
-            false,
-            undefined,
-            errorShape("AGENT_IN_USE", `该智能体仍有 ${count} 个关联会话，无法删除`),
-          );
-        }
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "aiemas.fs.list": async ({ params, respond }) => {
-      try {
-        const dirPath = str(params["dirPath"]);
-        if (!dirPath) {
-          respond(false, undefined, errorShape("INVALID_PARAMS", "dirPath required"));
-          return;
-        }
-        const { readdir, stat } = await import("node:fs/promises");
-        const nodePath = await import("node:path");
-        let dirents;
-        try {
-          dirents = await readdir(dirPath, { withFileTypes: true });
-        } catch (fsErr) {
-          if ((fsErr as NodeJS.ErrnoException).code === "ENOENT") {
-            respond(false, undefined, errorShape("NOT_FOUND", "目录不存在"));
-            return;
-          }
-          throw fsErr;
-        }
-        const entries = await Promise.all(
-          dirents.map(async (entry) => {
-            const size = entry.isDirectory()
-              ? 0
-              : (await stat(nodePath.join(dirPath, entry.name))).size;
-            return {
-              name: entry.name,
-              type: entry.isDirectory() ? ("directory" as const) : ("file" as const),
-              size,
-            };
-          }),
-        );
-        respond(true, { entries }, undefined);
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "aiemas.agents.export": async ({ params, respond }) => {
-      try {
-        const agentId = str(params["agentId"]);
-        const workspace = str(params["workspace"]);
-        const items = params["items"];
-        if (!agentId || !workspace || !Array.isArray(items)) {
-          respond(
-            false,
-            undefined,
-            errorShape("INVALID_PARAMS", "agentId, workspace, items required"),
-          );
-          return;
-        }
-        const nodePath = await import("node:path");
-        const { access: fsAccess, cp, rm } = await import("node:fs/promises");
-        const { mkdirSync } = await import("node:fs");
-        const { promisify } = await import("node:util");
-        const { execFile } = await import("node:child_process");
-        const execFileAsync = promisify(execFile);
-
-        // Verify workspace exists
-        try {
-          await fsAccess(workspace);
-        } catch {
-          respond(false, undefined, errorShape("NOT_FOUND", "工作区目录不存在"));
-          return;
-        }
-
-        const tempDir = nodePath.join(nodePath.dirname(workspace), `${agentId}-export`);
-        const archivePath = nodePath.join(nodePath.dirname(workspace), `${agentId}-export.zip`);
-
-        // Create temp dir and copy selected items
-        mkdirSync(tempDir, { recursive: true });
-        try {
-          for (const item of items as string[]) {
-            const src = nodePath.join(workspace, item);
-            const dest = nodePath.join(tempDir, item);
-            await cp(src, dest, { recursive: true });
-          }
-
-          // Remove any pre-existing archive to ensure a clean full export (zip -r updates
-          // incrementally by default, which would leave stale entries from prior exports).
-          await rm(archivePath, { force: true });
-
-          // Zip the temp dir using system zip command
-          await execFileAsync("zip", ["-r", archivePath, "."], { cwd: tempDir });
-        } finally {
-          // Clean up temp dir regardless of success/failure
-          await rm(tempDir, { recursive: true, force: true });
-        }
-
-        respond(true, { archivePath }, undefined);
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "aiemas.files.download": async ({ params, respond }) => {
-      try {
-        const filePath = str(params["filePath"]);
-        if (!filePath) {
-          respond(false, undefined, errorShape("INVALID_PARAMS", "filePath required"));
-          return;
-        }
-        const { readFile } = await import("node:fs/promises");
-        const nodePath = await import("node:path");
-        let content: Buffer;
-        try {
-          content = await readFile(filePath);
-        } catch (fsErr) {
-          if ((fsErr as NodeJS.ErrnoException).code === "ENOENT") {
-            respond(false, undefined, errorShape("NOT_FOUND", "文件不存在"));
-            return;
-          }
-          throw fsErr;
-        }
-        respond(
-          true,
-          {
-            data: content.toString("base64"),
-            fileName: nodePath.basename(filePath),
-            mimeType: "application/octet-stream",
-          },
-          undefined,
-        );
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "aiemas.file.upload": async ({ params, respond }) => {
-      try {
-        const fileName = str(params["fileName"]);
-        const data = str(params["data"]);
-        if (!fileName || !data) {
-          respond(false, undefined, errorShape("INVALID_PARAMS", "fileName and data required"));
-          return;
-        }
-        const nodePath = await import("node:path");
-        const nodeOs = await import("node:os");
-        const { mkdirSync } = await import("node:fs");
-        const { writeFile } = await import("node:fs/promises");
-
-        const randomId = Math.random().toString(36).slice(2);
-        const uploadDir = nodePath.join(nodeOs.tmpdir(), `aiemas-upload-${randomId}`);
-        mkdirSync(uploadDir, { recursive: true });
-        const filePath = nodePath.join(uploadDir, fileName);
-        await writeFile(filePath, Buffer.from(data, "base64"));
-        respond(true, { filePath }, undefined);
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "aiemas.sessions.create": async ({ params, client, respond, dispatchGateway }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const agentId = str(params["agentId"]);
-        if (!agentId) {
-          respond(false, undefined, errorShape("INVALID_PARAMS", "agentId required"));
-          return;
-        }
-        const label = typeof params["label"] === "string" ? params["label"] : undefined;
-        const userId = auth.userId ?? null;
-        const tenantId = str(auth.tenantId ?? "");
-        const { createSessionCascadeService } = await import("./aiemas-session.js");
-        const cascadeService = createSessionCascadeService({
-          db,
-          callGateway: async (method, callParams) => {
-            if (dispatchGateway) {
-              return await dispatchGateway(method, callParams, client);
-            }
-            if (!plugin.gatewayDispatch) {
-              throw new Error("gatewayDispatch not available");
-            }
-            return await plugin.gatewayDispatch(method, callParams, client);
-          },
-          topologyCache: tenantService.cacheService.topologyCache,
-          recordSessionCreated: (sessionKey, uid, tid) => {
-            bridge.onSessionCreated(sessionKey, "", {
-              userId: uid,
-              tenantId: tid,
-              masRole: auth.masRole,
-            });
-          },
-          deleteSessionRecords: (sessionKey) => {
-            bridge.onSessionDeleted(sessionKey);
-          },
-          loadGatewaySessionRow: (sessionKey: string) => {
-            if (!plugin.loadGatewaySessionRow) {
-              throw new Error("loadGatewaySessionRow not available");
-            }
-            return plugin.loadGatewaySessionRow(sessionKey);
-          },
-        });
-
-        const result = await cascadeService.cascadeCreate({ agentId, userId, tenantId, label });
-        respond(true, result, undefined);
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "aiemas.sessions.delete": async ({ params, client, respond, dispatchGateway }) => {
-      const auth = getCallerAuth(client);
-      try {
-        const sessionKey = str(params["sessionKey"]);
-        if (!sessionKey) {
-          respond(false, undefined, errorShape("INVALID_PARAMS", "sessionKey required"));
-          return;
-        }
-
-        // Permission check: only allow access when userId is present
-        if (auth.userId) {
-          const access = bridge.checkSessionAccess(sessionKey, auth);
-          if (!access.allowed) {
-            respond(false, undefined, errorShape(access.code, access.message));
-            return;
-          }
-        }
-
-        const { createSessionCascadeService } = await import("./aiemas-session.js");
-        const cascadeService = createSessionCascadeService({
-          db,
-          callGateway: async (method, callParams) => {
-            if (dispatchGateway) {
-              return await dispatchGateway(method, callParams, client);
-            }
-            if (!plugin.gatewayDispatch) {
-              throw new Error("gatewayDispatch not available");
-            }
-            return await plugin.gatewayDispatch(method, callParams, client);
-          },
-          topologyCache: tenantService.cacheService.topologyCache,
-          recordSessionCreated: (sessionKey: string, uid: string, tid: string) => {
-            bridge.onSessionCreated(sessionKey, "", {
-              userId: uid,
-              tenantId: tid,
-              masRole: auth.masRole,
-            });
-          },
-          deleteSessionRecords: (sk: string) => {
-            bridge.onSessionDeleted(sk);
-          },
-          loadGatewaySessionRow: (sessionKey: string) => {
-            if (!plugin.loadGatewaySessionRow) {
-              throw new Error("loadGatewaySessionRow not available");
-            }
-            return plugin.loadGatewaySessionRow(sessionKey);
-          },
-        });
-
-        await cascadeService.cascadeDelete({ sessionKey });
-        respond(true, { ok: true }, undefined);
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "aiemas.sessions.list": async ({ client, respond, dispatchGateway }) => {
-      try {
-        const { createSessionCascadeService } = await import("./aiemas-session.js");
-        const cascadeService = createSessionCascadeService({
-          db,
-          callGateway: async (method, callParams) => {
-            if (dispatchGateway) {
-              return await dispatchGateway(method, callParams, client);
-            }
-            if (!plugin.gatewayDispatch) {
-              throw new Error("gatewayDispatch not available");
-            }
-            return await plugin.gatewayDispatch(method, callParams, client);
-          },
-          topologyCache: tenantService.cacheService.topologyCache,
-          recordSessionCreated: (sessionKey: string, uid: string, tid: string) => {
-            bridge.onSessionCreated(sessionKey, "", { userId: uid, tenantId: tid, masRole: null });
-          },
-          deleteSessionRecords: (sk: string) => {
-            bridge.onSessionDeleted(sk);
-          },
-          loadGatewaySessionRow: (sessionKey: string) => {
-            if (!plugin.loadGatewaySessionRow) {
-              throw new Error("loadGatewaySessionRow not available");
-            }
-            return plugin.loadGatewaySessionRow(sessionKey);
-          },
-        });
-
-        const result = await cascadeService.listRootSessions();
-        respond(true, result, undefined);
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
-
-    "aiemas.agents.import": async ({ params, client, respond, dispatchGateway }) => {
-      try {
-        const archivePath = str(params["archivePath"]);
-        if (!archivePath) {
-          respond(
-            false,
-            undefined,
-            errorShape("INVALID_PARAMS", "archivePath required or file not found"),
-          );
-          return;
-        }
-        const { access: fsAccess, rm } = await import("node:fs/promises");
-        const nodePath = await import("node:path");
-        const { promisify } = await import("node:util");
-        const { execFile } = await import("node:child_process");
-        const execFileAsync = promisify(execFile);
-
-        // Verify archive file exists
-        try {
-          await fsAccess(archivePath);
-        } catch {
-          respond(
-            false,
-            undefined,
-            errorShape("INVALID_PARAMS", "archivePath required or file not found"),
-          );
-          return;
-        }
-
-        // Create agent via gatewayDispatch — plugin is defined after extraHandlers
-        // but this handler is called at runtime, so plugin is already initialized.
-        // Derive agentId from the archive filename (strip .zip suffix) and set workspace accordingly.
-        // Caller may override agentId and workspace explicitly.
-        const nodeOs = await import("node:os");
-        const derivedId = nodePath.basename(archivePath, ".zip");
-        const agentId = str(params["agentId"]) || derivedId;
-        const agentName = agentId;
-        const workspace =
-          str(params["workspace"]) ||
-          nodePath.join(nodeOs.homedir(), `.openclaw`, `workspace-${agentId}`);
-        const dispatch = dispatchGateway ?? plugin.gatewayDispatch;
-        if (!dispatch) {
-          throw new Error("Gateway dispatch not available");
-        }
-        const agentCreateResult = (await dispatch(
-          "agents.create",
-          { name: agentName, workspace },
-          client,
-        )) as { workspace: string; id: string; [key: string]: unknown };
-
-        const resolvedWorkspace = agentCreateResult.workspace || workspace;
-        // uploadDir is the parent temp directory created by aiemas.file.upload; clean it up too.
-        const uploadDir = nodePath.dirname(archivePath);
-
-        // Extract zip into the new agent's workspace; always clean up temp files afterwards.
-        try {
-          await execFileAsync("unzip", ["-o", archivePath, "-d", resolvedWorkspace]);
-          respond(true, agentCreateResult, undefined);
-        } catch {
-          respond(false, undefined, errorShape("EXTRACT_FAILED", "解压失败"));
-        } finally {
-          await rm(uploadDir, { recursive: true, force: true });
-        }
-      } catch (err) {
-        const e =
-          err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
-        respond(false, undefined, errorShape(e.code, e.message));
-      }
-    },
+  // ── Build extraHandlers by registering handler groups ──
+  const extraHandlers: SimpleHandlers = {};
+
+  // system.status stays here (trivial, no deps worth extracting)
+  extraHandlers["system.status"] = async ({ respond }) => {
+    try {
+      const result = tenantService.getSystemStatus();
+      respond(true, result, undefined);
+    } catch (err) {
+      const e =
+        err instanceof TenantServiceError ? err : new TenantServiceError("INTERNAL", String(err));
+      respond(false, undefined, errorShape(e.code, e.message));
+    }
   };
 
-  // ── Register agent-related handlers (including topology) ──
+  // Lazy plugin reference for handlers that need it (plugin is defined below)
+  let _plugin: Mas4sGatewayPlugin;
+  const getPlugin = () => _plugin;
+
+  // Auth handlers (login, refresh, verify)
+  const { registerAuthPluginHandlers } = await import("./handlers-auth.js");
+  registerAuthPluginHandlers(extraHandlers, { tenantService });
+
+  // User handlers (register, list, update, approve, reject, logout)
+  const { registerUserHandlers } = await import("./handlers-user.js");
+  registerUserHandlers(extraHandlers, { tenantService, bridge });
+
+  // Session handlers (invite, members, leave, archive, summary, label, run.state, etc.)
+  const { registerSessionHandlers } = await import("./handlers-session.js");
+  registerSessionHandlers(extraHandlers, {
+    bridge,
+    tenantService,
+    db,
+    messageDb,
+    transcriptStore,
+    sessionStore,
+    getPlugin,
+  });
+
+  // FS/file handlers (fs.list, files.download, file.upload, agents.preDelete, agents.export, agents.import)
+  const { registerFsHandlers } = await import("./handlers-fs.js");
+  registerFsHandlers(extraHandlers, { sessionStore, getPlugin });
+
+  // AIEMAS sessions cascade handlers (sessions.create, sessions.delete, sessions.list)
+  const { registerAiemasSessionsHandlers } = await import("./handlers-aiemas-sessions.js");
+  registerAiemasSessionsHandlers(extraHandlers, { bridge, tenantService, db, getPlugin });
+
+  // Agent/topology handlers (topology.list, topology.save, agents.import context wrapper)
   const { registerAgentHandlers } = await import("./aiemas-agent.js");
   registerAgentHandlers(extraHandlers, {
-    plugin: undefined, // handlers don't depend on plugin instance
+    plugin: undefined,
     db,
     cacheService: tenantService.cacheService,
-    setCurrentRequestContext: () => {
-      // Request context management not needed for topology handlers
-    },
-    clearRequestContext: () => {
-      // Request context management not needed for topology handlers
-    },
+    setCurrentRequestContext: () => {},
+    clearRequestContext: () => {},
     getCallGateway: () => {
-      if (!plugin.gatewayDispatch) {
+      if (!_plugin.gatewayDispatch) {
         return null;
       }
-      const dispatch = plugin.gatewayDispatch;
+      const dispatch = _plugin.gatewayDispatch;
       return (method, callParams) => dispatch(method, callParams, null);
     },
     loadGatewaySessionRow: (sessionKey: string) => {
-      if (!plugin.loadGatewaySessionRow) {
+      if (!_plugin.loadGatewaySessionRow) {
         throw new Error("loadGatewaySessionRow not available");
       }
-      return plugin.loadGatewaySessionRow(sessionKey);
+      return _plugin.loadGatewaySessionRow(sessionKey);
     },
     sessionCallbacks: {
       recordSessionCreated: (sessionKey, uid, tid) => {
@@ -1182,29 +206,8 @@ export async function createMas4sGatewayPlugin(
     db,
   };
 
-  return plugin;
-}
+  // Wire up the lazy plugin reference for handlers
+  _plugin = plugin;
 
-/**
- * Build a fetchHistory callback that calls the gateway's session.history.range method
- * via the integration-layer dispatch function and extracts the messages array.
- * Fetches the latest 1000 messages for summary generation.
- */
-function buildFetchHistory(
-  plugin: Mas4sGatewayPlugin,
-  sessionKey: string,
-  client: unknown,
-): () => Promise<StoredMessageForSummary[]> {
-  return async () => {
-    if (!plugin.gatewayDispatch) {
-      console.warn("[mas4s] gatewayDispatch not set, cannot fetch chat history");
-      return [];
-    }
-    const payload = (await plugin.gatewayDispatch(
-      "session.history.range",
-      { sessionKey, pageSize: 1000, page: 1 },
-      client,
-    )) as { messages?: StoredMessageForSummary[] } | undefined;
-    return payload?.messages ?? [];
-  };
+  return plugin;
 }

@@ -1,5 +1,6 @@
 import type { SubsystemLogger } from "../../../src/logging/subsystem.js";
 import type { MasAuthContext } from "./context.js";
+import { getMasAuth as _getMasAuth, NULL_MAS_AUTH as _NULL_MAS_AUTH } from "./context.js";
 import type { Mas4sGatewayPlugin } from "./mas4s-gateway-plugin.js";
 
 /**
@@ -46,6 +47,54 @@ export interface CommonContext {
 export function str(val: unknown): string | undefined {
   return typeof val === "string" ? val : undefined;
 }
+
+/**
+ * Coerce unknown value to string (never returns undefined).
+ * Used by gateway plugin handlers for param extraction.
+ */
+export function strCoerce(v: unknown): string {
+  return typeof v === "string"
+    ? v
+    : v == null
+      ? ""
+      : typeof v === "object"
+        ? JSON.stringify(v)
+        : String(v as string | number | boolean | symbol | bigint);
+}
+
+/**
+ * Build a standard error shape for gateway responses.
+ */
+export function errorShape(code: string, message: string): { code: string; message: string } {
+  return { code, message };
+}
+
+/**
+ * Extract caller auth from a gateway client object.
+ * Returns NULL_MAS_AUTH when client has no auth context.
+ */
+export function getCallerAuth(client: unknown) {
+  if (client != null && typeof client === "object") {
+    return _getMasAuth(client) ?? _NULL_MAS_AUTH;
+  }
+  return _NULL_MAS_AUTH;
+}
+
+/**
+ * Generic handler type matching GatewayRequestHandlers entries.
+ */
+export type SimpleHandler = (opts: {
+  params: Record<string, unknown>;
+  client: unknown;
+  respond: (ok: boolean, payload: unknown, error: unknown) => void;
+  dispatchGateway?: (
+    method: string,
+    params: Record<string, unknown>,
+    client?: unknown,
+  ) => Promise<unknown>;
+}) => void | Promise<void>;
+
+export type SimpleHandlers = Record<string, SimpleHandler>;
 
 /**
  * Helper to build connected users map for bridge methods.
