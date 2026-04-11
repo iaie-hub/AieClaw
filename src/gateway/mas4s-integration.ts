@@ -440,6 +440,7 @@ export async function initMas4sIntegration(
 
     // Adapt SimpleHandler → GatewayRequestHandler
     const extraHandlers: GatewayRequestHandlers = {};
+    log.info(`[mas4s] plugin.extraHandlers keys: ${Object.keys(plugin.extraHandlers).join(", ")}`);
     for (const [method, handler] of Object.entries(plugin.extraHandlers)) {
       extraHandlers[method] = async (opts) => {
         const respond = (ok: boolean, payload: unknown, error: unknown) => {
@@ -482,6 +483,7 @@ export async function initMas4sIntegration(
         });
       };
     }
+    log.info(`[mas4s] adapted extraHandlers keys: ${Object.keys(extraHandlers).join(", ")}`);
 
     // Current request context for internal dispatch (gatewayDispatch)
     let currentRequestContext:
@@ -609,6 +611,7 @@ export async function initMas4sIntegration(
       extraHandlers,
       agentCtx as unknown as import("../../aiemas/src/gateway-bridge/aiemas-agent.js").AgentContext,
     );
+    log.info(`[mas4s] final extraHandlers keys: ${Object.keys(extraHandlers).join(", ")}`);
 
     return {
       extraHandlers,

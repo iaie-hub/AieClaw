@@ -754,7 +754,11 @@ export async function startGatewayServer(
       logGateway: log,
       logHealth,
       logWsControl,
-      extraHandlers: { ...pluginRegistry.gatewayHandlers, ...extraHandlers },
+      extraHandlers: {
+        ...pluginRegistry.gatewayHandlers,
+        ...extraHandlers,
+        ...mas4sIntegration.extraHandlers,
+      },
       broadcast,
       context: gatewayRequestContext,
       onClientConnected: mas4sIntegration.onClientConnected,

@@ -20,10 +20,8 @@ export class LoginView extends LitElement {
   // 网关配置字段 — 默认从 localStorage 加载
   @state() private _wsUrl = localStorage.getItem("mas4s_ws_url") || "ws://localhost:18789";
   @state() private _wsToken = localStorage.getItem("mas4s_ws_token") || "";
-  @state() private _gwExpanded =
-    !localStorage.getItem("mas4s_ws_url") || !localStorage.getItem("mas4s_ws_token");
-  // 用户主动点击折叠时置 true，优先于 connectError 的自动展开
-  @state() private _gwUserCollapsed = false;
+  // 用户主动点击折叠/展开时置为具体值，null 表示用户未操作过（使用自动逻辑）
+  @state() private _gwUserToggle: boolean | null = null;
 
   // 业务表单字段
   @state() private _username = "";
@@ -641,16 +639,16 @@ export class LoginView extends LitElement {
   /** 网关配置折叠区，始终渲染在卡片底部 */
   private _renderGatewaySection() {
     const gwErr = this.connectError;
-    // 有外部错误时自动展开，但用户主动折叠后优先尊重用户操作
-    const expanded = this._gwUserCollapsed ? this._gwExpanded : this._gwExpanded || Boolean(gwErr);
+    // 自动逻辑：url 和 token 都有值时折叠，否则展开；有连接错误时也展开
+    const autoExpanded = !this._wsUrl || !this._wsToken || Boolean(gwErr);
+    // 用户手动操作过则尊重用户选择，否则使用自动逻辑
+    const expanded = this._gwUserToggle !== null ? this._gwUserToggle : autoExpanded;
     return html`
       <div class="gw-section">
         <button
           class="gw-toggle ${expanded ? "open" : ""}"
           @click=${() => {
-            const next = !expanded;
-            this._gwExpanded = next;
-            this._gwUserCollapsed = !next;
+            this._gwUserToggle = !expanded;
           }}
         >
           <span>网关配置</span>

@@ -60,11 +60,20 @@ export class ChatView extends LitElement {
       position: relative;
     }
 
+    .chat-view {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      flex: 1;
+      overflow: hidden;
+    }
+
     .chat-container {
       flex: 1;
       overflow-y: auto;
       padding: 30px;
       overscroll-behavior-y: contain;
+      min-height: 0;
     }
 
     .session-divider {
@@ -525,134 +534,136 @@ export class ChatView extends LitElement {
     const isOwner = this.session.masType === "initiated";
 
     return html`
-      <div class="chat-container">
-        ${this.hasMoreHistory
-          ? html`
-              <button
-                class="load-more-btn"
-                ?disabled=${this._loadingMore}
-                @click=${() => this._triggerLoadMore()}
-              >
-                ${this._loadingMore
-                  ? html` <span class="load-more-spinner"></span>加载中… `
-                  : html` ↑ 加载更多消息 `}
-              </button>
-            `
-          : ""}
-        ${this.hasSummary
-          ? html`
-              <div class="history-summary-hint" @click=${this._onSummaryClick}>
-                <span>更早的消息已生成摘要，点击查看</span>
-              </div>
-            `
-          : ""}
-        <div class="session-divider">—— 协作链路已加密连接 ——</div>
-        ${this.messages.length === 0
-          ? html` <div class="empty-hint">暂无消息，发送第一条消息开始协作</div> `
-          : html`<message-list
-              .messages=${this.messages}
-              .pendingApprovals=${this.pendingApprovals}
-              .resolvedApprovals=${this.resolvedApprovals}
-              .isInitiator=${this.isInitiator}
-              .showToolMessages=${this.showToolMessages}
-              .sopSteps=${this.sopSteps}
-              .sopLabel=${this.sopLabel}
-              .activeProgress=${this.activeProgress}
-              .progressLogs=${this.progressLogs}
-            ></message-list>`}
-      </div>
+      <div class="chat-view">
+        <div class="chat-container">
+          ${this.hasMoreHistory
+            ? html`
+                <button
+                  class="load-more-btn"
+                  ?disabled=${this._loadingMore}
+                  @click=${() => this._triggerLoadMore()}
+                >
+                  ${this._loadingMore
+                    ? html` <span class="load-more-spinner"></span>加载中… `
+                    : html` ↑ 加载更多消息 `}
+                </button>
+              `
+            : ""}
+          ${this.hasSummary
+            ? html`
+                <div class="history-summary-hint" @click=${this._onSummaryClick}>
+                  <span>更早的消息已生成摘要，点击查看</span>
+                </div>
+              `
+            : ""}
+          <div class="session-divider">—— 协作链路已加密连接 ——</div>
+          ${this.messages.length === 0
+            ? html` <div class="empty-hint">暂无消息，发送第一条消息开始协作</div> `
+            : html`<message-list
+                .messages=${this.messages}
+                .pendingApprovals=${this.pendingApprovals}
+                .resolvedApprovals=${this.resolvedApprovals}
+                .isInitiator=${this.isInitiator}
+                .showToolMessages=${this.showToolMessages}
+                .sopSteps=${this.sopSteps}
+                .sopLabel=${this.sopLabel}
+                .activeProgress=${this.activeProgress}
+                .progressLogs=${this.progressLogs}
+              ></message-list>`}
+        </div>
 
-      <summary-dialog
-        .session=${this.session}
-        .isOwner=${isOwner}
-        .open=${this._summaryOpen}
-        @summary-close=${this._onSummaryClose}
-      ></summary-dialog>
+        <summary-dialog
+          .session=${this.session}
+          .isOwner=${isOwner}
+          .open=${this._summaryOpen}
+          @summary-close=${this._onSummaryClose}
+        ></summary-dialog>
 
-      <div class="chat-input-wrapper">
-        <button class="scroll-bottom-btn" @click=${this._scrollToBottom} title="滚动到最新消息">
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <polyline points="6 9 12 15 18 9"></polyline>
-          </svg>
-        </button>
-        ${this.sopSteps.length > 0 && !this._isArchived && this.isChatting
-          ? html`
-              <div style="margin-bottom: 8px;">
-                <sop-pipeline
-                  .steps=${this.sopSteps}
-                  .sopLabel=${this.sopLabel}
-                  .activeProgress=${this.activeProgress}
-                  .logs=${this.progressLogs}
-                  .currentStepIndex=${this.currentStepIndex}
-                  .completedAt=${this.sopCompletedAt}
-                  compact
-                ></sop-pipeline>
-              </div>
-            `
-          : ""}
-        <div class="chat-input-area">
-          <textarea
-            rows="2"
-            placeholder=${this._isArchived
-              ? "会话已归档，无法发送消息"
-              : "输入消息，Shift+Enter 换行，Enter 发送…"}
-            .value=${this._inputText}
-            ?disabled=${this._isArchived}
-            @input=${(e: Event) => {
-              this._inputText = (e.target as HTMLTextAreaElement).value;
-            }}
-            @keydown=${this._onKeyDown}
-          ></textarea>
-          <div class="input-toolbar">
-            <span class="input-hint">Shift+Enter 换行</span>
-            ${this.isChatting && !this._inputText.trim()
-              ? html`
-                  <button class="abort-btn" @click=${this._onAbort} title="中止生成">
-                    <svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                      stroke="currentColor"
-                      stroke-width="2.5"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
+        <div class="chat-input-wrapper">
+          <button class="scroll-bottom-btn" @click=${this._scrollToBottom} title="滚动到最新消息">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+          ${this.sopSteps.length > 0 && !this._isArchived && this.isChatting
+            ? html`
+                <div style="margin-bottom: 8px;">
+                  <sop-pipeline
+                    .steps=${this.sopSteps}
+                    .sopLabel=${this.sopLabel}
+                    .activeProgress=${this.activeProgress}
+                    .logs=${this.progressLogs}
+                    .currentStepIndex=${this.currentStepIndex}
+                    .completedAt=${this.sopCompletedAt}
+                    compact
+                  ></sop-pipeline>
+                </div>
+              `
+            : ""}
+          <div class="chat-input-area">
+            <textarea
+              rows="2"
+              placeholder=${this._isArchived
+                ? "会话已归档，无法发送消息"
+                : "输入消息，Shift+Enter 换行，Enter 发送…"}
+              .value=${this._inputText}
+              ?disabled=${this._isArchived}
+              @input=${(e: Event) => {
+                this._inputText = (e.target as HTMLTextAreaElement).value;
+              }}
+              @keydown=${this._onKeyDown}
+            ></textarea>
+            <div class="input-toolbar">
+              <span class="input-hint">Shift+Enter 换行</span>
+              ${this.isChatting && !this._inputText.trim()
+                ? html`
+                    <button class="abort-btn" @click=${this._onAbort} title="中止生成">
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                        stroke="currentColor"
+                        stroke-width="2.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+                      </svg>
+                    </button>
+                  `
+                : html`
+                    <button
+                      class="send-btn"
+                      ?disabled=${this._isArchived || !this._inputText.trim()}
+                      @click=${this._onSend}
+                      title="发送消息"
                     >
-                      <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
-                    </svg>
-                  </button>
-                `
-              : html`
-                  <button
-                    class="send-btn"
-                    ?disabled=${this._isArchived || !this._inputText.trim()}
-                    @click=${this._onSend}
-                    title="发送消息"
-                  >
-                    <svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2.5"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <line x1="22" y1="2" x2="11" y2="13"></line>
-                      <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                    </svg>
-                  </button>
-                `}
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                      </svg>
+                    </button>
+                  `}
+            </div>
           </div>
         </div>
       </div>

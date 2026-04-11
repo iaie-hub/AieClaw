@@ -200,7 +200,7 @@ export interface SessionCascadeService {
     userId: string | null;
     tenantId: string;
     label?: string;
-  }): Promise<{ sessionKey: string; sessionId: string }>;
+  }): Promise<{ sessionKey: string; sessionId: string; sessionUuid: string }>;
 
   /** 级联删除 session（根 Agent + 所有后代 Agent）— 后续任务实现 */
   cascadeDelete(params: { sessionKey: string }): Promise<void>;
@@ -253,7 +253,7 @@ export function createSessionCascadeService(
       userId: string | null;
       tenantId: string;
       label?: string;
-    }): Promise<{ sessionKey: string; sessionId: string }> {
+    }): Promise<{ sessionKey: string; sessionId: string; sessionUuid: string }> {
       const { agentId, userId, tenantId, label } = params;
 
       const sessionUuid = randomUUID();
@@ -269,7 +269,7 @@ export function createSessionCascadeService(
           key: string;
           sessionId: string;
         };
-        return { sessionKey: result.key, sessionId: result.sessionId };
+        return { sessionKey: result.key, sessionId: result.sessionId, sessionUuid };
       }
 
       // 步骤 2：查询拓扑关系，判断是否为 rootAgentId
@@ -355,7 +355,7 @@ export function createSessionCascadeService(
       }
 
       console.log(`[mas4s] aiemas.sessions.create ← ok, sessionKey=${rootSessionKey}`);
-      return { sessionKey: rootSessionKey, sessionId: rootSessionId };
+      return { sessionKey: rootSessionKey, sessionId: rootSessionId, sessionUuid };
     },
 
     // ── 后续任务实现的方法（stubs）────────────────────────────────────────
@@ -407,7 +407,11 @@ export function createSessionCascadeService(
       const sessions = records
         .map((r) => {
           try {
-            return deps.loadGatewaySessionRow(r.sessionKey);
+            const row = deps.loadGatewaySessionRow(r.sessionKey);
+            if (row) {
+              (row as unknown as { sessionUuid: string }).sessionUuid = r.sessionUuid;
+            }
+            return row;
           } catch (err) {
             console.warn(
               `[mas4s:listRootSessions] Failed to load row for ${r.sessionKey}: ${String(err)}`,
