@@ -231,8 +231,13 @@ function buildMessagingSection(params: {
   return [
     "## Messaging",
     "- Reply in current session → automatically routes to the source channel (Signal, Telegram, etc.)",
-    "- Cross-session messaging → use sessions_send(sessionKey, message)",
-    "- Sub-agent orchestration → use subagents(action=list|steer|kill)",
+    params.availableTools.has("aiemas_sessions_send")
+      ? "- Cross-session messaging & Sub-agent orchestration → use aiemas_sessions_send(agentId, message)"
+      : "- Cross-session messaging → use sessions_send(sessionKey, message)",
+    params.availableTools.has("aiemas_sessions_send")
+      ? ""
+      : "- Sub-agent orchestration → use subagents(action=list|steer|kill)",
+
     `- Runtime-generated completion events may ask for a user update. Rewrite those in your normal assistant voice and send the update (do not forward raw internal metadata or default to ${SILENT_REPLY_TOKEN}).`,
     "- Never use exec/curl for provider messaging; OpenClaw handles all routing internally.",
     params.availableTools.has("message")
@@ -690,6 +695,14 @@ export function buildAgentSystemPrompt(params: {
     }),
     ...buildVoiceSection({ isMinimal, ttsHint: params.ttsHint }),
   ];
+
+  if (process.env.OPENCLAW_MAS4S_DEBUG === "1" || process.env.NODE_ENV === "development") {
+    const crossoverTools = ["aiemas_sessions_send", "sessions_send", "subagents"];
+    const toolsPresent = crossoverTools.filter((t) => availableTools.has(t));
+    console.log(
+      `[agents:prompt] buildAgentSystemPrompt: toolsPresent=${toolsPresent.join(",")}, promptMode=${promptMode}`,
+    );
+  }
 
   if (params.reactionGuidance) {
     const { level, channel } = params.reactionGuidance;

@@ -8,12 +8,16 @@
  */
 
 import { resolveEnvApiKey } from "../agents/model-auth-env.js";
+import type { AnyAgentTool } from "../agents/tools/common.js";
+import { createSessionsSendTool } from "../agents/tools/sessions-send-tool.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { collectConfigRuntimeEnvVars } from "../config/env-vars.js";
 import { isValidEnvSecretRefId } from "../config/types.secrets.js";
 import { onAgentEvent } from "../infra/agent-events.js";
 import type { SubsystemLogger } from "../logging/subsystem.js";
 import { resolveSecretInputString } from "../secrets/resolve-secret-input-string.js";
+import type { GatewayMessageChannel } from "../utils/message-channel.js";
+import { callGateway } from "./call.js";
 import { ADMIN_SCOPE, READ_SCOPE, WRITE_SCOPE } from "./method-scopes.js";
 import { chatHandlers } from "./server-methods/chat.js";
 import { sessionsHandlers } from "./server-methods/sessions.js";
@@ -63,6 +67,16 @@ export interface Mas4sIntegration {
   _setExecApprovalManager?: (
     manager: import("./exec-approval-manager.js").ExecApprovalManager,
   ) => void;
+  /**
+   * Returns AIEMAS-provided Agent tools.
+   * Called by createOpenClawTools() to inject AIEMAS tools into the Agent tool set.
+   * Returns undefined or an empty array when no AIEMAS tools are available.
+   */
+  resolveAgentTools?: (context: {
+    agentSessionKey?: string;
+    agentChannel?: GatewayMessageChannel;
+    config?: OpenClawConfig;
+  }) => AnyAgentTool[];
 }
 
 const NOOP_INTEGRATION: Mas4sIntegration = {
@@ -176,6 +190,8 @@ export async function initMas4sIntegration(
     const authMod = await import("../../aiemas/src/gateway-bridge/aiemas-auth.js");
     const agentMod = await import("../../aiemas/src/gateway-bridge/aiemas-agent.js");
     const { extractUuidFromKey } = await import("../../aiemas/src/utils/session-utils.js");
+    const { createAiemasSessionsSendTool } =
+      await import("../../aiemas/src/gateway-bridge/aiemas-tools.js");
 
     // Initialize the plugin
     const aiemasConfig = config?.plugins?.entries?.["aiemas"]?.config ?? {};
@@ -232,6 +248,12 @@ export async function initMas4sIntegration(
     const setActiveClients = (c: Set<GatewayWsClient>) => {
       activeClients = c;
     };
+
+    // ── Request context tracking for AIEMAS agent integration ──────────────
+    let _currentRequestContext:
+      | import("./server-methods/types.js").GatewayRequestContext
+      | undefined;
+    let _currentRequestClient: GatewayWsClient | null = null;
 
     /** Broadcast an event to ALL connected WebSocket clients. */
     const broadcastToAll = (event: string, payload: unknown) => {
@@ -485,23 +507,21 @@ export async function initMas4sIntegration(
     }
     log.info(`[mas4s] adapted extraHandlers keys: ${Object.keys(extraHandlers).join(", ")}`);
 
-    // Current request context for internal dispatch (gatewayDispatch)
-    let currentRequestContext:
-      | import("./server-methods/types.js").GatewayRequestContext
-      | undefined;
-    let currentRequestClient: GatewayWsClient | null = null;
-
     plugin.gatewayDispatch = async (method, params, _client) => {
-      const { handleGatewayRequest: dispatch } = await import("./server-methods.js");
-      const context = currentRequestContext;
+      const { getPluginRuntimeGatewayRequestScope } =
+        await import("../plugins/runtime/gateway-request-scope.js");
+      const scope = getPluginRuntimeGatewayRequestScope();
+      const context = scope?.context;
       if (!context) {
         throw new Error("Gateway context not available for internal dispatch");
       }
+
+      const { handleGatewayRequest: dispatch } = await import("./server-methods.js");
       return new Promise<unknown>((resolve, reject) => {
         void dispatch({
           req: { type: "req" as const, method, params, id: `mas4s-internal-${Date.now()}` },
-          client: currentRequestClient,
-          isWebchatConnect: () => false,
+          client: scope.client as GatewayWsClient | null,
+          isWebchatConnect: scope.isWebchatConnect,
           respond: (ok, payload, error) => {
             if (ok) {
               resolve(payload);
@@ -582,14 +602,34 @@ export async function initMas4sIntegration(
       db: plugin.db,
       cacheService: plugin.tenantService.cacheService,
       setCurrentRequestContext: (ctx: unknown, cli: unknown) => {
-        currentRequestContext = ctx as
+        _currentRequestContext = ctx as
           | import("./server-methods/types.js").GatewayRequestContext
           | undefined;
-        currentRequestClient = cli as GatewayWsClient | null;
+        _currentRequestClient = cli as GatewayWsClient | null;
       },
       clearRequestContext: () => {
-        currentRequestContext = undefined;
-        currentRequestClient = null;
+        _currentRequestContext = undefined;
+        _currentRequestClient = null;
+      },
+      getCallGateway: () => {
+        if (!plugin.gatewayDispatch) {
+          return null;
+        }
+        const dispatch = plugin.gatewayDispatch;
+        return (method: string, callParams: Record<string, unknown>) =>
+          dispatch(method, callParams, null);
+      },
+      sessionCallbacks: {
+        recordSessionCreated: (sessionKey: string, uid: string, tid: string) => {
+          plugin.bridge.onSessionCreated(sessionKey, "", {
+            userId: uid,
+            tenantId: tid,
+            masRole: null,
+          });
+        },
+        deleteSessionRecords: (sessionKey: string) => {
+          plugin.bridge.onSessionDeleted(sessionKey);
+        },
       },
     };
 
@@ -687,6 +727,38 @@ export async function initMas4sIntegration(
       _setActiveClients: setActiveClients,
       _setExecApprovalManager: (manager) => {
         execApprovalManager = manager;
+      },
+      resolveAgentTools: (context) => {
+        try {
+          const tools: AnyAgentTool[] = [];
+          const callSessionsSend = async (params: {
+            sessionKey: string;
+            message: string;
+            timeoutSeconds?: number;
+          }) => {
+            const sendTool = createSessionsSendTool({
+              agentSessionKey: context.agentSessionKey,
+              agentChannel: context.agentChannel,
+              config: context.config,
+              callGateway,
+            });
+            return sendTool.execute("aiemas-internal", {
+              sessionKey: params.sessionKey,
+              message: params.message,
+              timeoutSeconds: params.timeoutSeconds ?? 30,
+            });
+          };
+          tools.push(
+            createAiemasSessionsSendTool(
+              { db: plugin.db, callSessionsSend },
+              { agentSessionKey: context.agentSessionKey },
+            ),
+          );
+          return tools;
+        } catch (err) {
+          log.warn(`[mas4s] resolveAgentTools failed: ${String(err)}`);
+          return [];
+        }
       },
     };
   } catch (err) {

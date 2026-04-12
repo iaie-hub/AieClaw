@@ -18,10 +18,11 @@ export type AssistantReplySnapshot = {
 };
 
 export type AgentWaitResult = {
-  status: "ok" | "timeout" | "error";
+  status: "ok" | "timeout" | "error" | "blocked" | "running";
   error?: string;
   startedAt?: number;
   endedAt?: number;
+  approvalId?: string;
 };
 
 export type AgentRunsDrainResult = {
@@ -35,6 +36,7 @@ type RawAgentWaitResponse = {
   error?: string;
   startedAt?: unknown;
   endedAt?: unknown;
+  approvalId?: string;
 };
 
 function normalizeAgentWaitResult(
@@ -46,6 +48,7 @@ function normalizeAgentWaitResult(
     error: typeof wait?.error === "string" ? wait.error : undefined,
     startedAt: typeof wait?.startedAt === "number" ? wait.startedAt : undefined,
     endedAt: typeof wait?.endedAt === "number" ? wait.endedAt : undefined,
+    approvalId: wait?.approvalId,
   };
 }
 
@@ -130,13 +133,8 @@ export async function waitForAgentRun(params: {
       },
       timeoutMs: timeoutMs + 2000,
     });
-    if (wait?.status === "timeout") {
-      return normalizeAgentWaitResult("timeout", wait);
-    }
-    if (wait?.status === "error") {
-      return normalizeAgentWaitResult("error", wait);
-    }
-    return normalizeAgentWaitResult("ok", wait);
+    const status = (wait?.status as AgentWaitResult["status"]) || "ok";
+    return normalizeAgentWaitResult(status, wait);
   } catch (err) {
     const error = formatErrorMessage(err);
     return {

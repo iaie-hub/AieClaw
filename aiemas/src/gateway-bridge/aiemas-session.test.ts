@@ -94,7 +94,7 @@ function mockCallGateway(opts: { failCreateFor?: Set<string> } = {}) {
       };
     }
     if (method === "sessions.delete") {
-      const sessionKey = params["sessionKey"] as string | undefined;
+      const sessionKey = params["key"] as string | undefined;
       if (opts.failCreateFor?.has(sessionKey ?? "")) {
         throw new Error(`Simulated delete failure for sessionKey=${sessionKey}`);
       }
@@ -115,9 +115,7 @@ function mockCallGateway(opts: { failCreateFor?: Set<string> } = {}) {
     getCreatedAgentIds: () =>
       calls.filter((c) => c.method === "sessions.create").map((c) => c.params["agentId"] as string),
     getDeletedSessionKeys: () =>
-      calls
-        .filter((c) => c.method === "sessions.delete")
-        .map((c) => c.params["sessionKey"] as string),
+      calls.filter((c) => c.method === "sessions.delete").map((c) => c.params["key"] as string),
     reset: () => {
       calls.length = 0;
     },

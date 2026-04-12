@@ -90,11 +90,17 @@ export async function createMas4sGatewayPlugin(
   const stopLabelSync = onSessionLifecycleEvent((event) => {
     try {
       if (event.reason === "session-delete") {
-        const { extractUuidFromKey } = require("../utils/session-utils.js");
-        const uuid = extractUuidFromKey(event.sessionKey);
-        sessionStore.deleteSessionByUuid(uuid);
-        deleteSummary(messageDb, uuid);
-        deleteSessionMessages(messageDb, uuid);
+        // Only trigger full cleanup if the session being deleted is a root session.
+        // If a descendant session is deleted (e.g. during topology re-sync),
+        // we must NOT clear the root record or the shared message history.
+        const rootRecord = sessionStore.loadRootSession(event.sessionKey);
+        if (rootRecord) {
+          const { extractUuidFromKey } = require("../utils/session-utils.js");
+          const uuid = extractUuidFromKey(event.sessionKey);
+          sessionStore.deleteRootSession(event.sessionKey);
+          deleteSummary(messageDb, uuid);
+          deleteSessionMessages(messageDb, uuid);
+        }
         return;
       }
       const hasLabel = event.label !== undefined;
@@ -164,8 +170,6 @@ export async function createMas4sGatewayPlugin(
     plugin: undefined,
     db,
     cacheService: tenantService.cacheService,
-    setCurrentRequestContext: () => {},
-    clearRequestContext: () => {},
     getCallGateway: () => {
       if (!_plugin.gatewayDispatch) {
         return null;

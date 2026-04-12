@@ -443,12 +443,20 @@ export function createSessionCascadeService(
       const addedAgentIds = newDescendantIds.filter((id) => !oldDescendantIds.includes(id));
       const removedAgentIds = oldDescendantIds.filter((id) => !newDescendantIds.includes(id));
 
+      console.log(
+        `[mas4s:syncTopology] rootAgentId=${rootAgentId}, tenantId=${tenantId}, oldDescendants=${JSON.stringify(oldDescendantIds)}, newDescendants=${JSON.stringify(newDescendantIds)}, added=${JSON.stringify(addedAgentIds)}, removed=${JSON.stringify(removedAgentIds)}`,
+      );
+
       // 步骤 2：查询活跃 session 记录（过滤出属于该 rootAgentId 的记录）
       const allSessions = store.listRootSessions();
       // 使用可变副本，因为后续会修改 descendantSessions
       const activeSessions = allSessions
         .filter((s) => s.agentId === rootAgentId)
         .map((s) => ({ ...s, descendantSessions: [...s.descendantSessions] }));
+
+      console.log(
+        `[mas4s:syncTopology] Found ${activeSessions.length} active sessions to sync for ${rootAgentId}`,
+      );
 
       // 步骤 3：如果没有活跃 session，直接返回（跳过增量同步）
       if (activeSessions.length === 0) {
@@ -458,7 +466,19 @@ export function createSessionCascadeService(
       // 步骤 4：为新增后代 Agent 创建 session
       for (const activeSession of activeSessions) {
         for (const addedAgentId of addedAgentIds) {
+          // 检查是否已经存在该后代 agent 的 session
+          const exists = activeSession.descendantSessions.some((s) => s.agentId === addedAgentId);
+          if (exists) {
+            console.log(
+              `[mas4s:syncTopology] Descendant session for ${addedAgentId} already exists in root session ${activeSession.sessionKey}, skipping.`,
+            );
+            continue;
+          }
+
           try {
+            console.log(
+              `[mas4s:syncTopology] Creating descendant session for agentId=${addedAgentId} in root session ${activeSession.sessionUuid}`,
+            );
             const descendantKey = buildDescendantSessionKey(
               addedAgentId,
               activeSession.sessionUuid,
@@ -499,6 +519,9 @@ export function createSessionCascadeService(
           );
           if (descendantSession !== undefined) {
             try {
+              console.log(
+                `[mas4s:syncTopology] Deleting descendant session agentId=${removedAgentId}, key=${descendantSession.sessionKey}`,
+              );
               await callGateway("sessions.delete", { key: descendantSession.sessionKey });
               try {
                 deleteSessionRecords(descendantSession.sessionKey);
@@ -516,12 +539,19 @@ export function createSessionCascadeService(
               );
               // 继续处理其余移除 Agent
             }
+          } else {
+            console.log(
+              `[mas4s:syncTopology] removedAgentId=${removedAgentId} has no session entry in ${activeSession.sessionKey}`,
+            );
           }
         }
       }
 
       // 步骤 6：更新持久化记录
       for (const activeSession of activeSessions) {
+        console.log(
+          `[mas4s:syncTopology] Updating store for root session ${activeSession.sessionKey}, descendant count: ${activeSession.descendantSessions.length}`,
+        );
         store.updateDescendantSessions({
           sessionKey: activeSession.sessionKey,
           descendantSessions: activeSession.descendantSessions,

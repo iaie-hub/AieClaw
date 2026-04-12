@@ -24,7 +24,10 @@ export interface AgentContext {
 }
 
 export function registerAgentHandlers(extraHandlers: Record<string, unknown>, ctx: AgentContext) {
-  const { setCurrentRequestContext, clearRequestContext } = ctx;
+  const {
+    setCurrentRequestContext: _setCurrentRequestContext,
+    clearRequestContext: _clearRequestContext,
+  } = ctx;
 
   const origAgentsImport = extraHandlers["aiemas.agents.import"] as
     | ((opts: unknown) => Promise<void>)
@@ -34,16 +37,8 @@ export function registerAgentHandlers(extraHandlers: Record<string, unknown>, ct
       client: GatewayClient;
       context: GatewayContext;
     }) => {
-      if (setCurrentRequestContext) {
-        setCurrentRequestContext(opts.context, opts.client);
-      }
-      try {
-        await origAgentsImport(opts);
-      } finally {
-        if (clearRequestContext) {
-          clearRequestContext();
-        }
-      }
+      // Manual context management removed here as it's now handled by the integration wrapper.
+      await origAgentsImport(opts);
     };
   }
 
@@ -68,8 +63,9 @@ export function registerAgentHandlers(extraHandlers: Record<string, unknown>, ct
   extraHandlers["aiemas.agents.topology.save"] = async (opts: {
     params: Record<string, unknown>;
     respond: (ok: boolean, payload: unknown, error: unknown) => void;
+    dispatchGateway?: (method: string, params: Record<string, unknown>) => Promise<unknown>;
   }) => {
-    const { params, respond } = opts;
+    const { params, respond, dispatchGateway } = opts;
     const rootAgentId = params.rootAgentId as string | undefined;
     const topology = params.topology as { edges?: Array<{ from: string; to: string }> } | undefined;
 
@@ -91,6 +87,9 @@ export function registerAgentHandlers(extraHandlers: Record<string, unknown>, ct
 
     // Capture old topology BEFORE updating the cache
     const oldTopology = ctx.cacheService.topologyCache.getTopology(rootAgentId);
+    console.log(
+      `[mas4s:topology.save] rootAgentId=${rootAgentId}, oldEdgesCount=${oldTopology?.edges?.length ?? 0}, newEdgesCount=${topology.edges.length}`,
+    );
 
     const topologyTree = { edges: topology.edges };
     saveTopology(ctx.db, rootAgentId, topologyTree);
@@ -99,9 +98,12 @@ export function registerAgentHandlers(extraHandlers: Record<string, unknown>, ct
     respond(true, { ok: true }, null);
 
     // Trigger incremental session sync after cache is updated (fire-and-forget, wrapped in try/catch)
-    if (ctx.getCallGateway && ctx.sessionCallbacks) {
-      const callGateway = ctx.getCallGateway();
+    if ((dispatchGateway || ctx.getCallGateway) && ctx.sessionCallbacks) {
+      const callGateway = dispatchGateway ?? ctx.getCallGateway?.();
       if (callGateway) {
+        console.log(
+          `[mas4s:topology.save] Triggering incremental session sync for rootAgentId=${rootAgentId}`,
+        );
         const tenantId = typeof params.tenantId === "string" ? params.tenantId : "";
         try {
           const { createSessionCascadeService } = await import("./aiemas-session.js");

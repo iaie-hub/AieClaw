@@ -44,6 +44,9 @@ export function registerChatHandlers(
           `[aiemas:chat.send] bridge wrapper entered, sessionKey=${String(params["sessionKey"])}`,
         );
       }
+      console.log(
+        `[aiemas:chat] Recieved chat.send for sessionKey=${String(params["sessionKey"])}, client=${opts.client.connId}`,
+      );
 
       // Proxy respond to capture results and ensure transparency
       const wrappedRespond: typeof respond = (ok, payload, error, meta) => {

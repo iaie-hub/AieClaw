@@ -25,7 +25,7 @@ import { listChannelAgentTools } from "./channel-tools.js";
 import { shouldSuppressManagedWebSearchTool } from "./codex-native-web-search.js";
 import { resolveImageSanitizationLimits } from "./image-sanitization.js";
 import type { ModelAuthMode } from "./model-auth.js";
-import { createOpenClawTools } from "./openclaw-tools.js";
+import { createOpenClawTools, getMas4sIntegrationRef } from "./openclaw-tools.js";
 import { wrapToolWithAbortSignal } from "./pi-tools.abort.js";
 import { wrapToolWithBeforeToolCallHook } from "./pi-tools.before-tool-call.js";
 import { filterToolsByMessageProvider } from "./pi-tools.message-provider-policy.js";
@@ -630,10 +630,29 @@ export function createOpenClawCodingTools(options?: {
       { policy: subagentPolicy, label: "subagent tools.allow" },
     ],
   });
-  // Always normalize tool JSON Schemas before handing them to pi-agent/pi-ai.
-  // Without this, some providers (notably OpenAI) will reject root-level union schemas.
-  // Provider-specific cleaning: Gemini needs constraint keywords stripped, but Anthropic expects them.
-  const normalized = subagentFiltered.map((tool) =>
+
+  // AIEMAS tool injection (prioritize over core tools to ensure Agent uses cascaded tools when available).
+  // These are injected AFTER the tool policy pipeline to avoid being filtered by profiles (e.g. "coding")
+  // that only allow specific core tool IDs.
+  const mas4sTools: AnyAgentTool[] = [];
+  try {
+    const injected =
+      getMas4sIntegrationRef()?.resolveAgentTools?.({
+        agentSessionKey: options?.sessionKey,
+        agentChannel: resolveGatewayMessageChannel(options?.messageProvider),
+        config: options?.config,
+      }) ?? [];
+    if (injected.length > 0) {
+      console.log(
+        `[agents:tools] Injected ${injected.length} AIEMAS tools downstream for session=${options?.sessionKey}`,
+      );
+      mas4sTools.push(...injected);
+    }
+  } catch (err) {
+    console.warn(`[mas4s] resolveAgentTools downstream failed: ${String(err)}`);
+  }
+
+  const normalized = [...mas4sTools, ...subagentFiltered].map((tool) =>
     normalizeToolParameters(tool, {
       modelProvider: options?.modelProvider,
       modelId: options?.modelId,

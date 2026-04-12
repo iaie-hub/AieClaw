@@ -15,10 +15,11 @@ let agentRunListenerStarted = false;
 
 type AgentRunSnapshot = {
   runId: string;
-  status: "ok" | "error" | "timeout";
+  status: "ok" | "error" | "timeout" | "blocked" | "running";
   startedAt?: number;
   endedAt?: number;
   error?: string;
+  approvalId?: string;
   ts: number;
 };
 
@@ -105,7 +106,12 @@ function ensureAgentRunListener() {
     if (!evt) {
       return;
     }
-    if (evt.stream !== "lifecycle") {
+    if (evt.stream !== "lifecycle" && evt.stream !== "approval") {
+      return;
+    }
+    if (evt.stream === "approval") {
+      // Approval events are transient and not cached in the terminal snapshot cache.
+      // Waiters will catch them via the direct broadcast in waitForAgentJob.
       return;
     }
     const phase = evt.data?.phase;
@@ -210,12 +216,30 @@ export async function waitForAgentJob(params: {
     }
 
     const unsubscribe = onAgentEvent((evt) => {
-      if (!evt || evt.stream !== "lifecycle") {
+      if (!evt) {
         return;
       }
       if (evt.runId !== runId) {
         return;
       }
+
+      if (evt.stream === "approval") {
+        const approvalId = typeof evt.data?.id === "string" ? evt.data.id : undefined;
+        if (approvalId) {
+          finish({
+            runId,
+            status: "blocked",
+            approvalId,
+            ts: Date.now(),
+          });
+        }
+        return;
+      }
+
+      if (evt.stream !== "lifecycle") {
+        return;
+      }
+
       const phase = evt.data?.phase;
       if (phase === "start") {
         clearPendingErrorTimer();
@@ -243,7 +267,17 @@ export async function waitForAgentJob(params: {
     });
 
     const timerDelayMs = Math.max(1, Math.min(Math.floor(timeoutMs), 2_147_483_647));
-    const timer = setTimeout(() => finish(null), timerDelayMs);
+    const timer = setTimeout(() => {
+      if (agentRunStarts.has(runId)) {
+        finish({
+          runId,
+          status: "running",
+          ts: Date.now(),
+        });
+      } else {
+        finish(null);
+      }
+    }, timerDelayMs);
     onAbort = () => finish(null);
     signal?.addEventListener("abort", onAbort, { once: true });
   });

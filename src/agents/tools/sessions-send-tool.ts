@@ -342,6 +342,25 @@ export function createSessionsSendTool(opts?: {
         callGateway: gatewayCall,
       });
 
+      if (result.status === "blocked") {
+        return jsonResult({
+          runId,
+          status: "blocked",
+          approvalId: result.approvalId,
+          error:
+            "Agent is waiting for human approval to proceed with a sensitive command. Please notify the user to check their chat and approve the request.",
+          sessionKey: displayKey,
+        });
+      }
+      if (result.status === "running") {
+        return jsonResult({
+          runId,
+          status: "running",
+          error:
+            "Agent is still performing a time-consuming task. It is still running in the background. You can wait or check back later.",
+          sessionKey: displayKey,
+        });
+      }
       if (result.status === "timeout") {
         return jsonResult({
           runId,

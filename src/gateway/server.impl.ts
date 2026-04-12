@@ -1,3 +1,4 @@
+import { setMas4sIntegrationRef } from "../agents/openclaw-tools.js";
 import { getActiveEmbeddedRunCount } from "../agents/pi-embedded-runner/runs.js";
 import { getTotalPendingReplies } from "../auto-reply/reply/dispatcher-registry.js";
 import type { CanvasHostServer } from "../canvas-host/server.js";
@@ -637,6 +638,7 @@ export async function startGatewayServer(
     });
 
     const mas4sIntegration = await initMas4sIntegration(log, cfgAtStart);
+    setMas4sIntegrationRef(mas4sIntegration);
     const canvasHostServerPort = (canvasHostServer as CanvasHostServer | null)?.port;
 
     // Wrap broadcast to apply mas4s filterBroadcast if available
