@@ -307,6 +307,7 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
       timestamp: Date.now(),
       role: normalized.role,
       senderLabel: null,
+      subType: normalized.subType as ChatMessage["subType"],
     };
     debugLog(
       `[mas4s:event-handler] Appending manual prompt message (role=${chatMsg.role})`,

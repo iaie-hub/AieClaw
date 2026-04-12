@@ -21,7 +21,7 @@ describe("Property 17: message sender name replacement", () => {
 
   it("buildGroupMessage prefix round-trips through parseSenderPrefix", () => {
     fc.assert(
-      fc.property(arbSenderName, arbText, (senderName, text) => {
+      fc.property(arbSenderName, arbText, (senderName: string, text: string) => {
         const msg = buildGroupMessage(senderName, text);
         const { senderLabel } = parseSenderPrefix(msg);
         expect(senderLabel).toBe(senderName.trim());
@@ -31,7 +31,7 @@ describe("Property 17: message sender name replacement", () => {
 
   it("buildGroupMessage output starts with senderName followed by colon", () => {
     fc.assert(
-      fc.property(arbSenderName, arbText, (senderName, text) => {
+      fc.property(arbSenderName, arbText, (senderName: string, text: string) => {
         const msg = buildGroupMessage(senderName, text);
         expect(msg.startsWith(`${senderName}: `)).toBe(true);
       }),

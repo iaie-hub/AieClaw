@@ -263,8 +263,9 @@ export function checkPermission(
   }
 
   // Step 4: session-level role check (only when sessionContext is provided)
+  // Admin override: admins bypass session-level restrictions (consistent with checkSessionAccess)
   const sessionAllowed = SESSION_ROLE_PERMISSIONS[method];
-  if (sessionAllowed !== undefined && sessionContext !== undefined) {
+  if (sessionAllowed !== undefined && sessionContext !== undefined && role !== "admin") {
     const { sessionRole } = sessionContext;
     if (sessionRole === undefined || !sessionAllowed.has(sessionRole)) {
       const reason = `Session role '${sessionRole ?? "none"}' is not permitted to call '${method}' on session '${sessionContext.sessionKey}'`;

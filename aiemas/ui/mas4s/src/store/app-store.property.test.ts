@@ -35,39 +35,47 @@ describe("Property 18: session type marking", () => {
 
   it("sessions added via addSession with masType=initiated are marked initiated", () => {
     fc.assert(
-      fc.property(fc.uuid(), fc.string({ minLength: 1, maxLength: 40 }), (key, label) => {
-        // Reset store state
-        store.sessions = [];
+      fc.property(
+        fc.uuid(),
+        fc.string({ minLength: 1, maxLength: 40 }),
+        (key: string, label: string) => {
+          // Reset store state
+          store.sessions = [];
 
-        const session = makeMasSession({ key, label, masType: "initiated" });
-        store.addSession(session);
+          const session = makeMasSession({ key, label, masType: "initiated" });
+          store.addSession(session);
 
-        const found = store.sessions.find((s) => s.key === key);
-        expect(found).toBeDefined();
-        expect(found?.masType).toBe("initiated");
-      }),
+          const found = store.sessions.find((s) => s.key === key);
+          expect(found).toBeDefined();
+          expect(found?.masType).toBe("initiated");
+        },
+      ),
     );
   });
 
   it("sessions added via session.joined event are marked participated", () => {
     fc.assert(
-      fc.property(fc.uuid(), fc.string({ minLength: 1, maxLength: 40 }), (key, label) => {
-        store.sessions = [];
+      fc.property(
+        fc.uuid(),
+        fc.string({ minLength: 1, maxLength: 40 }),
+        (key: string, label: string) => {
+          store.sessions = [];
 
-        // Simulate session.joined: add session with masType="participated"
-        const session = makeMasSession({ key, label, masType: "participated" });
-        store.addSession(session);
+          // Simulate session.joined: add session with masType="participated"
+          const session = makeMasSession({ key, label, masType: "participated" });
+          store.addSession(session);
 
-        const found = store.sessions.find((s) => s.key === key);
-        expect(found).toBeDefined();
-        expect(found?.masType).toBe("participated");
-      }),
+          const found = store.sessions.find((s) => s.key === key);
+          expect(found).toBeDefined();
+          expect(found?.masType).toBe("participated");
+        },
+      ),
     );
   });
 
   it("initiated and participated sessions coexist without type contamination", () => {
     fc.assert(
-      fc.property(fc.uuid(), fc.uuid(), (key1, key2) => {
+      fc.property(fc.uuid(), fc.uuid(), (key1: string, key2: string) => {
         fc.pre(key1 !== key2);
         store.sessions = [];
 
@@ -84,7 +92,7 @@ describe("Property 18: session type marking", () => {
 
   it("removeSession removes the correct session regardless of masType", () => {
     fc.assert(
-      fc.property(fc.uuid(), fc.uuid(), (key1, key2) => {
+      fc.property(fc.uuid(), fc.uuid(), (key1: string, key2: string) => {
         fc.pre(key1 !== key2);
         store.sessions = [];
 

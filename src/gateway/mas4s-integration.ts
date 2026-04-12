@@ -736,17 +736,36 @@ export async function initMas4sIntegration(
             message: string;
             timeoutSeconds?: number;
           }) => {
+            // Disable A2A ping-pong for AIEMAS inter-agent calls.
+            // When a child agent's exec tool triggers an approval prompt, the
+            // agent run ends normally (status "ok") with the prompt as its reply.
+            // The default ping-pong (maxPingPongTurns=5) would forward that reply
+            // back and forth between orchestrator and child, causing the child to
+            // re-execute the same command and trigger a duplicate approval request.
+            // AIEMAS orchestration handles multi-turn coordination itself via
+            // explicit aiemas_sessions_send calls, so ping-pong is unnecessary.
+            const noPingPongConfig = {
+              ...context.config,
+              session: {
+                ...context.config?.session,
+                agentToAgent: {
+                  ...context.config?.session?.agentToAgent,
+                  maxPingPongTurns: 0,
+                },
+              },
+            };
             const sendTool = createSessionsSendTool({
               agentSessionKey: context.agentSessionKey,
               agentChannel: context.agentChannel,
-              config: context.config,
+              config: noPingPongConfig,
               callGateway,
             });
-            return sendTool.execute("aiemas-internal", {
+            const res = await sendTool.execute("aiemas-internal", {
               sessionKey: params.sessionKey,
               message: params.message,
               timeoutSeconds: params.timeoutSeconds ?? 30,
             });
+            return res.details;
           };
           tools.push(
             createAiemasSessionsSendTool(
