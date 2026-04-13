@@ -24,6 +24,30 @@ type ExecApprovalFollowupParams = {
   resultText: string;
 };
 
+// ── Session-level followup serialization ──────────────────────────
+// Multiple exec-approval-followup runs on the same session must execute
+// serially.  Without this, concurrent agent runs reason over incomplete
+// chat history (missing results from sibling followups still in flight)
+// and re-issue the same commands, producing duplicate approval requests.
+// Denied followups are excluded from the queue because their prompt
+// explicitly instructs the LLM not to re-run commands.
+const sessionFollowupChains = new Map<string, Promise<void>>();
+
+function enqueueSessionFollowup(sessionKey: string, fn: () => Promise<void>): Promise<void> {
+  const prev = sessionFollowupChains.get(sessionKey) ?? Promise.resolve();
+  const next = prev
+    .catch(() => {}) // previous failure must not block subsequent followups
+    .then(() => fn());
+  sessionFollowupChains.set(sessionKey, next);
+  // Clean up the reference once the chain settles to avoid memory leaks.
+  void next.finally(() => {
+    if (sessionFollowupChains.get(sessionKey) === next) {
+      sessionFollowupChains.delete(sessionKey);
+    }
+  });
+  return next;
+}
+
 function buildExecDeniedFollowupPrompt(resultText: string): string {
   const preamble = [
     "An async command did not run.",
@@ -242,21 +266,30 @@ export async function sendExecApprovalFollowup(
 
   if (sessionKey) {
     try {
-      await callGatewayTool(
-        "agent",
-        { timeoutMs: 60_000 },
-        buildAgentFollowupArgs({
-          approvalId: params.approvalId,
-          sessionKey,
-          resultText,
-          deliveryTarget,
-          sessionOnlyOriginChannel,
-          turnSourceTo: params.turnSourceTo,
-          turnSourceAccountId: params.turnSourceAccountId,
-          turnSourceThreadId: params.turnSourceThreadId,
-        }),
-        { expectFinal: true },
-      );
+      const agentArgs = buildAgentFollowupArgs({
+        approvalId: params.approvalId,
+        sessionKey,
+        resultText,
+        deliveryTarget,
+        sessionOnlyOriginChannel,
+        turnSourceTo: params.turnSourceTo,
+        turnSourceAccountId: params.turnSourceAccountId,
+        turnSourceThreadId: params.turnSourceThreadId,
+      });
+      const doCall = () =>
+        callGatewayTool("agent", { timeoutMs: 60_000 }, agentArgs, { expectFinal: true });
+
+      if (isDenied) {
+        // Denied followups instruct the LLM not to re-run commands, so they
+        // cannot cause duplicate approvals and do not need serialization.
+        await doCall();
+      } else {
+        // Approved followups are serialized per session to prevent concurrent
+        // agent runs from reasoning over incomplete chat history.
+        await enqueueSessionFollowup(sessionKey, async () => {
+          await doCall();
+        });
+      }
       return true;
     } catch (err) {
       sessionError = err;

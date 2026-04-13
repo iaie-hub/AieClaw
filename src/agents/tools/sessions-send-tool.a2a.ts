@@ -38,6 +38,17 @@ export async function runSessionsSendA2AFlow(params: {
   waitRunId?: string;
 }) {
   const runContextId = params.waitRunId ?? "unknown";
+
+  // When maxPingPongTurns is 0 and we already have a round-one reply, the
+  // caller is handling multi-turn coordination itself (e.g. AIEMAS
+  // orchestration via explicit aiemas_sessions_send calls).  Skip both the
+  // ping-pong loop *and* the announce step so we don't re-trigger the target
+  // agent with stale approval-prompt context, which would cause duplicate
+  // exec approval requests.
+  if (params.maxPingPongTurns <= 0 && params.roundOneReply !== undefined) {
+    return;
+  }
+
   try {
     let primaryReply = params.roundOneReply;
     let latestReply = params.roundOneReply;

@@ -432,6 +432,45 @@ export class MainHeader extends LitElement {
       flex-shrink: 0;
     }
 
+    .notif-batch-actions {
+      display: flex;
+      gap: 8px;
+      padding: 8px 16px;
+      border-bottom: 1px solid #f1f5f9;
+      flex-shrink: 0;
+    }
+
+    .notif-batch-btn {
+      flex: 1;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.15s;
+    }
+
+    .notif-batch-btn.allow {
+      background: #10b981;
+      color: white;
+      border-color: #10b981;
+    }
+
+    .notif-batch-btn.allow:hover {
+      background: #059669;
+    }
+
+    .notif-batch-btn.deny {
+      background: white;
+      color: #ef4444;
+      border-color: #fca5a5;
+    }
+
+    .notif-batch-btn.deny:hover {
+      background: #fef2f2;
+    }
+
     .notif-close-btn {
       background: none;
       border: none;
@@ -622,6 +661,40 @@ export class MainHeader extends LitElement {
     );
   }
 
+  private _onBatchApprove = () => {
+    const approvals = this.pendingApprovals;
+    if (approvals.length === 0) {
+      return;
+    }
+    this._notifOpen = false;
+    for (const a of approvals) {
+      this.dispatchEvent(
+        new CustomEvent("resolve-approval", {
+          detail: { id: a.id, decision: "allow-once" },
+          bubbles: true,
+          composed: true,
+        }),
+      );
+    }
+  };
+
+  private _onBatchDeny = () => {
+    const approvals = this.pendingApprovals;
+    if (approvals.length === 0) {
+      return;
+    }
+    this._notifOpen = false;
+    for (const a of approvals) {
+      this.dispatchEvent(
+        new CustomEvent("resolve-approval", {
+          detail: { id: a.id, decision: "deny" },
+          bubbles: true,
+          composed: true,
+        }),
+      );
+    }
+  };
+
   private _onAgentClick = () => {
     this._selectedAgentId = this.session?.currentAgentId || "default";
     this._agentDialogOpen = true;
@@ -704,16 +777,27 @@ export class MainHeader extends LitElement {
       return nothing;
     }
     const approvals = this.pendingApprovals;
+    const hasPending = approvals.length > 0;
     return html`
       <div class="notif-panel" role="dialog" aria-label="通知列表">
         <div class="notif-panel-header">
-          <span>待审批通知 ${approvals.length > 0 ? `(${approvals.length})` : ""}</span>
+          <span>待审批通知 ${hasPending ? `(${approvals.length})` : ""}</span>
           <button class="notif-close-btn" @click=${this._onNotifClose} aria-label="关闭通知面板">
             ✕
           </button>
         </div>
+        ${hasPending
+          ? html`
+              <div class="notif-batch-actions">
+                <button class="notif-batch-btn deny" @click=${this._onBatchDeny}>全部拒绝</button>
+                <button class="notif-batch-btn allow" @click=${this._onBatchApprove}>
+                  全部批准 (${approvals.length})
+                </button>
+              </div>
+            `
+          : nothing}
         <div class="notif-list">
-          ${approvals.length === 0
+          ${!hasPending
             ? html` <div class="notif-empty">暂无待审批通知</div> `
             : approvals.map((a) => this._renderNotifItem(a))}
         </div>
