@@ -3,10 +3,10 @@ import type { TopologyCache } from "../cache/topology-cache.js";
 import type { TopologyTree } from "../models.js";
 import { createAiemasSessionsStore } from "../store/aiemas-sessions-store.js";
 import { constructKeyFromUuid } from "../utils/session-utils.js";
+import type { Mas4sGatewayPlugin, SendToConnIdFn } from "./aiemas-types.js";
 import { str, sendToConnId, buildConnectedUsers, type GatewayClient } from "./aiemas-utils.js";
 import { GatewayAuthBridge } from "./bridge.js";
 import { MasAuthContext, NULL_MAS_AUTH } from "./context.js";
-import type { Mas4sGatewayPlugin } from "./mas4s-gateway-plugin.js";
 import { extractDescendantAgentIds } from "./topology-utils.js";
 
 export interface SessionContext {
@@ -620,7 +620,8 @@ export function registerSessionHandlers(
               joinedAt: member ? Number(member["joinedAt"] ?? Date.now()) : Date.now(),
             },
             connectedUsers,
-            (connId, event, data) => sendToConnId(connId, activeClients, event, data),
+            ((connId: string, event: string, data: unknown) =>
+              sendToConnId(connId, activeClients, event, data)) as SendToConnIdFn,
           );
         } catch (err) {
           log.warn(`mas4s pushSessionJoined failed: ${String(err)}`);
@@ -660,7 +661,8 @@ export function registerSessionHandlers(
             targetUserId,
             { sessionKey, removedBy: callerAuth.userId ?? "" },
             connectedUsers,
-            (connId, event, data) => sendToConnId(connId, activeClients, event, data),
+            ((connId: string, event: string, data: unknown) =>
+              sendToConnId(connId, activeClients, event, data)) as SendToConnIdFn,
           );
         } catch (err) {
           log.warn(`mas4s pushSessionRemoved failed: ${String(err)}`);
@@ -707,7 +709,8 @@ export function registerSessionHandlers(
               archivedBy: callerAuth.userId ?? "",
             },
             connectedUsers,
-            (connId, event, data) => sendToConnId(connId, activeClients, event, data),
+            ((connId: string, event: string, data: unknown) =>
+              sendToConnId(connId, activeClients, event, data)) as SendToConnIdFn,
           );
         } catch (err) {
           log.warn(`mas4s pushSessionArchived failed: ${String(err)}`);
@@ -746,7 +749,8 @@ export function registerSessionHandlers(
             sessionKey,
             { sessionKey, unarchivedBy: callerAuth.userId ?? "" },
             connectedUsers,
-            (connId, event, data) => sendToConnId(connId, activeClients, event, data),
+            ((connId: string, event: string, data: unknown) =>
+              sendToConnId(connId, activeClients, event, data)) as SendToConnIdFn,
           );
         } catch (err) {
           log.warn(`mas4s pushSessionUnarchived failed: ${String(err)}`);

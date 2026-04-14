@@ -1,9 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
 import { TenantServiceError } from "../errors.js";
 import type { TenantService } from "../index.js";
+import type { Mas4sGatewayPlugin } from "./aiemas-types.js";
 import { strCoerce, errorShape, getCallerAuth, type SimpleHandlers } from "./aiemas-utils.js";
 import type { GatewayAuthBridge } from "./bridge.js";
-import type { Mas4sGatewayPlugin } from "./mas4s-gateway-plugin.js";
 
 export interface AiemasSessionsHandlersDeps {
   bridge: GatewayAuthBridge;

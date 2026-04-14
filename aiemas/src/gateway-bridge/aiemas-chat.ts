@@ -1,3 +1,4 @@
+import type { Mas4sGatewayPlugin, SendToConnIdFn } from "./aiemas-types.js";
 import {
   str,
   buildConnectedUsers,
@@ -5,7 +6,6 @@ import {
   type GatewayContext,
 } from "./aiemas-utils.js";
 import { MasAuthContext, NULL_MAS_AUTH } from "./context.js";
-import type { Mas4sGatewayPlugin } from "./mas4s-gateway-plugin.js";
 
 export interface ChatContext {
   plugin: Mas4sGatewayPlugin;
@@ -138,12 +138,12 @@ export function registerChatHandlers(
           sessionKey,
           { sessionKey, generatedAt: result.generatedAt },
           buildConnectedUsers(activeClients, ctx.getMasAuth),
-          (connId, event, data) => {
+          ((connId: string, event: string, data: unknown): void => {
             const c = Array.from(activeClients).find((cl) => cl.connId === connId);
             if (c?.socket) {
               c.socket.send(JSON.stringify({ type: "event", event, data }));
             }
-          },
+          }) as SendToConnIdFn,
         );
       }
     } else {

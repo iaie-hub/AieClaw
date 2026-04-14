@@ -4,7 +4,7 @@ import { getTotalPendingReplies } from "../auto-reply/reply/dispatcher-registry.
 import type { CanvasHostServer } from "../canvas-host/server.js";
 import { type ChannelId, listChannelPlugins } from "../channels/plugins/index.js";
 import { createDefaultDeps } from "../cli/deps.js";
-import { isRestartEnabled } from "../config/commands.js";
+import { isRestartEnabled } from "../config/commands.flags.js";
 import {
   type OpenClawConfig,
   applyConfigOverrides,
@@ -41,6 +41,7 @@ import { runSetupWizard } from "../wizard/setup.js";
 import { createAuthRateLimiter, type AuthRateLimiter } from "./auth-rate-limit.js";
 import { resolveGatewayAuth } from "./auth.js";
 import { initMas4sIntegration } from "./mas4s-integration.js";
+import { closeMcpLoopbackServer } from "./mcp-http.js";
 import { createGatewayAuxHandlers } from "./server-aux-handlers.js";
 import { createChannelManager } from "./server-channels.js";
 import { createGatewayCloseHandler, runGatewayClosePrelude } from "./server-close.js";
@@ -57,7 +58,10 @@ import { setFallbackGatewayContextResolver } from "./server-plugins.js";
 import { startManagedGatewayConfigReloader } from "./server-reload-handlers.js";
 import { createGatewayRequestContext } from "./server-request-context.js";
 import { resolveGatewayRuntimeConfig } from "./server-runtime-config.js";
-import { startGatewayRuntimeServices } from "./server-runtime-services.js";
+import {
+  activateGatewayScheduledServices,
+  startGatewayRuntimeServices,
+} from "./server-runtime-services.js";
 import { createGatewayRuntimeState } from "./server-runtime-state.js";
 import { startGatewayEventSubscriptions } from "./server-runtime-subscriptions.js";
 import { resolveSessionKeyForRun } from "./server-session-key.js";
@@ -72,6 +76,7 @@ import {
   prepareGatewayStartupConfig,
 } from "./server-startup-config.js";
 import { prepareGatewayPluginBootstrap } from "./server-startup-plugins.js";
+import { STARTUP_UNAVAILABLE_GATEWAY_METHODS } from "./server-startup-unavailable-methods.js";
 import { startGatewayEarlyRuntime, startGatewayPostAttachRuntime } from "./server-startup.js";
 import { createWizardSessionTracker } from "./server-wizard-sessions.js";
 import { attachGatewayWsHandlers } from "./server-ws-runtime.js";
@@ -516,7 +521,7 @@ export async function startGatewayServer(
       stopModelPricingRefresh: runtimeState.stopModelPricingRefresh,
       stopChannelHealthMonitor: () => runtimeState?.channelHealthMonitor?.stop(),
       clearSecretsRuntimeSnapshot,
-      closeMcpServer: async () => await runtimeState?.mcpServer?.close(),
+      closeMcpServer: async () => await closeMcpLoopbackServer(),
     });
 
   const closeOnStartupFailure = async () => {
@@ -589,7 +594,6 @@ export async function startGatewayServer(
       },
       loadConfig,
     });
-    runtimeState.mcpServer = earlyRuntime.mcpServer;
     runtimeState.bonjourStop = earlyRuntime.bonjourStop;
     runtimeState.skillsChangeUnsub = earlyRuntime.skillsChangeUnsub;
     if (earlyRuntime.maintenance) {
@@ -623,8 +627,6 @@ export async function startGatewayServer(
         minimalTestGateway,
         cfgAtStart,
         channelManager,
-        cron: runtimeState.cronState.cron,
-        logCron,
         log,
       }),
     );
@@ -655,7 +657,10 @@ export async function startGatewayServer(
       // If filtered.size === 0, don't broadcast to anyone
     };
 
-    const unavailableGatewayMethods = new Set<string>(minimalTestGateway ? [] : ["chat.history"]);
+    const unavailableGatewayMethods = new Set<string>(
+      minimalTestGateway ? [] : STARTUP_UNAVAILABLE_GATEWAY_METHODS,
+    );
+
     const gatewayRequestContext = createGatewayRequestContext({
       deps,
       runtimeState,
@@ -789,7 +794,6 @@ export async function startGatewayServer(
       bindHosts: httpBindHosts,
       port,
       tlsEnabled: gatewayTls.enabled,
-      pluginCount: pluginRegistry.plugins.length,
       log,
       isNixMode,
       startupStartedAt: opts.startupStartedAt,
@@ -807,6 +811,16 @@ export async function startGatewayServer(
       logChannels,
       unavailableGatewayMethods,
     }));
+
+    // Keep scheduled work inert until post-attach sidecars finish.
+    const activated = activateGatewayScheduledServices({
+      minimalTestGateway,
+      cfgAtStart,
+      cron: runtimeState.cronState.cron,
+      logCron,
+      log,
+    });
+    runtimeState.heartbeatRunner = activated.heartbeatRunner;
 
     runtimeState.configReloader = startManagedGatewayConfigReloader({
       minimalTestGateway,

@@ -1,51 +1,15 @@
 import { TenantServiceError } from "../errors.js";
-import type { TenantService, TenantServiceConfig } from "../index.js";
+import type { TenantServiceConfig } from "../index.js";
 import { createTenantService } from "../index.js";
 import { deleteSummary, deleteSessionMessages } from "../session-history/session-summary-store.js";
 import { createAiemasSessionsStore } from "../store/aiemas-sessions-store.js";
-import type { SimpleHandlers } from "./aiemas-utils.js";
+import type { SimpleHandlers, Mas4sGatewayPlugin, GatewayDispatchFn } from "./aiemas-types.js";
 import { errorShape } from "./aiemas-utils.js";
 import { GatewayAuthBridge } from "./bridge.js";
 import { extractMasTokenFromUrl } from "./integration.js";
 
-/**
- * Callback to dispatch an internal gateway request.
- * Set by the integration layer after plugin creation.
- * Returns the response payload on success, throws on failure.
- */
-export type GatewayDispatchFn = (
-  method: string,
-  params: Record<string, unknown>,
-  client: unknown,
-) => Promise<unknown>;
-
-export interface Mas4sGatewayPlugin {
-  bridge: GatewayAuthBridge;
-  tenantService: TenantService;
-  extraHandlers: SimpleHandlers;
-  extractMasTokenFromUrl: typeof extractMasTokenFromUrl;
-  /** Set by integration layer to enable internal gateway calls (e.g. chat.history). */
-  gatewayDispatch: GatewayDispatchFn | null;
-  /** Session transcript store for capturing messages. */
-  transcriptStore: import("../session-history/session-transcript-store.js").SessionTranscriptStore;
-  /** Stop the session label lifecycle event subscription. */
-  stopLabelSync: () => void;
-  /** Persist a minimal SOP snapshot for reconnect recovery. */
-  upsertRunState: (
-    sessionUuid: string,
-    patch: {
-      runId?: string;
-      sopSnapshot?: import("./run-state-store.js").SOPSnapshot;
-      isChatting?: boolean;
-    },
-  ) => void;
-  /** Clear run state for a session (on reset/delete/clear). */
-  clearRunState: (sessionUuid: string) => void;
-  /** SQLite database handle for direct DB operations. */
-  db: import("node:sqlite").DatabaseSync;
-  /** Load a full GatewaySessionRow (injected from core gateway). */
-  loadGatewaySessionRow: (sessionKey: string) => unknown;
-}
+// Re-export types for backward compatibility
+export type { GatewayDispatchFn, Mas4sGatewayPlugin } from "./aiemas-types.js";
 
 export async function createMas4sGatewayPlugin(
   config?: TenantServiceConfig,

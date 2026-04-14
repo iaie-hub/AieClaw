@@ -1,45 +1,12 @@
-import type { SubsystemLogger } from "../../../src/logging/subsystem.js";
+import type {
+  GatewayClient,
+  GatewayContext,
+  CommonContext,
+  SimpleHandler,
+  SimpleHandlers,
+} from "./aiemas-types.js";
 import type { MasAuthContext } from "./context.js";
 import { getMasAuth as _getMasAuth, NULL_MAS_AUTH as _NULL_MAS_AUTH } from "./context.js";
-import type { Mas4sGatewayPlugin } from "./mas4s-gateway-plugin.js";
-
-/**
- * Minimal interface for a Gateway client.
- * Using optional properties to align with core's GatewayClient base type.
- */
-export type GatewayClient = {
-  connId?: string;
-  socket?: {
-    send: (frame: string) => void;
-    close: (code?: number, reason?: string) => void;
-  };
-  connect?: {
-    client?: {
-      displayName?: string;
-    };
-    scopes?: string[];
-  };
-} & Record<string, unknown>;
-
-/**
- * Minimal interface for Gateway request context.
- */
-export interface GatewayContext {
-  broadcast: (event: string, payload: unknown, opts?: { dropIfSlow?: boolean }) => void;
-  [key: string]: unknown;
-}
-
-/**
- * Shared context for common operations.
- */
-export interface CommonContext {
-  plugin: Mas4sGatewayPlugin;
-  getMasAuth: (client: unknown) => MasAuthContext | null;
-  getActiveClients: () => Set<GatewayClient>;
-  extractUuid: (sessionKey: string) => string;
-  loadSessionRow: (sessionKey: string) => Record<string, unknown> | null;
-  log: SubsystemLogger;
-}
 
 /**
  * Type-safe string extractor for Record<string, unknown>.
@@ -81,20 +48,15 @@ export function getCallerAuth(client: unknown) {
 }
 
 /**
- * Generic handler type matching GatewayRequestHandlers entries.
+ * Re-export types from aiemas-types for backward compatibility.
  */
-export type SimpleHandler = (opts: {
-  params: Record<string, unknown>;
-  client: unknown;
-  respond: (ok: boolean, payload: unknown, error: unknown) => void;
-  dispatchGateway?: (
-    method: string,
-    params: Record<string, unknown>,
-    client?: unknown,
-  ) => Promise<unknown>;
-}) => void | Promise<void>;
-
-export type SimpleHandlers = Record<string, SimpleHandler>;
+export type {
+  GatewayClient,
+  GatewayContext,
+  CommonContext,
+  SimpleHandler,
+  SimpleHandlers,
+} from "./aiemas-types.js";
 
 /**
  * Helper to build connected users map for bridge methods.

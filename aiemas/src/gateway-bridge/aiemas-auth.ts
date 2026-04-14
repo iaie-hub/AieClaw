@@ -1,6 +1,6 @@
-import { str, sendToConnId, buildConnectedUsers, type GatewayClient } from "./aiemas-utils.js";
+import type { Mas4sGatewayPlugin, GatewayClient, SendToConnIdFn } from "./aiemas-types.js";
+import { str, sendToConnId, buildConnectedUsers } from "./aiemas-utils.js";
 import { MasAuthContext, NULL_MAS_AUTH, setMasAuth as setMasAuthContext } from "./context.js";
-import type { Mas4sGatewayPlugin } from "./mas4s-gateway-plugin.js";
 
 export interface AuthContext {
   plugin: Mas4sGatewayPlugin;
@@ -57,7 +57,8 @@ export function registerAuthHandlers(extraHandlers: Record<string, unknown>, ctx
               loginTenantId,
               true,
               buildConnectedUsers(activeClients, getMasAuth),
-              (connId, event, data) => sendToConnId(connId, activeClients, event, data),
+              ((connId: string, event: string, data: unknown) =>
+                sendToConnId(connId, activeClients, event, data)) as SendToConnIdFn,
             );
           }
         } catch (err) {
@@ -89,7 +90,8 @@ export function registerAuthHandlers(extraHandlers: Record<string, unknown>, ctx
             logoutTenantId,
             false,
             buildConnectedUsers(activeClients, getMasAuth),
-            (connId, event, data) => sendToConnId(connId, activeClients, event, data),
+            ((connId: string, event: string, data: unknown) =>
+              sendToConnId(connId, activeClients, event, data)) as SendToConnIdFn,
           );
         } catch (err) {
           log.warn(`mas4s pushUserPresence (logout) failed: ${String(err)}`);
@@ -116,7 +118,7 @@ export function onClientConnected(
   } = ctx;
 
   try {
-    const masToken = integrationMod.extractMasTokenFromUrl(upgradeReq);
+    const masToken = integrationMod.extractMasTokenFromUrl({ url: upgradeReq.url });
     const masAuth = plugin.bridge.authenticateConnect({ masToken });
     setMasAuthContext(client, masAuth);
 
@@ -127,7 +129,8 @@ export function onClientConnected(
         masAuth.tenantId,
         true,
         buildConnectedUsers(activeClients, getMasAuth),
-        (connId, event, data) => sendToConnId(connId, activeClients, event, data),
+        ((connId: string, event: string, data: unknown) =>
+          sendToConnId(connId, activeClients, event, data)) as SendToConnIdFn,
       );
     }
 
@@ -180,7 +183,8 @@ export function onClientDisconnected(client: GatewayClient, ctx: AuthContext) {
           masAuth.tenantId,
           false,
           buildConnectedUsers(activeClients, getMasAuth),
-          (connId, event, data) => sendToConnId(connId, activeClients, event, data),
+          ((connId: string, event: string, data: unknown) =>
+            sendToConnId(connId, activeClients, event, data)) as SendToConnIdFn,
         );
       }
     }

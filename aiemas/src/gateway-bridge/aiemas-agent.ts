@@ -1,8 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { CacheService } from "../cache/cache-service.js";
 import { validateEdges, saveTopology, loadAllTopologies } from "../store/topology-store.js";
+import type { Mas4sGatewayPlugin } from "./aiemas-types.js";
 import type { GatewayClient, GatewayContext } from "./aiemas-utils.js";
-import type { Mas4sGatewayPlugin } from "./mas4s-gateway-plugin.js";
 
 export interface AgentContext {
   plugin?: Mas4sGatewayPlugin;

@@ -1,6 +1,6 @@
 import { TenantServiceError } from "../errors.js";
+import type { Mas4sGatewayPlugin } from "./aiemas-types.js";
 import { strCoerce, errorShape, type SimpleHandlers } from "./aiemas-utils.js";
-import type { Mas4sGatewayPlugin } from "./mas4s-gateway-plugin.js";
 
 export interface FsHandlersDeps {
   sessionStore: ReturnType<

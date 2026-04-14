@@ -1,6 +1,5 @@
 import path from "node:path";
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
-import { Type } from "@sinclair/typebox";
 import {
   DEFAULT_EXEC_APPROVAL_TIMEOUT_MS,
   resolveExecApprovalAllowedDecisions,
@@ -27,6 +26,7 @@ import { logWarn } from "../logger.js";
 import type { ManagedRun } from "../process/supervisor/index.js";
 import { getProcessSupervisor } from "../process/supervisor/index.js";
 import type { RunExit, TerminationReason } from "../process/supervisor/types.js";
+import { normalizeDeliveryContext, type DeliveryContext } from "../utils/delivery-context.js";
 import {
   addSession,
   appendOutput,
@@ -42,6 +42,8 @@ import {
 } from "./bash-tools.shared.js";
 import { buildCursorPositionResponse, stripDsrRequests } from "./pty-dsr.js";
 import { getShellConfig, sanitizeBinaryOutput } from "./shell-utils.js";
+
+export { execSchema } from "./bash-tools.schemas.js";
 
 const SMKX = "\x1b[?1h";
 const RMKX = "\x1b[?1l";
@@ -126,54 +128,6 @@ export const DEFAULT_APPROVAL_REQUEST_TIMEOUT_MS = DEFAULT_APPROVAL_TIMEOUT_MS +
 const DEFAULT_APPROVAL_RUNNING_NOTICE_MS = 10_000;
 const APPROVAL_SLUG_LENGTH = 8;
 
-export const execSchema = Type.Object({
-  command: Type.String({ description: "Shell command to execute" }),
-  workdir: Type.Optional(Type.String({ description: "Working directory (defaults to cwd)" })),
-  env: Type.Optional(Type.Record(Type.String(), Type.String())),
-  yieldMs: Type.Optional(
-    Type.Number({
-      description: "Milliseconds to wait before backgrounding (default 10000)",
-    }),
-  ),
-  background: Type.Optional(Type.Boolean({ description: "Run in background immediately" })),
-  timeout: Type.Optional(
-    Type.Number({
-      description: "Timeout in seconds (optional, kills process on expiry)",
-    }),
-  ),
-  pty: Type.Optional(
-    Type.Boolean({
-      description:
-        "Run in a pseudo-terminal (PTY) when available (TTY-required CLIs, coding agents)",
-    }),
-  ),
-  elevated: Type.Optional(
-    Type.Boolean({
-      description: "Run on the host with elevated permissions (if allowed)",
-    }),
-  ),
-  host: Type.Optional(
-    Type.String({
-      description: "Exec host/target (auto|sandbox|gateway|node).",
-    }),
-  ),
-  security: Type.Optional(
-    Type.String({
-      description: "Exec security mode (deny|allowlist|full).",
-    }),
-  ),
-  ask: Type.Optional(
-    Type.String({
-      description: "Exec ask mode (off|on-miss|always).",
-    }),
-  ),
-  node: Type.Optional(
-    Type.String({
-      description: "Node id/name for host=node.",
-    }),
-  ),
-});
-
 export type ExecProcessFailureKind =
   | "shell-command-not-found"
   | "shell-not-executable"
@@ -232,7 +186,10 @@ export function isRequestedExecTargetAllowed(params: {
     return true;
   }
   if (params.configuredTarget === "auto") {
-    if (params.sandboxAvailable && params.requestedTarget === "gateway") {
+    if (
+      params.sandboxAvailable &&
+      (params.requestedTarget === "gateway" || params.requestedTarget === "node")
+    ) {
       return false;
     }
     return true;
@@ -258,9 +215,13 @@ export function resolveExecTarget(params: {
   ) {
     const allowedConfig = Array.from(
       new Set(
-        requestedTarget === "gateway" && !params.sandboxAvailable
-          ? ["gateway", "auto"]
-          : [renderExecTargetLabel(requestedTarget), "auto"],
+        configuredTarget === "auto" &&
+          params.sandboxAvailable &&
+          (requestedTarget === "gateway" || requestedTarget === "node")
+          ? [renderExecTargetLabel(requestedTarget)]
+          : requestedTarget === "gateway" && !params.sandboxAvailable
+            ? ["gateway", "auto"]
+            : [renderExecTargetLabel(requestedTarget), "auto"],
       ),
     ).join(" or ");
     throw new Error(
@@ -340,7 +301,11 @@ function maybeNotifyOnExit(session: ProcessSession, status: "completed" | "faile
   const summary = output
     ? `Exec ${status} (${session.id.slice(0, 8)}, ${exitLabel}) :: ${output}`
     : `Exec ${status} (${session.id.slice(0, 8)}, ${exitLabel})`;
-  enqueueSystemEvent(summary, { sessionKey, trusted: false });
+  enqueueSystemEvent(summary, {
+    sessionKey,
+    deliveryContext: session.notifyDeliveryContext,
+    trusted: false,
+  });
   requestHeartbeatNow(scopedHeartbeatWakeOptions(sessionKey, { reason: "exec-event" }));
 }
 
@@ -406,13 +371,17 @@ export function resolveApprovalRunningNoticeMs(value?: number) {
 
 export function emitExecSystemEvent(
   text: string,
-  opts: { sessionKey?: string; contextKey?: string },
+  opts: { sessionKey?: string; contextKey?: string; deliveryContext?: DeliveryContext },
 ) {
   const sessionKey = opts.sessionKey?.trim();
   if (!sessionKey) {
     return;
   }
-  enqueueSystemEvent(text, { sessionKey, contextKey: opts.contextKey });
+  enqueueSystemEvent(text, {
+    sessionKey,
+    contextKey: opts.contextKey,
+    deliveryContext: opts.deliveryContext,
+  });
   requestHeartbeatNow(scopedHeartbeatWakeOptions(sessionKey, { reason: "exec-event" }));
 }
 
@@ -462,6 +431,7 @@ export function formatExecFailureReason(params: {
     case "aborted":
       return "Command aborted before exit code was captured";
   }
+  throw new Error("Unsupported exec failure kind");
 }
 
 export function buildExecExitOutcome(params: {
@@ -543,6 +513,7 @@ export async function runExecProcess(opts: {
   notifyOnExitEmptySuccess?: boolean;
   scopeKey?: string;
   sessionKey?: string;
+  notifyDeliveryContext?: DeliveryContext;
   timeoutSec: number | null;
   onUpdate?: (partialResult: AgentToolResult<ExecToolDetails>) => void;
 }): Promise<ExecProcessHandle> {
@@ -560,6 +531,7 @@ export async function runExecProcess(opts: {
     command: opts.command,
     scopeKey: opts.scopeKey,
     sessionKey: opts.sessionKey,
+    notifyDeliveryContext: normalizeDeliveryContext(opts.notifyDeliveryContext),
     notifyOnExit: opts.notifyOnExit,
     notifyOnExitEmptySuccess: opts.notifyOnExitEmptySuccess === true,
     exitNotified: false,
@@ -625,7 +597,7 @@ export async function runExecProcess(opts: {
   };
 
   const handleStdout = (data: string) => {
-    const raw = data.toString();
+    const raw = data;
     // Detect smkx/rmkx BEFORE sanitizeBinaryOutput strips ESC sequences.
     // Note: PTY chunking is arbitrary, but smkx/rmkx sequences are typically short (4-5 bytes)
     // and sent atomically by terminals. Split across chunks is rare in practice.
@@ -641,7 +613,7 @@ export async function runExecProcess(opts: {
   };
 
   const handleStderr = (data: string) => {
-    const str = sanitizeBinaryOutput(data.toString());
+    const str = sanitizeBinaryOutput(data);
     for (const chunk of chunkString(str)) {
       appendOutput(session, "stderr", chunk);
       emitUpdate();
