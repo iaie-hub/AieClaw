@@ -11,6 +11,7 @@ import {
 } from "./controllers/ui-state-controller.js";
 import { registerEventHandlers } from "./gateway/event-handler.js";
 import { AppStore, AppStoreController } from "./store/app-store.js";
+import { buildSessionKey } from "./utils/session-utils.js";
 import { renderChecking, renderLogin, renderMain } from "./views/app-shell.js";
 // 组件注册（副作用导入）
 import "./components/primary-sidebar.js";
@@ -37,6 +38,9 @@ export class Mas4sApp extends LitElement {
     },
     setConnectError: (e) => {
       this._connectError = e;
+    },
+    onSessionsLoaded: () => {
+      this._session.autoSelectFirstSession();
     },
   });
   private _session = new SessionController(AppStore.instance);
@@ -151,6 +155,17 @@ export class Mas4sApp extends LitElement {
           this._ctrl.store.setActiveSubAgentTab(uuid, e.detail.agentId);
           this._ctrl.store.clearAgentUnread(uuid, e.detail.agentId);
         }
+      },
+      onDrawerSendMessage: (e: CustomEvent<{ agentId: string; text: string }>) => {
+        // 子 Agent 抽屉消息发送：构造子 Agent 的 sessionKey 并复用消息发送流程
+        const session = this._ctrl.store.activeSession;
+        if (!session?.sessionUuid) {
+          return;
+        }
+        const { agentId, text } = e.detail;
+        const sessionUuid = session.sessionUuid;
+        const subSessionKey = buildSessionKey(agentId, sessionUuid);
+        void this._message.onSendSubAgentMessage(subSessionKey, agentId, sessionUuid, text);
       },
     });
   }

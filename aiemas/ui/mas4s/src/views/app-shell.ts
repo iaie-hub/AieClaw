@@ -29,6 +29,7 @@ export interface AppShellHandlers {
   onDialogClose: () => void;
   onLoadMoreHistory: (e: CustomEvent<{ sessionKey: string }>) => void;
   onTabChange: (e: CustomEvent<{ agentId: string }>) => void;
+  onDrawerSendMessage: (e: CustomEvent<{ agentId: string; text: string }>) => void;
 }
 
 /** 检查中占位 */
@@ -166,6 +167,7 @@ export function renderMain(
               .subAgents=${store.activeSessionUuid
                 ? store.getSubAgentList(store.activeSessionUuid)
                 : []}
+              .agents=${store.agents}
               .activeSubAgentTab=${store.activeSessionUuid
                 ? (store.activeSubAgentTab.get(store.activeSessionUuid) ?? "")
                 : ""}
@@ -184,6 +186,7 @@ export function renderMain(
               @session-agent-update=${h.onSessionAgentUpdate}
               @load-more-history=${h.onLoadMoreHistory}
               @tab-change=${h.onTabChange}
+              @drawer-send-message=${h.onDrawerSendMessage}
             ></main-workspace>
           `}
     </div>

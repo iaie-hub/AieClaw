@@ -256,6 +256,24 @@ export class SessionController {
   };
 
   /**
+   * 自动选中第一个会话并加载历史消息。
+   * 用于登录后首次连接时自动恢复会话视图。
+   */
+  autoSelectFirstSession(): void {
+    const sessions = this.store.sessions;
+    if (sessions.length === 0) {
+      return;
+    }
+    // 按 updatedAt 降序取最新的会话
+    const sorted = [...sessions].toSorted((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    const first = sorted[0];
+    const uuid = first.sessionUuid ?? first.key.split(":").pop()!;
+    console.debug("[mas4s:session] autoSelect → sessionKey=%s (uuid=%s)", first.key, uuid);
+    this.store.setActiveSession(uuid);
+    this._loadSessionState(first.key, uuid);
+  }
+
+  /**
    * 历史消息加载后，自动选中第一个有消息的子 Agent 作为活跃 Tab。
    * 与实时消息路由中 handleAgentEvent 的 setActiveSubAgentTab 对齐。
    */

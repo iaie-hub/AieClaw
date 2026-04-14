@@ -77,6 +77,7 @@ export class AppStore {
   logout(): void {
     localStorage.removeItem("mas4s_auth_token");
     this.currentUser = null;
+    this.activeSessionUuid = null;
     this.notify();
   }
 
@@ -537,7 +538,9 @@ export class AppStore {
 
   /** 获取指定会话的所有 Agent 消息（内层 Map），不存在时返回空 Map */
   getSubAgentMessages(sessionUuid: string): Map<string, ChatMessage[]> {
-    return this.messagesByAgent.get(sessionUuid) ?? new Map();
+    const inner = this.messagesByAgent.get(sessionUuid);
+    // 返回新 Map 引用，确保 Lit 属性变更检测能感知内部数据变化
+    return inner ? new Map(inner) : new Map();
   }
 
   /** 从拓扑 edges 中提取当前会话 Root_Agent 的 Sub_Agent 列表 */
@@ -605,9 +608,10 @@ export class AppStore {
     let unreadSet = this.unreadByAgent.get(sessionUuid);
     if (!unreadSet) {
       unreadSet = new Set();
-      this.unreadByAgent.set(sessionUuid, unreadSet);
     }
     unreadSet.add(agentId);
+    // 创建新 Set 引用，确保 Lit 属性变更检测能感知变化
+    this.unreadByAgent.set(sessionUuid, new Set(unreadSet));
     this.notify();
   }
 
@@ -616,6 +620,7 @@ export class AppStore {
     const unreadSet = this.unreadByAgent.get(sessionUuid);
     if (unreadSet) {
       unreadSet.delete(agentId);
+      this.unreadByAgent.set(sessionUuid, new Set(unreadSet));
       this.notify();
     }
   }
@@ -625,10 +630,11 @@ export class AppStore {
     let activeSet = this.activeAgentsBySession.get(sessionUuid);
     if (!activeSet) {
       activeSet = new Set();
-      this.activeAgentsBySession.set(sessionUuid, activeSet);
     }
     if (!activeSet.has(agentId)) {
       activeSet.add(agentId);
+      // 创建新 Set 引用，确保 Lit 属性变更检测能感知变化
+      this.activeAgentsBySession.set(sessionUuid, new Set(activeSet));
       this.notify();
     }
   }
@@ -638,6 +644,7 @@ export class AppStore {
     const activeSet = this.activeAgentsBySession.get(sessionUuid);
     if (activeSet?.has(agentId)) {
       activeSet.delete(agentId);
+      this.activeAgentsBySession.set(sessionUuid, new Set(activeSet));
       this.notify();
     }
   }

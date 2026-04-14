@@ -58,6 +58,7 @@ export class ChatView extends LitElement {
       flex: 1;
       overflow: hidden;
       position: relative;
+      min-height: 0; /* 防止内容撑破 Flex 容器 */
     }
 
     .chat-view {
@@ -66,15 +67,16 @@ export class ChatView extends LitElement {
       height: 100%;
       flex: 1;
       overflow: hidden;
+      min-height: 0;
     }
 
     .chat-container {
       flex: 1;
       overflow-y: auto;
       padding: 30px;
-      padding-bottom: 70vh;
+      padding-bottom: 60vh;
       overscroll-behavior-y: contain;
-      min-height: 0;
+      min-height: 0; /* 关键：防止 Flex 子项撑破容器 */
     }
 
     .session-divider {
@@ -94,6 +96,7 @@ export class ChatView extends LitElement {
 
     .chat-input-wrapper {
       padding: 0 30px 30px;
+      padding-bottom: max(30px, env(safe-area-inset-bottom, 0px));
       position: relative;
       z-index: 10;
       flex-shrink: 0;

@@ -13,6 +13,8 @@ export interface AuthStateCallback {
   setAuthState(state: MasAuthState): void;
   setConnected(connected: boolean): void;
   setConnectError(error: string): void;
+  /** 首次连接（非重连）加载完会话列表后回调，用于自动选中第一个会话 */
+  onSessionsLoaded?(): void;
 }
 
 /**
@@ -126,13 +128,16 @@ export class AuthController {
           .then((sessions) => {
             this.store.setSessions(sessions);
             console.debug("[mas4s:auth] doConnect ← sessions loaded: count=%d", sessions.length);
-            // On reconnect, restore SOP run state for the currently active session
             if (isReconnect) {
+              // On reconnect, restore SOP run state for the currently active session
               const activeKey = this.store.activeSessionKey;
               const activeUuid = this.store.activeSessionUuid;
               if (activeKey && activeUuid) {
                 void restoreSessionRunState(getClient(), this.store, activeKey, activeUuid);
               }
+            } else {
+              // 首次连接：自动选中第一个会话并加载历史
+              this.cb.onSessionsLoaded?.();
             }
           })
           .catch((err) => {

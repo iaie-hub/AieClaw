@@ -1,4 +1,4 @@
-import { LitElement, html, css, nothing, type TemplateResult } from "lit";
+import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { extractAgentNameFromKey } from "../../../../src/utils/session-utils.js";
 import type { SessionRunStatus } from "../lib/types.js";
@@ -21,7 +21,6 @@ export class MainHeader extends LitElement {
   @property({ attribute: false }) pendingApprovals: ApprovalRequest[] = [];
   @property({ type: Boolean }) showInvite = false;
   @property({ attribute: false }) session: MasSession | undefined = undefined;
-  @property({ attribute: false }) subAgents: string[] = [];
   @state() private _notifOpen = false;
   @state() private _confirmingAction: "none" | "archive" | "unarchive" = "none";
   @property({ type: Boolean }) showToolMessages = true;
@@ -62,23 +61,6 @@ export class MainHeader extends LitElement {
       gap: 8px;
       font-size: 18px;
       font-weight: 600;
-    }
-
-    .topology-info {
-      font-size: 11px;
-      color: #64748b;
-      font-weight: 400;
-      display: flex;
-      align-items: center;
-      max-width: 400px;
-    }
-
-    .topology-agents {
-      overflow: hidden;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-      flex: 0 1 auto;
-      margin: 0 4px;
     }
 
     .status-tag {
@@ -884,19 +866,6 @@ export class MainHeader extends LitElement {
     const isInitiator = this.session?.masType === "initiated";
     const isArchived = this.session?.archivedAt != null;
 
-    let topologyText: TemplateResult | string | typeof nothing = nothing;
-    if (this.session) {
-      const rootAgent = this.session.currentAgentId || extractAgentNameFromKey(this.session.key);
-      if (this.subAgents.length === 0) {
-        topologyText = html`主Agent: ${rootAgent} | 独立运行`;
-      } else {
-        const cleaned = this.subAgents.map((a) => a.replace(new RegExp(`^${rootAgent}-`), ""));
-        topologyText = html`<span style="flex-shrink: 0">主Agent: ${rootAgent} | Agent拓扑:</span
-          ><span class="topology-agents">${cleaned.join(", ")}</span
-          ><span style="flex-shrink: 0">(${this.subAgents.length}个子Agent)</span>`;
-      }
-    }
-
     return html`
       <div class="left">
         ${this.title
@@ -923,7 +892,6 @@ export class MainHeader extends LitElement {
                     (this.session ? extractAgentNameFromKey(this.session.key) : "default")}</span
                   >
                 </div>
-                ${topologyText ? html`<div class="topology-info">${topologyText}</div>` : nothing}
               </div>
               ${isInitiator
                 ? html`

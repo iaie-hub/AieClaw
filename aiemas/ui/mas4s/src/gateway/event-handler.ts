@@ -234,8 +234,17 @@ export function resolveMessageTarget(
 } {
   const sessionUuid = extractUuidFromKey(sessionKey);
   const agentId = extractAgentNameFromKey(sessionKey);
-  const activeSession = store.activeSession;
-  const rootAgentId = activeSession ? extractAgentNameFromKey(activeSession.key) : agentId;
+
+  // 优先从 sessions 列表中查找该 sessionUuid 对应的 session，
+  // 确保即使 activeSession 指向其他会话也能正确判断 rootAgentId。
+  const matchedSession = store.sessions.find(
+    (s) => s.sessionUuid === sessionUuid || extractUuidFromKey(s.key) === sessionUuid,
+  );
+  const rootAgentId = matchedSession
+    ? extractAgentNameFromKey(matchedSession.key)
+    : store.activeSession
+      ? extractAgentNameFromKey(store.activeSession.key)
+      : agentId;
   const isRootAgent = agentId === rootAgentId;
   return { sessionUuid, agentId, isRootAgent };
 }
@@ -318,7 +327,12 @@ function handleChatEvent(store: AppStore, payload: unknown): void {
             if (m.sessionKey) {
               return extractAgentNameFromKey(m.sessionKey) === rootAgentId;
             }
-            return true; // 无 sessionKey 的消息保留（兼容）
+            // 无 sessionKey 的消息：仅保留非 agent 角色的消息（兼容），
+            // agent/assistant 角色的消息若无 sessionKey 则无法确定归属，跳过
+            if (m.role === "assistant" || m.role === "Agent") {
+              return false;
+            }
+            return true; // 其他角色（system 等）保留
           });
 
           // 按时间戳排序合并

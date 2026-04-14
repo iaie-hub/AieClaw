@@ -103,6 +103,48 @@ export class MessageController {
     }
   };
 
+  /**
+   * 子 Agent 抽屉消息发送。
+   * 构造子 Agent 的 sessionKey 并通过 chat.send 发送，
+   * 同时乐观追加到对应 Agent 的消息流中。
+   */
+  onSendSubAgentMessage = async (
+    subSessionKey: string,
+    agentId: string,
+    sessionUuid: string,
+    text: string,
+  ) => {
+    const displayName = this.store.currentUser?.displayName ?? "我";
+    const clientRunId = crypto.randomUUID();
+
+    const msg: ChatMessage = {
+      role: "user",
+      content: [{ type: "text", text }],
+      timestamp: Date.now(),
+      id: clientRunId,
+      senderLabel: displayName,
+      subType: undefined,
+    };
+
+    // 乐观追加到子 Agent 消息流
+    this.store.appendAgentMessage(sessionUuid, agentId, msg);
+
+    const client = getClient();
+    try {
+      await client.request(
+        "chat.send",
+        buildChatSendParams({
+          sessionKey: subSessionKey,
+          message: text,
+          clientRunId,
+        }),
+      );
+      console.debug("[mas4s:message] sub-agent send ← ok agentId=%s", agentId);
+    } catch (err) {
+      console.error("[mas4s:message] sub-agent chat.send failed:", err);
+    }
+  };
+
   onAbortChat = async () => {
     const session = this.store.activeSession;
     if (!session || !session.sessionUuid) {
