@@ -378,3 +378,240 @@ this.store.messagesBySession.set(uuid, rootMessages);
 2. `secondary-panel.ts`：辅窗口 `.message-area` 设置 CSS 变量，子 Agent 气泡显示蓝色左侧边线 + 浅灰背景
 3. 工具调用折叠：`msg-tool-card` 已默认折叠（`_expanded = false`），无需额外改动
 4. 思考过程折叠：`msg-agent` 已默认折叠（`_thinkingExpanded = false`），无需额外改动
+
+---
+
+## 十、子 Agent 实时视图缺失 Thinking / Tool 消息的分析与修复方案
+
+> 2026-04-14 追加。问题：实时消息视图中子 Agent 窗口（Secondary_Panel）不显示思考消息和工具调用消息，但历史视图中能正常显示。
+
+### 10.1 问题现象
+
+| 视图                        | Thinking（思考过程） | ToolCall（工具调用） | ToolResult（工具结果） | Assistant（最终文本） |
+| --------------------------- | -------------------- | -------------------- | ---------------------- | --------------------- |
+| 实时视图（Secondary_Panel） | ❌ 不显示            | ❌ 不显示            | ❌ 不显示              | ✅ 显示（仅最终文本） |
+| 历史视图（Secondary_Panel） | ✅ 显示              | ✅ 显示              | ✅ 显示                | ✅ 显示               |
+
+### 10.2 历史消息为什么能记录子 Agent 的 Thinking 和 Tool 消息
+
+历史消息的持久化走的是**完全独立于 WebSocket 广播**的路径：
+
+#### 路径 A：Transcript 事件（assistant 消息，含 thinking + toolCall）
+
+```
+子 Agent run (pi-coding-agent)
+  → SessionManager.appendMessage(message)     // 写入 JSONL transcript 文件
+    → emitSessionTranscriptUpdate(...)         // 触发全局事件
+      → SessionTranscriptStore.handleUpdate()  // 监听器
+        → extractContent(msg.content)          // 序列化 content 数组
+          // [thinking] 用户请求列出物理机列表...
+          // [text] 我将为您列出...
+          // [tool_use:read] {"path":"skills/resource_query/SKILL.md"}
+        → pushToBuffer(sessionKey, role="assistant", content=序列化文本)
+        → flush() → persistBatch() → INSERT INTO session_messages
+```
+
+关键点：`extractContent` 函数遍历 assistant 消息的 `content` 数组，将 `thinking`、`text`、`toolCall` 块分别序列化为 `[thinking] ...`、`[text] ...`、`[tool_use:name] ...` 格式，**一条 assistant 消息包含了完整的 thinking + text + toolCall 内容**。
+
+#### 路径 B：Tool 事件旁路捕获（toolResult）
+
+```
+子 Agent run → emitAgentEvent(stream="tool", phase="start/result")
+  → server-chat.ts agent event handler
+    → broadcastToConnIds("agent", ..., toolEventRecipients)  // 广播给 run 发起者
+    → broadcastToConnIds("session.tool", ..., sessionSubscribers)  // 广播给 session 订阅者
+    ↓ (同时)
+    mas4s-integration.ts wrappedBroadcast 不经过此路径（tool 事件走 broadcastToConnIds）
+    ↓ (但)
+    SessionTranscriptStore.recordToolEvent(phase="start") → 暂存 pendingToolCalls
+    SessionTranscriptStore.recordToolEvent(phase="result") → 合并为 tool 角色消息写入 buffer
+```
+
+注意：tool 事件的持久化不依赖 `filterBroadcast`（tool 事件走 `broadcastToConnIds` 路径，不经过 `broadcast`/`wrappedBroadcast`）。`recordToolEvent` 是在 `server-chat.ts` 的 agent event handler 中直接调用的。
+
+#### 历史查询路径
+
+```
+前端 fetchSessionHistoryRange(sessionKey)
+  → RPC: session.history.range
+    → queryHistoryRange(db, { sessionUuid })
+      → SELECT * FROM session_messages WHERE sessionUuid = ?
+      // sessionUuid 是 group UUID，根 Agent 和子 Agent 共享
+      // 返回所有 Agent 的消息（含 thinking、toolCall、toolResult）
+  → 前端 session-controller.ts
+    → 按 msg.sessionKey 中的 agentId 路由到 messagesByAgent[agentId]
+    → normalizeMessage() 解析 [thinking]、[text]、[tool_use:name]、[tool_result] 前缀
+    → 子 Agent 消息完整还原到 Secondary_Panel
+```
+
+### 10.3 实时视图为什么缺失子 Agent 的 Thinking 和 Tool 消息
+
+#### 根因 1：子 Agent 没有发出 `stream: "thinking"` 事件
+
+| 入口方法                                           | `onReasoningStream` 回调 | 是否发出 `stream: "thinking"` |
+| -------------------------------------------------- | ------------------------ | ----------------------------- |
+| `server-methods/chat.ts` → `chat.send`（根 Agent） | ✅ 有                    | ✅ 发出                       |
+| `server-methods/agent.ts` → `agent`（子 Agent）    | ❌ 没有                  | ❌ 不发出                     |
+
+根 Agent 的 run 通过 `chat.send` 发起，其中有 `onReasoningStream` 回调，会调用 `emitAgentEvent({ stream: "thinking", data: { text, delta } })`。该事件走 `broadcast("agent", ...)` 路径，经过 `wrappedBroadcast` → `filterBroadcastTargets` 广播到前端。
+
+子 Agent 的 run 通过 `agent` 方法发起（由 gateway 内部客户端 `gateway:agent` 调用），该方法**没有 `onReasoningStream` 回调**，所以子 Agent 的 thinking 内容不会通过实时事件发送。
+
+前端 `event-handler.ts` 中 `handleAgentEvent` 的 `stream === "assistant"` 处理依赖 `_thinkingByRun` 缓存来拼接 thinking 内容：
+
+```typescript
+if (stream === "assistant" && data?.text !== undefined && runId) {
+    const thinkingText = _thinkingByRun.get(runId);  // 子 Agent 的 runId 没有 thinking 缓存
+    const content = [];
+    if (thinkingText) {
+      content.push({ type: "thinking", thinking: thinkingText });  // 不会执行
+    }
+    content.push({ type: "text", text: data.text });
+```
+
+由于 `_thinkingByRun` 中没有子 Agent runId 的条目，assistant 消息中不包含 thinking 内容。
+
+#### 根因 2：子 Agent 的 `stream: "tool"` 事件不广播到前端
+
+`server-chat.ts` 中 tool 事件的广播路径：
+
+```typescript
+if (isToolEvent) {
+    // 路径 1：只发给 toolEventRecipients（按 runId 注册）
+    const recipients = toolEventRecipients.get(evt.runId);
+    if (recipients && recipients.size > 0) {
+        broadcastToConnIds("agent", ..., recipients);
+    }
+    // 路径 2：只发给 sessionEventSubscribers（全局订阅）
+    const sessionSubscribers = sessionEventSubscribers.getAll();
+    if (sessionSubscribers.size > 0) {
+        broadcastToConnIds("session.tool", ..., sessionSubscribers);
+    }
+} else {
+    // 非 tool 事件（thinking、assistant、lifecycle 等）走 broadcast 路径
+    broadcast("agent", agentPayload);
+}
+```
+
+前端 mas4s 客户端不在这两个接收者集合中：
+
+1. **`toolEventRecipients`**：按 runId 注册。子 Agent 的 runId 由 gateway 内部客户端（`gateway:agent`）发起 `agent` 方法时注册，注册的 connId 是内部客户端的 connId，不是前端 mas4s 客户端的 connId。
+2. **`sessionEventSubscribers`**：需要前端调用 `sessions.subscribe` RPC 注册。前端当前没有调用该方法。
+
+#### 对比：子 Agent 的 `stream: "assistant"` 为什么能显示
+
+`stream: "assistant"` 不是 tool 事件，走的是 `broadcast("agent", agentPayload)` 路径。`broadcast` 被 `wrappedBroadcast` 包装，经过 `filterBroadcastTargets` 按 sessionKey 中的 group UUID 查找 `session_memberships` 表，找到前端用户的 userId，映射回 connId，广播到前端。所以子 Agent 的 assistant 文本能实时显示。
+
+### 10.4 修复方案
+
+#### 改动 1：`server-methods/agent.ts` — 增加 `onReasoningStream` 回调
+
+**目标**：使子 Agent 的 thinking 内容能通过 `stream: "thinking"` 事件实时广播。
+
+**修改文件**：`src/gateway/server-methods/agent.ts`
+
+**方案**：在 `agent` 方法的 agent run 启动参数中，增加 `onReasoningStream` 回调，与 `chat.ts` 中的实现对齐。该回调通过 `emitAgentEvent({ stream: "thinking", ... })` 发出事件，事件走 `broadcast("agent", ...)` 路径，经过 `filterBroadcastTargets` 广播到前端。
+
+```typescript
+onReasoningStream: ({ text }) => {
+    const prior = _reasoningBufferByRun.get(runId) ?? "";
+    const delta = text && text.startsWith(prior) ? text.slice(prior.length) : (text ?? "");
+    if (delta) {
+        _reasoningBufferByRun.set(runId, text ?? "");
+        emitAgentEvent({
+            runId,
+            stream: "thinking",
+            sessionKey: canonicalSessionKey,
+            data: { text: text ?? "", delta },
+        });
+    }
+},
+```
+
+**风险评估**：
+
+- 低风险：`stream: "thinking"` 事件走 `broadcast` 路径，经过 `filterBroadcastTargets` 权限过滤，只发给有权限的用户。
+- 兼容性：现有 Control UI 已处理 `stream: "thinking"` 事件，不受影响。
+- 性能：thinking 事件是增量 delta，数据量小。
+- 注意：需要在 `agent.ts` 中维护一个 `_reasoningBufferByRun` Map（与 `chat.ts` 中类似），用于计算 delta。
+
+#### 改动 2：前端调用 `sessions.subscribe` 注册 session 事件订阅
+
+**目标**：使前端能接收子 Agent 的 `session.tool` 事件。
+
+**修改文件**：`aiemas/ui/mas4s/src/controllers/auth-controller.ts`（或 `session-controller.ts`）
+
+**方案**：在前端 WebSocket 连接成功（`connect` RPC 完成）后，调用 `sessions.subscribe` RPC 注册为 session 事件订阅者。
+
+```typescript
+// 连接成功后
+await client.request("sessions.subscribe", {});
+```
+
+注册后，前端客户端的 connId 会被加入 `sessionEventSubscribers`。子 Agent 的 tool 事件会通过 `session.tool` 事件发送到前端。前端 `event-handler.ts` 已经将 `session.tool` 事件复用 `handleAgentEvent` 处理：
+
+```typescript
+case "session.tool":
+    handleAgentEvent(store, evt.payload);
+    break;
+```
+
+**风险评估**：
+
+- 低风险：`session.tool` 事件已有 `dropIfSlow: true` 保护。
+- 多余流量：`sessionEventSubscribers` 是全局的（不按 session 过滤），前端会收到所有 session 的 tool 事件。但 `handleAgentEvent` 中 `resolveMessageTarget` 按 sessionKey 路由，不会造成数据混乱。对于单用户场景（通常只有 1-2 个活跃 session），多余流量可忽略。
+- 重复事件：根 Agent 的 tool 事件同时通过 `toolEventRecipients`（`event: "agent"`）和 `sessionEventSubscribers`（`event: "session.tool"`）发送到前端。前端 `handleAgentEvent` 中 tool 事件通过 `toolCallId` 构造的 id（`${toolCallId}-result`）去重，`appendAgentMessage` 不会重复追加（但 `upsertToolStream` 会覆盖更新）。需要确认 `appendAgentMessage` 中是否有 id 去重逻辑。
+- **需要验证**：`store.appendAgentMessage` 当前没有 id 去重，可能导致根 Agent 的 toolResult 消息在 `messagesByAgent` 中重复。需要在 `handleAgentEvent` 的 tool result 处理中增加去重判断，或在 `appendAgentMessage` 中增加 id 去重。
+
+#### 改动 3（可选）：`appendAgentMessage` 增加 id 去重
+
+**目标**：防止同一 toolResult 消息因 `agent` 和 `session.tool` 双路径到达而重复追加。
+
+**修改文件**：`aiemas/ui/mas4s/src/store/app-store.ts`
+
+**方案**：在 `appendAgentMessage` 中检查末尾消息的 id 是否与新消息相同，相同则跳过。
+
+```typescript
+appendAgentMessage(sessionUuid: string, agentId: string, msg: ChatMessage): void {
+    let agentMap = this.messagesByAgent.get(sessionUuid);
+    if (!agentMap) {
+        agentMap = new Map();
+        this.messagesByAgent.set(sessionUuid, agentMap);
+    }
+    const msgs = agentMap.get(agentId) ?? [];
+    // 去重：如果末尾消息 id 相同，跳过
+    if (msg.id && msgs.length > 0 && msgs[msgs.length - 1].id === msg.id) {
+        return;
+    }
+    agentMap.set(agentId, [...msgs, msg]);
+    this.notify();
+}
+```
+
+### 10.5 方案总结
+
+| 改动   | 文件                                                 | 目的                                           | 风险                                                 |
+| ------ | ---------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------- |
+| 改动 1 | `src/gateway/server-methods/agent.ts`                | 子 Agent 发出 `stream: "thinking"` 事件        | 低：走 broadcast 路径，有权限过滤                    |
+| 改动 2 | `aiemas/ui/mas4s/src/controllers/auth-controller.ts` | 前端注册 session 事件订阅，接收 `session.tool` | 低：有 dropIfSlow 保护；需验证根 Agent tool 事件去重 |
+| 改动 3 | `aiemas/ui/mas4s/src/store/app-store.ts`             | `appendAgentMessage` id 去重，防止双路径重复   | 极低：纯防御性检查                                   |
+
+### 10.6 不采用的替代方案
+
+**替代方案 B：将前端 connId 注册为子 Agent runId 的 `toolEventRecipient`**
+
+在 `aiemas_sessions_send` 工具执行时，将发起 `chat.send` 的前端客户端 connId 传递给子 Agent 的 run，并注册为 `toolEventRecipient`。
+
+不采用原因：
+
+- 需要在 aiemas 工具层和 gateway 之间传递 connId，侵入性大
+- 子 Agent 的 runId 在 `agent` 方法内部生成，需要回调机制将 runId 传回给注册逻辑
+- `sessions.subscribe` 方案更简单，复用已有基础设施
+
+### 10.7 验证要点
+
+1. **Thinking 实时显示**：发送消息触发子 Agent，确认 Secondary_Panel 中子 Agent 的思考过程实时显示（折叠状态下显示 `▶ 思考过程`，展开可见完整文本）
+2. **ToolCall/ToolResult 实时显示**：确认 Secondary_Panel 中子 Agent 的工具调用卡片实时出现（`read`、`exec` 等工具）
+3. **根 Agent 无重复**：确认 Primary_Panel 中根 Agent 的 toolResult 消息不重复
+4. **历史视图一致性**：切换会话后重新加载历史，确认 Secondary_Panel 显示内容与实时视图一致
+5. **多会话隔离**：同时存在多个活跃会话时，确认 `session.tool` 事件不会串到错误的会话

@@ -355,6 +355,7 @@ export function runAgentAttempt(params: {
   resolvedVerboseLevel: VerboseLevel | undefined;
   agentDir: string;
   onAgentEvent: (evt: { stream: string; data?: Record<string, unknown> }) => void;
+  onReasoningStream?: (payload: { text?: string; mediaUrls?: string[] }) => void | Promise<void>;
   authProfileProvider: string;
   role?: "user" | "system";
   sessionStore?: Record<string, SessionEntry>;
@@ -515,6 +516,7 @@ export function runAgentAttempt(params: {
     allowTransientCooldownProbe: params.allowTransientCooldownProbe,
     cleanupBundleMcpOnRunEnd: params.opts.cleanupBundleMcpOnRunEnd,
     onAgentEvent: params.onAgentEvent,
+    onReasoningStream: params.onReasoningStream,
     bootstrapPromptWarningSignaturesSeen,
     bootstrapPromptWarningSignature,
   });

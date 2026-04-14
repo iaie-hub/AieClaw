@@ -29,25 +29,28 @@ export class MsgToolCard extends LitElement {
     .tool-card {
       width: 100%;
       border: 1px solid #e2e8f0;
-      border-radius: 10px;
+      border-radius: 14px;
       overflow: hidden;
       font-size: 13px;
       background: #f8fafc;
     }
 
     .tool-card--call {
-      border-color: #bfdbfe;
-      background: #eff6ff;
+      border-color: #fde047;
+      background: #fefce8;
+      border-left: 4px solid var(--ai-color-warning, #eab308);
     }
 
     .tool-card--result {
       border-color: #bbf7d0;
-      background: #f0fdf4;
+      background: #ecfdf5;
+      border-left: 4px solid var(--ai-color-success, #10b981);
     }
 
     .tool-card--error {
       border-color: #fecaca;
       background: #fef2f2;
+      border-left: 4px solid var(--ai-color-danger, #f97316);
     }
 
     .tool-header {

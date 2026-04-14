@@ -75,6 +75,8 @@ export class MainWorkspace extends LitElement {
       flex-direction: column;
       flex: 1;
       overflow: hidden;
+      padding: 16px;
+      gap: 16px;
     }
 
     .placeholder {
@@ -100,16 +102,16 @@ export class MainWorkspace extends LitElement {
       flex: 1;
       overflow: hidden;
       min-width: 0;
+      background: var(--ai-bg-panel, #ffffff);
+      border-radius: 20px;
+      box-shadow:
+        0 4px 14px rgba(0, 0, 0, 0.02),
+        0 1px 2px rgba(0, 0, 0, 0.03);
+      border: 1px solid #eef2f8;
     }
 
     .workspace-content.multi-view .primary-panel {
       flex: 6;
-    }
-
-    .panel-divider {
-      width: 1px;
-      background: #e2e8f0;
-      flex-shrink: 0;
     }
 
     .secondary-panel-wrapper {
@@ -118,6 +120,12 @@ export class MainWorkspace extends LitElement {
       flex: 4;
       overflow: hidden;
       min-width: 0;
+      background: var(--ai-bg-panel, #ffffff);
+      border-radius: 20px;
+      box-shadow:
+        0 4px 14px rgba(0, 0, 0, 0.02),
+        0 1px 2px rgba(0, 0, 0, 0.03);
+      border: 1px solid #eef2f8;
     }
   `;
 
@@ -161,6 +169,7 @@ export class MainWorkspace extends LitElement {
               .pendingApprovals=${this.pendingApprovals}
               .showInvite=${hasSession}
               .session=${this.session}
+              .subAgents=${this.subAgents}
               .showToolMessages=${this.showToolMessages}
               @invite-click=${this._onInviteClick}
               @summary-click=${this._onSummaryClick}
@@ -195,10 +204,6 @@ export class MainWorkspace extends LitElement {
                   @abort-chat=${this._onAbortChat}
                 ></chat-view>
               </div>
-              <div
-                class="panel-divider"
-                style="${this.viewMode === "multi" ? "" : "display:none"}"
-              ></div>
               <div
                 class="secondary-panel-wrapper"
                 style="${this.viewMode === "multi" ? "" : "display:none"}"

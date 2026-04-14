@@ -79,12 +79,11 @@ export class MsgApprovalCard extends LitElement {
 
     /* ── 卡片主体 ── */
     .approval-card {
-      border: 1px solid #fecdd3;
-      border-radius: 12px;
+      border-left: 4px solid var(--ai-color-danger, #f97316);
+      border-radius: 14px;
       overflow: hidden;
       font-size: 13px;
-      background: #fff;
-      box-shadow: 0 4px 15px rgba(225, 29, 72, 0.08);
+      background: #fff7ed;
     }
 
     .card-header {

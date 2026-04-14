@@ -1,4 +1,4 @@
-import { LitElement, html, css, nothing } from "lit";
+import { LitElement, html, css, nothing, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { extractAgentNameFromKey } from "../../../../src/utils/session-utils.js";
 import type { SessionRunStatus } from "../lib/types.js";
@@ -21,6 +21,7 @@ export class MainHeader extends LitElement {
   @property({ attribute: false }) pendingApprovals: ApprovalRequest[] = [];
   @property({ type: Boolean }) showInvite = false;
   @property({ attribute: false }) session: MasSession | undefined = undefined;
+  @property({ attribute: false }) subAgents: string[] = [];
   @state() private _notifOpen = false;
   @state() private _confirmingAction: "none" | "archive" | "unarchive" = "none";
   @property({ type: Boolean }) showToolMessages = true;
@@ -46,9 +47,38 @@ export class MainHeader extends LitElement {
       display: flex;
       align-items: center;
       gap: 12px;
+      color: #1e293b;
+    }
+
+    .session-info-col {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .session-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
       font-size: 18px;
       font-weight: 600;
-      color: #1e293b;
+    }
+
+    .topology-info {
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 400;
+      display: flex;
+      align-items: center;
+      max-width: 400px;
+    }
+
+    .topology-agents {
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      flex: 0 1 auto;
+      margin: 0 4px;
     }
 
     .status-tag {
@@ -854,17 +884,53 @@ export class MainHeader extends LitElement {
     const isInitiator = this.session?.masType === "initiated";
     const isArchived = this.session?.archivedAt != null;
 
+    let topologyText: TemplateResult | string | typeof nothing = nothing;
+    if (this.session) {
+      const rootAgent = this.session.currentAgentId || extractAgentNameFromKey(this.session.key);
+      if (this.subAgents.length === 0) {
+        topologyText = html`主Agent: ${rootAgent} | 独立运行`;
+      } else {
+        const cleaned = this.subAgents.map((a) => a.replace(new RegExp(`^${rootAgent}-`), ""));
+        topologyText = html`<span style="flex-shrink: 0">主Agent: ${rootAgent} | Agent拓扑:</span
+          ><span class="topology-agents">${cleaned.join(", ")}</span
+          ><span style="flex-shrink: 0">(${this.subAgents.length}个子Agent)</span>`;
+      }
+    }
+
     return html`
       <div class="left">
         ${this.title
           ? html`
-              <span>${this.title}</span>
+              <div class="session-info-col">
+                <div class="session-title-row">
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#2563eb"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path>
+                    <path d="M12 12v9"></path>
+                    <path d="m16 16-4-4-4 4"></path>
+                  </svg>
+                  <span
+                    >${this.title} ·
+                    ${this.session?.currentAgentId ||
+                    (this.session ? extractAgentNameFromKey(this.session.key) : "default")}</span
+                  >
+                </div>
+                ${topologyText ? html`<div class="topology-info">${topologyText}</div>` : nothing}
+              </div>
               ${isInitiator
                 ? html`
                     <button class="agent-btn" @click=${this._onAgentClick} title="切换执行 Agent">
                       <svg
-                        width="16"
-                        height="16"
+                        width="14"
+                        height="14"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
@@ -878,9 +944,7 @@ export class MainHeader extends LitElement {
                         <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
                         <line x1="12" y1="22.08" x2="12" y2="12"></line>
                       </svg>
-                      Agent:
-                      ${this.session?.currentAgentId ||
-                      (this.session ? extractAgentNameFromKey(this.session.key) : "default")}
+                      切换
                     </button>
                   `
                 : nothing}

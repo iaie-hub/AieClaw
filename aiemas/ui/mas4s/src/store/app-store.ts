@@ -463,7 +463,11 @@ export class AppStore {
 
   appendMessage(sessionUuid: string, msg: ChatMessage): void {
     const msgs = this.messagesBySession.get(sessionUuid) ?? [];
-    this.messagesBySession.set(sessionUuid, [...msgs, msg]);
+    msgs.push(msg);
+    if (msgs.length > 500) {
+      msgs.splice(0, msgs.length - 500);
+    }
+    this.messagesBySession.set(sessionUuid, [...msgs]);
     this.notify();
   }
 
@@ -496,7 +500,15 @@ export class AppStore {
       this.messagesByAgent.set(sessionUuid, agentMap);
     }
     const msgs = agentMap.get(agentId) ?? [];
-    agentMap.set(agentId, [...msgs, msg]);
+    // 去重：如果末尾消息 id 相同，跳过（防止 agent + session.tool 双路径重复追加）
+    if (msg.id && msgs.length > 0 && msgs[msgs.length - 1].id === msg.id) {
+      return;
+    }
+    msgs.push(msg);
+    if (msgs.length > 500) {
+      msgs.splice(0, msgs.length - 500);
+    }
+    agentMap.set(agentId, [...msgs]);
     this.notify();
   }
 
@@ -687,6 +699,7 @@ export class AppStore {
       id: `tool:${toolCallId}`,
       senderLabel: null,
     };
+    // Update messagesBySession
     const msgs = this.messagesBySession.get(sessionUuid) ?? [];
     const existingIdx = msgs.findIndex((m) => m.id === msg.id);
     if (existingIdx >= 0) {
@@ -695,6 +708,27 @@ export class AppStore {
       this.messagesBySession.set(sessionUuid, updated);
     } else {
       this.messagesBySession.set(sessionUuid, [...msgs, msg]);
+    }
+
+    // Update messagesByAgent
+    if (entry.sessionKey) {
+      const parts = entry.sessionKey.split(":");
+      const agentId = parts.length >= 2 && parts[0] === "agent" ? parts[1] : "Agent";
+
+      let agentMap = this.messagesByAgent.get(sessionUuid);
+      if (!agentMap) {
+        agentMap = new Map();
+        this.messagesByAgent.set(sessionUuid, agentMap);
+      }
+      const agentMsgs = agentMap.get(agentId) ?? [];
+      const agentExistingIdx = agentMsgs.findIndex((m) => m.id === msg.id);
+      if (agentExistingIdx >= 0) {
+        const updated = [...agentMsgs];
+        updated[agentExistingIdx] = msg;
+        agentMap.set(agentId, updated);
+      } else {
+        agentMap.set(agentId, [...agentMsgs, msg]);
+      }
     }
   }
 
@@ -725,6 +759,21 @@ export class AppStore {
       // 避免重复插入
       if (!msgs.some((m) => m.id === req.id)) {
         this.messagesBySession.set(targetSessionUuid, [...msgs, pendingMsg]);
+      }
+
+      // Sync to messagesByAgent
+      if (targetSessionKey) {
+        const parts = targetSessionKey.split(":");
+        const agentId = parts.length >= 2 && parts[0] === "agent" ? parts[1] : "Agent";
+        let agentMap = this.messagesByAgent.get(targetSessionUuid);
+        if (!agentMap) {
+          agentMap = new Map();
+          this.messagesByAgent.set(targetSessionUuid, agentMap);
+        }
+        const agentMsgs = agentMap.get(agentId) ?? [];
+        if (!agentMsgs.some((m) => m.id === req.id)) {
+          agentMap.set(agentId, [...agentMsgs, pendingMsg]);
+        }
       }
     }
     this.notify();
@@ -786,6 +835,21 @@ export class AppStore {
         // 避免重复插入（乐观 + gateway 广播各触发一次）
         if (!msgs.some((m) => m.id === actionMsg.id)) {
           this.messagesBySession.set(sessionUuid, [...msgs, actionMsg]);
+        }
+
+        // Sync to messagesByAgent
+        if (sessionKey) {
+          const parts = sessionKey.split(":");
+          const agentId = parts.length >= 2 && parts[0] === "agent" ? parts[1] : "Agent";
+          let agentMap = this.messagesByAgent.get(sessionUuid);
+          if (!agentMap) {
+            agentMap = new Map();
+            this.messagesByAgent.set(sessionUuid, agentMap);
+          }
+          const agentMsgs = agentMap.get(agentId) ?? [];
+          if (!agentMsgs.some((m) => m.id === actionMsg.id)) {
+            agentMap.set(agentId, [...agentMsgs, actionMsg]);
+          }
         } else {
           // 已存在时用 gateway 广播的完整数据（含 resolvedBy）覆盖
           this.messagesBySession.set(

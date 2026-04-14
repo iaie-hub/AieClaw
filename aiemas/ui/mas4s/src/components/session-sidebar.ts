@@ -25,8 +25,9 @@ export class SessionSidebar extends LitElement {
   @state() private _deleteConfirm: { sessionKey: string; label: string } | null = null;
 
   @state() private _refreshing = false;
+  @state() private _recentExpanded = true;
   @state() private _initiatedExpanded = true;
-  @state() private _participatedExpanded = true;
+  @state() private _participatedExpanded = false;
   @state() private _sidebarCollapsed = false;
 
   static styles = css`
@@ -234,6 +235,12 @@ export class SessionSidebar extends LitElement {
       width: 1.5px;
       background: #e2e8f0;
       border-radius: 1px;
+    }
+
+    .group-divider {
+      height: 1px;
+      background: #e2e8f0;
+      margin: 8px 16px;
     }
 
     .session-item {
@@ -579,6 +586,12 @@ export class SessionSidebar extends LitElement {
     );
   }
 
+  private get _recentSessions() {
+    return [...this.sessions]
+      .toSorted((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+      .slice(0, 10);
+  }
+
   private get _initiatedSessions() {
     return this.sessions.filter((s) => s.masType === "initiated");
   }
@@ -742,6 +755,10 @@ export class SessionSidebar extends LitElement {
     }
   }
 
+  private _toggleRecent() {
+    this._recentExpanded = !this._recentExpanded;
+  }
+
   private _toggleInitiated() {
     this._initiatedExpanded = !this._initiatedExpanded;
   }
@@ -822,6 +839,7 @@ export class SessionSidebar extends LitElement {
       </div>
 
       <div class="session-list">
+        <!-- 发起的会话 -->
         <div class="group-header" @click=${() => this._toggleInitiated()}>
           <span class="group-header-arrow ${this._initiatedExpanded ? "" : "collapsed"}">
             <svg
@@ -837,7 +855,21 @@ export class SessionSidebar extends LitElement {
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
           </span>
-          📁 发起的会话
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            <path d="M8 9h8"></path>
+            <path d="M8 13h6"></path>
+          </svg>
+          &nbsp;发起的会话
         </div>
         ${this._initiatedExpanded
           ? html`<div class="group-items">
@@ -845,6 +877,7 @@ export class SessionSidebar extends LitElement {
             </div>`
           : nothing}
 
+        <!-- 参与的会话 -->
         <div class="group-header" @click=${() => this._toggleParticipated()}>
           <span class="group-header-arrow ${this._participatedExpanded ? "" : "collapsed"}">
             <svg
@@ -860,11 +893,66 @@ export class SessionSidebar extends LitElement {
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
           </span>
-          🔗 参与的会话
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+          </svg>
+          &nbsp;参与的会话
         </div>
         ${this._participatedExpanded
           ? html`<div class="group-items">
               ${this._participatedSessions.map((s) => this._renderSession(s))}
+            </div>`
+          : nothing}
+
+        <!-- 分隔线 -->
+        <div class="group-divider"></div>
+
+        <!-- 最近会话 -->
+        <div class="group-header" @click=${() => this._toggleRecent()}>
+          <span class="group-header-arrow ${this._recentExpanded ? "" : "collapsed"}">
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="3"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </span>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          &nbsp;最近会话
+        </div>
+        ${this._recentExpanded
+          ? html`<div class="group-items">
+              ${this._recentSessions.map((s) => this._renderSession(s))}
             </div>`
           : nothing}
       </div>

@@ -2,6 +2,7 @@ import { getClient } from "../gateway/client.js";
 import { GatewayRequestError } from "../lib/gateway.js";
 import { AppStore } from "../store/app-store.js";
 import { buildChatSendParams } from "../utils/message-format.js";
+import { extractAgentNameFromKey } from "../utils/session-utils.js";
 
 /**
  * 消息发送与审批控制器。
@@ -33,15 +34,21 @@ export class MessageController {
       await this.onAbortChat();
     }
 
-    // 乐观追加用户消息，立即显示在聊天列表中
-    this.store.appendMessage(session.sessionUuid!, {
+    const msg: ChatMessage = {
       role: "user",
       content: [{ type: "text", text: rawText }],
       timestamp: Date.now(),
       id: clientRunId,
       senderLabel: displayName,
       subType: undefined,
-    });
+    };
+
+    // 乐观追加用户消息，立即显示在聊天列表中
+    this.store.appendMessage(session.sessionUuid!, msg);
+
+    // 同步到当前会话根 Agent 的消息流中，确保 Multi-Agent UI 能够立刻显示乐观输入
+    const rootAgentId = extractAgentNameFromKey(session.key);
+    this.store.appendAgentMessage(session.sessionUuid!, rootAgentId, msg);
 
     // 开始聊天状态跟踪
     this.store.setIsChatting(session.sessionUuid!, true, clientRunId);

@@ -131,17 +131,15 @@ export class MsgAgent extends LitElement {
     }
 
     .message-bubble {
-      padding: 14px 18px;
-      border-radius: 16px;
-      border-top-left-radius: 4px;
+      padding: 12px 16px;
+      border-radius: 20px 20px 20px 4px;
       font-size: 14px;
-      line-height: 1.6;
+      line-height: 1.5;
       word-break: break-word;
-      background: var(--msg-agent-bg, #ffffff);
-      border: 1px solid #e2e8f0;
-      border-left: var(--msg-agent-border-left, 1px solid #e2e8f0);
-      color: #1e293b;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+      background: #f1f5f9;
+      border: none;
+      color: #0f172a;
+      box-shadow: 0 1px 1px rgba(0, 0, 0, 0.02);
       position: relative;
     }
 
@@ -241,17 +239,21 @@ export class MsgAgent extends LitElement {
     .message-bubble table {
       border-collapse: collapse;
       width: 100%;
-      margin: 0.6em 0;
+      margin: 0.8em 0;
       font-size: 0.9em;
+      font-family: "SF Mono", "Fira Code", monospace;
     }
     .message-bubble th,
     .message-bubble td {
-      border: 1px solid #e2e8f0;
-      padding: 6px 10px;
+      border: 1px solid var(--ai-border, #eef2f8);
+      padding: 8px 12px;
       text-align: left;
     }
+    .message-bubble table tbody tr:nth-child(even) {
+      background: rgba(0, 0, 0, 0.02);
+    }
     .message-bubble th {
-      background: #f0fdf4;
+      background: var(--ai-bg-body, #f8fafc);
       font-weight: 600;
     }
 

@@ -409,7 +409,13 @@ export function createSessionCascadeService(
           try {
             const row = deps.loadGatewaySessionRow(r.sessionKey);
             if (row) {
-              (row as unknown as { sessionUuid: string }).sessionUuid = r.sessionUuid;
+              const rowRef = row as Record<string, unknown>;
+              rowRef["sessionUuid"] = r.sessionUuid;
+              if (r.label !== undefined) {
+                rowRef["label"] = r.label;
+              } else {
+                delete rowRef["label"];
+              }
             }
             return row;
           } catch (err) {

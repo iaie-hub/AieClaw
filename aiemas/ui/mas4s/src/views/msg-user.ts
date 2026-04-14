@@ -61,16 +61,15 @@ export class MsgUser extends LitElement {
     }
 
     .message-bubble {
-      padding: 14px 18px;
-      border-radius: 16px;
-      border-top-right-radius: 4px;
+      padding: 12px 16px;
+      border-radius: 20px 20px 4px 20px;
       font-size: 14px;
-      line-height: 1.6;
+      line-height: 1.5;
       word-break: break-word;
       overflow-wrap: break-word;
-      background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+      background: #2563eb;
       color: #fff;
-      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+      box-shadow: 0 1px 1px rgba(0, 0, 0, 0.02);
       position: relative;
     }
 

@@ -3,7 +3,8 @@ import { customElement, property, state, query } from "lit/decorators.js";
 import type { ApprovalRequest, ApprovalResolved } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
 import type { MasSession } from "../types/session-types.js";
-import "./message-list.js";
+import { MessageList } from "./message-list.js";
+import "./chat-input.js";
 import "../components/summary-dialog.js";
 
 /**
@@ -41,7 +42,6 @@ export class ChatView extends LitElement {
   @property({ type: Number }) currentStepIndex = -1;
   @property({ type: Number }) sopCompletedAt: number | undefined = undefined;
 
-  @state() private _inputText = "";
   @state() private _summaryOpen = false;
   @state() private _loadingMore = false;
   private _eventsBound = false;
@@ -72,6 +72,7 @@ export class ChatView extends LitElement {
       flex: 1;
       overflow-y: auto;
       padding: 30px;
+      padding-bottom: 70vh;
       overscroll-behavior-y: contain;
       min-height: 0;
     }
@@ -95,97 +96,8 @@ export class ChatView extends LitElement {
       padding: 0 30px 30px;
       position: relative;
       z-index: 10;
-    }
-
-    .chat-input-area {
+      flex-shrink: 0;
       background: #ffffff;
-      border: 1px solid #e2e8f0;
-      border-radius: 20px;
-      padding: 15px 20px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
-      transition: all 0.3s;
-    }
-
-    .chat-input-area:focus-within {
-      border-color: #93c5fd;
-      box-shadow: 0 10px 30px rgba(59, 130, 246, 0.1);
-    }
-
-    textarea {
-      width: 100%;
-      border: none;
-      outline: none;
-      resize: none;
-      font-size: 15px;
-      font-family: inherit;
-      color: #1e293b;
-      background: transparent;
-      line-height: 1.5;
-      box-sizing: border-box;
-    }
-
-    textarea::placeholder {
-      color: #94a3b8;
-    }
-
-    .input-toolbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-top: 10px;
-    }
-
-    .input-hint {
-      font-size: 12px;
-      color: #94a3b8;
-    }
-
-    .send-btn {
-      width: 38px;
-      height: 38px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
-      color: white;
-      border: none;
-      border-radius: 12px;
-      cursor: pointer;
-      transition: all 0.2s;
-      box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
-      flex-shrink: 0;
-    }
-
-    .send-btn:hover:not(:disabled) {
-      transform: translateY(-1px);
-      box-shadow: 0 6px 15px rgba(59, 130, 246, 0.4);
-    }
-
-    .send-btn:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-      filter: grayscale(0.5);
-    }
-
-    .abort-btn {
-      width: 38px;
-      height: 38px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: #fef2f2;
-      color: #ef4444;
-      border: 1px solid #fee2e2;
-      border-radius: 12px;
-      cursor: pointer;
-      transition: all 0.2s;
-      flex-shrink: 0;
-    }
-
-    .abort-btn:hover {
-      background: #fee2e2;
-      transform: translateY(-1px);
-      box-shadow: 0 4px 10px rgba(239, 68, 68, 0.1);
     }
 
     .no-session {
@@ -283,6 +195,7 @@ export class ChatView extends LitElement {
   private _prevScrollHeight = 0;
   private _prevScrollTop = 0;
   private _anchorRestore = false;
+  private _justSentUserMsg = false;
 
   override willUpdate(changed: Map<string, unknown>) {
     if (changed.has("messages") && this._container) {
@@ -292,9 +205,17 @@ export class ChatView extends LitElement {
       // 在更新前判断用户是否已经处于底部（或非常接近底部）
       // 阈值设为 150px，容忍轻微偏差
       const threshold = 150;
-      const wasAtBottom =
-        this._container.scrollTop + this._container.clientHeight >=
-        this._container.scrollHeight - threshold;
+      let wasAtBottom = false;
+      const msgList = this.shadowRoot?.querySelector("message-list") as HTMLElement | null;
+      if (msgList) {
+        const textBottomTarget =
+          msgList.offsetTop + msgList.offsetHeight + 30 - this._container.clientHeight;
+        wasAtBottom = this._container.scrollTop >= textBottomTarget - threshold;
+      } else {
+        wasAtBottom =
+          this._container.scrollTop + this._container.clientHeight >=
+          this._container.scrollHeight - threshold;
+      }
 
       // 如果是用户刚发送了消息（消息数量增加且最后一条是 user），强制视为处于底部
       const lastMsg = this.messages[this.messages.length - 1];
@@ -302,6 +223,10 @@ export class ChatView extends LitElement {
         prev &&
         prev.length < this.messages.length &&
         (lastMsg?.role === "user" || lastMsg?.role === "User");
+
+      if (isUserSent) {
+        this._justSentUserMsg = true;
+      }
 
       this._isAtBottom = wasAtBottom || !!isUserSent;
 
@@ -319,6 +244,19 @@ export class ChatView extends LitElement {
       }
     }
   }
+
+  /** 用户发送消息后立即触发的滚动逻辑（置顶感官） */
+  private _handleSendScroll = () => {
+    this._isAtBottom = true;
+    this._justSentUserMsg = true;
+
+    // 1. 立即尝试对齐当前列表底部（预测新消息诞生位置）
+    const msgList = this.shadowRoot?.querySelector("message-list") as HTMLElement | null;
+    if (this._container && msgList) {
+      const currentBottom = msgList.offsetTop + msgList.offsetHeight;
+      this._container.scrollTo({ top: currentBottom - 30, behavior: "smooth" });
+    }
+  };
 
   updated(changed: Map<string, unknown>) {
     // Re-bind events if container was destroyed and recreated (e.g. session switch).
@@ -340,14 +278,51 @@ export class ChatView extends LitElement {
         setTimeout(() => {
           this._loadingMore = false;
         }, 1200);
+      } else if (this._justSentUserMsg && this._container) {
+        console.log("[chat-view] executing justSentUserMsg align-to-top logic");
+        // 用户发出消息时，将其置顶对齐
+        const _container = this._container;
+        const msgList = this.shadowRoot?.querySelector("message-list") as MessageList | null;
+        if (msgList) {
+          void msgList.updateComplete.then(() => {
+            requestAnimationFrame(() => {
+              if (msgList.shadowRoot) {
+                const userNodes = msgList.shadowRoot.querySelectorAll("msg-user");
+                const lastUserNode = userNodes[userNodes.length - 1];
+                if (lastUserNode) {
+                  const containerRect = _container.getBoundingClientRect();
+                  const nodeRect = lastUserNode.getBoundingClientRect();
+                  const relativeTop = nodeRect.top - containerRect.top + _container.scrollTop;
+                  _container.scrollTo({ top: relativeTop - 30, behavior: "smooth" });
+                  return;
+                }
+              }
+              console.log("[chat-view] lastUserNode not found, falling back to _scrollToBottom");
+              this._scrollToBottom();
+            });
+          });
+        }
+        // Consume flag
+        this._justSentUserMsg = false;
       } else if (this._isAtBottom || (changed.has("session") && !this._anchorRestore)) {
         // 实时新消息追加、Streaming 或 切换会话：
-        // 如果更新前在底部，或者刚切换会话且不是在加载历史，则更新后吸附到底部
-        requestAnimationFrame(() => {
-          if (this._container) {
-            this._container.scrollTop = this._container.scrollHeight;
-          }
-        });
+        const _container = this._container;
+        const msgList = this.shadowRoot?.querySelector("message-list") as MessageList | null;
+        if (msgList) {
+          void msgList.updateComplete.then(() => {
+            requestAnimationFrame(() => {
+              const textBottomTarget =
+                msgList.offsetTop + msgList.offsetHeight + 30 - _container.clientHeight;
+              if (_container.scrollTop < textBottomTarget) {
+                _container.scrollTo({ top: textBottomTarget, behavior: "smooth" });
+              }
+            });
+          });
+        } else if (_container) {
+          requestAnimationFrame(() => {
+            _container.scrollTo({ top: _container.scrollHeight, behavior: "smooth" });
+          });
+        }
       }
 
       // 如果 _loadingMore 被开启但最终没有进入锚点逻辑（例如新消息插到了末尾），也需要重置加载状态
@@ -394,9 +369,16 @@ export class ChatView extends LitElement {
     }
     // Track whether user is near the bottom for scroll-to-bottom button visibility
     const threshold = 150;
-    this._isAtBottom =
-      this._container.scrollTop + this._container.clientHeight >=
-      this._container.scrollHeight - threshold;
+    const msgList = this.shadowRoot?.querySelector("message-list") as HTMLElement | null;
+    if (msgList) {
+      const textBottomTarget =
+        msgList.offsetTop + msgList.offsetHeight + 30 - this._container.clientHeight;
+      this._isAtBottom = this._container.scrollTop >= textBottomTarget - threshold;
+    } else {
+      this._isAtBottom =
+        this._container.scrollTop + this._container.clientHeight >=
+        this._container.scrollHeight - threshold;
+    }
   };
 
   /**
@@ -450,44 +432,9 @@ export class ChatView extends LitElement {
 
   // ── 输入区 ────────────────────────────────────────────────────────────────
 
-  private _onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-      e.preventDefault();
-      e.stopPropagation();
-      // Ensure we have the latest value from the textarea
-      this._inputText = (e.target as HTMLTextAreaElement).value;
-      this._onSend();
-    }
-  };
-
   private get _isArchived(): boolean {
     return this.session?.archivedAt != null;
   }
-
-  private _onSend = () => {
-    const text = this._inputText.trim();
-    if (!text || !this.session || this._isArchived) {
-      return;
-    }
-    this.dispatchEvent(
-      new CustomEvent("send-message", {
-        detail: { sessionKey: this.session.key, text },
-        bubbles: true,
-        composed: true,
-      }),
-    );
-    this._inputText = "";
-    this._isAtBottom = true;
-  };
-
-  private _onAbort = () => {
-    this.dispatchEvent(
-      new CustomEvent("abort-chat", {
-        bubbles: true,
-        composed: true,
-      }),
-    );
-  };
 
   private _onQuickReply = (e: CustomEvent<{ text: string }>) => {
     if (!this.session || this._isArchived) {
@@ -500,6 +447,7 @@ export class ChatView extends LitElement {
         composed: true,
       }),
     );
+    this._handleSendScroll();
   };
 
   private _onSummaryClick = (e: CustomEvent) => {
@@ -519,7 +467,18 @@ export class ChatView extends LitElement {
 
   private _scrollToBottom = () => {
     if (this._container) {
-      this._container.scrollTo({ top: this._container.scrollHeight, behavior: "smooth" });
+      const msgList = this.shadowRoot?.querySelector("message-list") as MessageList | null;
+      if (msgList) {
+        void msgList.updateComplete.then(() => {
+          if (this._container) {
+            const textBottomTarget =
+              msgList.offsetTop + msgList.offsetHeight + 30 - this._container.clientHeight;
+            this._container.scrollTo({ top: Math.max(0, textBottomTarget), behavior: "smooth" });
+          }
+        });
+      } else {
+        this._container.scrollTo({ top: this._container.scrollHeight, behavior: "smooth" });
+      }
       this._isAtBottom = true;
     }
   };
@@ -609,62 +568,11 @@ export class ChatView extends LitElement {
                 </div>
               `
             : ""}
-          <div class="chat-input-area">
-            <textarea
-              rows="2"
-              placeholder=${this._isArchived
-                ? "会话已归档，无法发送消息"
-                : "输入消息，Shift+Enter 换行，Enter 发送…"}
-              .value=${this._inputText}
-              ?disabled=${this._isArchived}
-              @input=${(e: Event) => {
-                this._inputText = (e.target as HTMLTextAreaElement).value;
-              }}
-              @keydown=${this._onKeyDown}
-            ></textarea>
-            <div class="input-toolbar">
-              <span class="input-hint">Shift+Enter 换行</span>
-              ${this.isChatting && !this._inputText.trim()
-                ? html`
-                    <button class="abort-btn" @click=${this._onAbort} title="中止生成">
-                      <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
-                        stroke="currentColor"
-                        stroke-width="2.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
-                      </svg>
-                    </button>
-                  `
-                : html`
-                    <button
-                      class="send-btn"
-                      ?disabled=${this._isArchived || !this._inputText.trim()}
-                      @click=${this._onSend}
-                      title="发送消息"
-                    >
-                      <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <line x1="22" y1="2" x2="11" y2="13"></line>
-                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                      </svg>
-                    </button>
-                  `}
-            </div>
-          </div>
+          <chat-input
+            .session=${this.session}
+            .isChatting=${this.isChatting}
+            @send-message=${this._handleSendScroll}
+          ></chat-input>
         </div>
       </div>
     `;

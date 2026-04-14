@@ -33,9 +33,19 @@ function splitHistoryMessage(msg: ChatMessage): ChatMessage[] {
   // Accumulates thinking + text items until a tool_call is encountered
   let pendingItems: MessageContentItem[] = [];
 
+  let chunkCount = 0;
+  const getUniqueId = () => {
+    if (chunkCount === 0) {
+      chunkCount++;
+      return msg.id;
+    }
+    chunkCount++;
+    return msg.id ? `${msg.id}-split-${chunkCount}` : undefined;
+  };
+
   const flushPending = () => {
     if (pendingItems.length > 0) {
-      result.push({ ...msg, content: [...pendingItems] });
+      result.push({ ...msg, id: getUniqueId(), content: [...pendingItems] });
       pendingItems = [];
     }
   };
@@ -56,11 +66,11 @@ function splitHistoryMessage(msg: ChatMessage): ChatMessage[] {
         toolItems.push(next);
         i++;
       }
-      result.push({ ...msg, content: toolItems });
+      result.push({ ...msg, id: getUniqueId(), content: toolItems });
     } else if (item.type === "tool_result") {
       // Orphaned tool_result (no preceding tool_call in this message) — own bubble
       flushPending();
-      result.push({ ...msg, content: [item] });
+      result.push({ ...msg, id: getUniqueId(), content: [item] });
     } else {
       // thinking, text, or other — accumulate together
       pendingItems.push(item);

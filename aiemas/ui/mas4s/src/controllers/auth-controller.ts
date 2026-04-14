@@ -111,6 +111,16 @@ export class AuthController {
         this._wasConnected = true;
         this._everConnected = true;
         this.cb.setConnected(true);
+        // Subscribe to session tool events so Secondary_Panel can display
+        // sub-agent tool calls and results in real-time.
+        void getClient()
+          .request("sessions.subscribe", {})
+          .then(() => {
+            console.debug("[mas4s:auth] doConnect ← sessions.subscribe ok");
+          })
+          .catch((err) => {
+            console.warn("[mas4s:auth] doConnect ← sessions.subscribe failed:", err);
+          });
         // 连接成功后立即拉取历史会话，恢复 gateway 重启前的会话列表
         void fetchSessions(getClient())
           .then((sessions) => {

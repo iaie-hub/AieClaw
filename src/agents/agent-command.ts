@@ -765,6 +765,8 @@ async function agentCommandInternal(
 
     const startedAt = Date.now();
     let lifecycleEnded = false;
+    // Per-run reasoning text buffer for computing streaming deltas in onReasoningStream.
+    const _reasoningBuffer = new Map<string, string>();
 
     let result: Awaited<ReturnType<typeof runAgentAttempt>>;
     let fallbackProvider = provider;
@@ -831,6 +833,20 @@ async function agentCommandInternal(
                   (evt.data.phase === "end" || evt.data.phase === "error")
                 ) {
                   lifecycleEnded = true;
+                }
+              },
+              onReasoningStream: (payload) => {
+                const text = payload.text ?? "";
+                const prior = _reasoningBuffer.get(runId) ?? "";
+                const delta = text.startsWith(prior) ? text.slice(prior.length) : text;
+                if (delta) {
+                  _reasoningBuffer.set(runId, text);
+                  emitAgentEvent({
+                    runId,
+                    stream: "thinking",
+                    sessionKey,
+                    data: { text, delta },
+                  });
                 }
               },
             });
