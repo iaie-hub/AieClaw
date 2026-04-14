@@ -91,6 +91,7 @@ function resolveLatestAssistantReplySnapshot(messages: unknown[]): AssistantRepl
 export async function readLatestAssistantReplySnapshot(params: {
   sessionKey: string;
   limit?: number;
+  timeoutMs?: number;
   callGateway?: GatewayCaller;
 }): Promise<AssistantReplySnapshot> {
   const history = await (params.callGateway ?? runWaitDeps.callGateway)<{
@@ -98,6 +99,7 @@ export async function readLatestAssistantReplySnapshot(params: {
   }>({
     method: "chat.history",
     params: { sessionKey: params.sessionKey, limit: params.limit ?? 50 },
+    ...(params.timeoutMs ? { timeoutMs: params.timeoutMs } : {}),
   });
   return resolveLatestAssistantReplySnapshot(
     stripToolMessages(Array.isArray(history?.messages) ? history.messages : []),
@@ -107,12 +109,14 @@ export async function readLatestAssistantReplySnapshot(params: {
 export async function readLatestAssistantReply(params: {
   sessionKey: string;
   limit?: number;
+  timeoutMs?: number;
   callGateway?: GatewayCaller;
 }): Promise<string | undefined> {
   return (
     await readLatestAssistantReplySnapshot({
       sessionKey: params.sessionKey,
       limit: params.limit,
+      timeoutMs: params.timeoutMs,
       callGateway: params.callGateway,
     })
   ).text;

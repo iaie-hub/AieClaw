@@ -28,3 +28,12 @@ export function extractAgentNameFromKey(sessionKey: string): string {
   }
   return "Agent";
 }
+
+/**
+ * 从 agentId 和 sessionUuid 构建 sessionKey。
+ * 与 extractAgentNameFromKey / extractUuidFromKey 形成往返一致性。
+ * buildSessionKey(extractAgentNameFromKey(key), extractUuidFromKey(key)) === key
+ */
+export function buildSessionKey(agentId: string, sessionUuid: string): string {
+  return `agent:${agentId}:group:${sessionUuid}`;
+}

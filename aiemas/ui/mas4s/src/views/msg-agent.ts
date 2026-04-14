@@ -137,8 +137,9 @@ export class MsgAgent extends LitElement {
       font-size: 14px;
       line-height: 1.6;
       word-break: break-word;
-      background: #ffffff;
+      background: var(--msg-agent-bg, #ffffff);
       border: 1px solid #e2e8f0;
+      border-left: var(--msg-agent-border-left, 1px solid #e2e8f0);
       color: #1e293b;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
       position: relative;
@@ -498,9 +499,13 @@ export class MsgAgent extends LitElement {
       }
 
       if (item.type === "tool_call") {
+        // 对于 aiemas_sessions_send，仅最新 agent 消息中的 tool_call 可能处于等待状态
+        // 非最新消息的 tool_call 一定已完成
+        const isSessionsSend = (item.name ?? "").includes("sessions_send");
+        const hasResult = isSessionsSend ? !this.isLatest : true;
         return html`
           <div class="tool-cards">
-            <msg-tool-card .item=${item}></msg-tool-card>
+            <msg-tool-card .item=${item} .hasResult=${hasResult}></msg-tool-card>
           </div>
         `;
       }

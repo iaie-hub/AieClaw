@@ -31,6 +31,12 @@ export interface ToolStreamEntry {
   startedAt: number;
 }
 
+/** Agent 拓扑边（父 → 子关系） */
+export interface TopologyEdge {
+  from: string; // parent Agent ID
+  to: string; // child Agent ID
+}
+
 /** 子 Agent 启动确认项（第三期，Prompt Engineering 方案） */
 export interface PendingSpawnConfirm {
   sessionKey: string;
@@ -89,6 +95,24 @@ export class AppStore {
 
   // ── 消息缓存（sessionUuid → 消息数组） ────────────
   messagesBySession: Map<string, ChatMessage[]> = new Map();
+
+  // ── 多 Agent 消息缓存（sessionUuid → agentId → 消息数组） ──
+  messagesByAgent: Map<string, Map<string, ChatMessage[]>> = new Map();
+
+  // ── 拓扑缓存（rootAgentId → edges） ──────────────
+  topologyByAgent: Map<string, TopologyEdge[]> = new Map();
+
+  // ── 视图模式（sessionUuid → "single" | "multi"） ──
+  viewModeBySession: Map<string, "single" | "multi"> = new Map();
+
+  // ── Secondary_Panel 活跃 Tab（sessionUuid → agentId） ──
+  activeSubAgentTab: Map<string, string> = new Map();
+
+  // ── Sub_Agent 未读指示器（sessionUuid → Set<agentId>） ──
+  unreadByAgent: Map<string, Set<string>> = new Map();
+
+  // ── Sub_Agent 活跃状态（sessionUuid → Set<agentId>，正在 streaming 的子 Agent） ──
+  activeAgentsBySession: Map<string, Set<string>> = new Map();
 
   // ── 历史消息元数据（sessionUuid → { truncated, hasSummary, page, totalPages, sessionStats }） ──
   historyMetaBySession: Map<
@@ -457,7 +481,153 @@ export class AppStore {
 
   clearMessages(sessionUuid: string): void {
     this.messagesBySession.set(sessionUuid, []);
+    // 同步清除 messagesByAgent，避免重新加载历史时与旧数据重复
+    this.messagesByAgent.delete(sessionUuid);
     this.notify();
+  }
+
+  // ── 多 Agent 消息操作 ─────────────────────────────
+
+  /** 追加消息到 messagesByAgent[sessionUuid][agentId]，自动创建 Map */
+  appendAgentMessage(sessionUuid: string, agentId: string, msg: ChatMessage): void {
+    let agentMap = this.messagesByAgent.get(sessionUuid);
+    if (!agentMap) {
+      agentMap = new Map();
+      this.messagesByAgent.set(sessionUuid, agentMap);
+    }
+    const msgs = agentMap.get(agentId) ?? [];
+    agentMap.set(agentId, [...msgs, msg]);
+    this.notify();
+  }
+
+  /** 获取指定 Agent 在指定会话中的消息列表 */
+  getAgentMessages(sessionUuid: string, agentId: string): ChatMessage[] {
+    return this.messagesByAgent.get(sessionUuid)?.get(agentId) ?? [];
+  }
+
+  /** 替换 messagesByAgent[sessionUuid][agentId] 中的最后一条消息 */
+  updateAgentLastMessage(sessionUuid: string, agentId: string, msg: ChatMessage): void {
+    let agentMap = this.messagesByAgent.get(sessionUuid);
+    if (!agentMap) {
+      agentMap = new Map();
+      this.messagesByAgent.set(sessionUuid, agentMap);
+    }
+    const msgs = agentMap.get(agentId) ?? [];
+    if (msgs.length === 0) {
+      agentMap.set(agentId, [msg]);
+    } else {
+      const updated = [...msgs];
+      updated[updated.length - 1] = msg;
+      agentMap.set(agentId, updated);
+    }
+    this.notify();
+  }
+
+  /** 获取指定会话的所有 Agent 消息（内层 Map），不存在时返回空 Map */
+  getSubAgentMessages(sessionUuid: string): Map<string, ChatMessage[]> {
+    return this.messagesByAgent.get(sessionUuid) ?? new Map();
+  }
+
+  /** 从拓扑 edges 中提取当前会话 Root_Agent 的 Sub_Agent 列表 */
+  getSubAgentList(sessionUuid: string): string[] {
+    const session = this.sessions.find((s) => s.sessionUuid === sessionUuid);
+    if (!session) {
+      return [];
+    }
+    // 从 sessionKey 中提取 rootAgentId
+    const parts = session.key.split(":");
+    const rootAgentId = parts.length >= 2 && parts[0] === "agent" ? parts[1] : "";
+    if (!rootAgentId) {
+      return [];
+    }
+    const edges = this.topologyByAgent.get(rootAgentId);
+    if (!edges) {
+      return [];
+    }
+    // 收集所有 "to" 节点（子 Agent），去重
+    const subAgentSet = new Set<string>();
+    for (const edge of edges) {
+      subAgentSet.add(edge.to);
+    }
+    return [...subAgentSet];
+  }
+
+  // ── 拓扑缓存操作 ─────────────────────────────────
+
+  /** 缓存拓扑数据 */
+  setTopology(rootAgentId: string, edges: TopologyEdge[]): void {
+    this.topologyByAgent.set(rootAgentId, edges);
+    this.notify();
+  }
+
+  /** 获取缓存的拓扑数据 */
+  getTopology(rootAgentId: string): TopologyEdge[] | undefined {
+    return this.topologyByAgent.get(rootAgentId);
+  }
+
+  // ── 视图模式操作 ─────────────────────────────────
+
+  /** 设置会话的视图模式 */
+  setViewMode(sessionUuid: string, mode: "single" | "multi"): void {
+    this.viewModeBySession.set(sessionUuid, mode);
+    this.notify();
+  }
+
+  /** 获取会话的视图模式，默认 "single" */
+  getViewMode(sessionUuid: string): "single" | "multi" {
+    return this.viewModeBySession.get(sessionUuid) ?? "single";
+  }
+
+  // ── Sub_Agent Tab 操作 ────────────────────────────
+
+  /** 设置 Secondary_Panel 活跃 Tab */
+  setActiveSubAgentTab(sessionUuid: string, agentId: string): void {
+    this.activeSubAgentTab.set(sessionUuid, agentId);
+    this.notify();
+  }
+
+  // ── 未读指示器操作 ────────────────────────────────
+
+  /** 标记 Sub_Agent 有未读消息 */
+  markAgentUnread(sessionUuid: string, agentId: string): void {
+    let unreadSet = this.unreadByAgent.get(sessionUuid);
+    if (!unreadSet) {
+      unreadSet = new Set();
+      this.unreadByAgent.set(sessionUuid, unreadSet);
+    }
+    unreadSet.add(agentId);
+    this.notify();
+  }
+
+  /** 清除 Sub_Agent 的未读标记 */
+  clearAgentUnread(sessionUuid: string, agentId: string): void {
+    const unreadSet = this.unreadByAgent.get(sessionUuid);
+    if (unreadSet) {
+      unreadSet.delete(agentId);
+      this.notify();
+    }
+  }
+
+  /** 标记 Sub_Agent 为活跃（正在 streaming） */
+  markAgentActive(sessionUuid: string, agentId: string): void {
+    let activeSet = this.activeAgentsBySession.get(sessionUuid);
+    if (!activeSet) {
+      activeSet = new Set();
+      this.activeAgentsBySession.set(sessionUuid, activeSet);
+    }
+    if (!activeSet.has(agentId)) {
+      activeSet.add(agentId);
+      this.notify();
+    }
+  }
+
+  /** 清除 Sub_Agent 的活跃状态 */
+  clearAgentActive(sessionUuid: string, agentId: string): void {
+    const activeSet = this.activeAgentsBySession.get(sessionUuid);
+    if (activeSet?.has(agentId)) {
+      activeSet.delete(agentId);
+      this.notify();
+    }
   }
 
   /**

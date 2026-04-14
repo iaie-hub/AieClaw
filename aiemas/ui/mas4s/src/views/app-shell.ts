@@ -1,6 +1,7 @@
 import { html, type TemplateResult } from "lit";
 import type { NavItem, DialogKind } from "../controllers/ui-state-controller.js";
 import type { AppStore } from "../store/app-store.js";
+import { extractAgentNameFromKey } from "../utils/session-utils.js";
 
 export interface AppShellHandlers {
   onLoginSuccess: () => void;
@@ -27,6 +28,7 @@ export interface AppShellHandlers {
   onInviteOpen: () => void;
   onDialogClose: () => void;
   onLoadMoreHistory: (e: CustomEvent<{ sessionKey: string }>) => void;
+  onTabChange: (e: CustomEvent<{ agentId: string }>) => void;
 }
 
 /** 检查中占位 */
@@ -103,9 +105,18 @@ export function renderMain(
             <main-workspace
               .activeNav=${activeNav}
               .session=${store.activeSession ?? null}
-              .messages=${store.activeSessionUuid
-                ? (store.messagesBySession.get(store.activeSessionUuid) ?? [])
-                : []}
+              .messages=${(() => {
+                if (!store.activeSessionUuid || !store.activeSession) {
+                  return [];
+                }
+                const rootAgentId = extractAgentNameFromKey(store.activeSession.key);
+                const agentMsgs = store.getAgentMessages(store.activeSessionUuid, rootAgentId);
+                // 优先使用 messagesByAgent 中的根 Agent 消息；
+                // 若为空则回退到 messagesBySession（兼容尚未路由的场景）
+                return agentMsgs.length > 0
+                  ? agentMsgs
+                  : (store.messagesBySession.get(store.activeSessionUuid) ?? []);
+              })()}
               .pendingApprovals=${store.pendingApprovals}
               .resolvedApprovals=${store.resolvedApprovals}
               .isChatting=${store.activeSessionUuid
@@ -146,6 +157,24 @@ export function renderMain(
               .sopCompletedAt=${store.activeSessionUuid
                 ? store.sopStepsBySession.get(store.activeSessionUuid)?.completedAt
                 : undefined}
+              .viewMode=${store.activeSessionUuid
+                ? store.getViewMode(store.activeSessionUuid)
+                : "single"}
+              .subAgentMessages=${store.activeSessionUuid
+                ? store.getSubAgentMessages(store.activeSessionUuid)
+                : new Map()}
+              .subAgents=${store.activeSessionUuid
+                ? store.getSubAgentList(store.activeSessionUuid)
+                : []}
+              .activeSubAgentTab=${store.activeSessionUuid
+                ? (store.activeSubAgentTab.get(store.activeSessionUuid) ?? "")
+                : ""}
+              .unreadAgents=${store.activeSessionUuid
+                ? (store.unreadByAgent.get(store.activeSessionUuid) ?? new Set())
+                : new Set()}
+              .activeAgents=${store.activeSessionUuid
+                ? (store.activeAgentsBySession.get(store.activeSessionUuid) ?? new Set())
+                : new Set()}
               @send-message=${h.onSendMessage}
               @abort-chat=${h.onAbortChat}
               @resolve-approval=${h.onResolveApproval}
@@ -154,6 +183,7 @@ export function renderMain(
               @session-unarchive=${h.onSessionUnarchive}
               @session-agent-update=${h.onSessionAgentUpdate}
               @load-more-history=${h.onLoadMoreHistory}
+              @tab-change=${h.onTabChange}
             ></main-workspace>
           `}
     </div>

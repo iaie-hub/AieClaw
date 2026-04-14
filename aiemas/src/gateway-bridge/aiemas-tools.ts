@@ -43,7 +43,7 @@ export const AiemasSessionsSendSchema = Type.Object({
   agentId: Type.String({ description: "目标子 Agent 的 agentId" }),
   message: Type.String({ description: "要发送的消息" }),
   timeoutSeconds: Type.Optional(
-    Type.Number({ minimum: 0, description: "等待回复的超时秒数，默认 30" }),
+    Type.Number({ minimum: 0, description: "等待回复的超时秒数，默认 600" }),
   ),
 });
 
@@ -130,11 +130,15 @@ export function createAiemasSessionsSendTool(
 
       // 5. 调用 callSessionsSend 回调
       try {
-        console.log(`[aiemas:tools] dispatching message to sessionKey=${targetSessionKey}`);
+        // 强制最小超时 600 秒，防止 LLM 传入过小的值导致子 Agent 超时
+        const effectiveTimeout = Math.max(timeoutSeconds ?? 600, 600);
+        console.log(
+          `[aiemas:tools] dispatching message to sessionKey=${targetSessionKey} timeout=${effectiveTimeout}s`,
+        );
         const result = (await callSessionsSend({
           sessionKey: targetSessionKey,
           message: message ?? "",
-          timeoutSeconds: timeoutSeconds ?? 30,
+          timeoutSeconds: effectiveTimeout,
         })) as { status: string; approvalId?: string; runId?: string };
 
         // 6. 状态增强反馈：为 Orchestrator (LLM) 提供更清晰的中文指令

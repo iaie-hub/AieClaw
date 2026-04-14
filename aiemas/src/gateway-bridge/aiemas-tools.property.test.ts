@@ -7,8 +7,9 @@
  *   Property 2: SessionKey 解析正确性
  *   Property 3: 无效 agentSessionKey 返回错误
  *   Property 4: callSessionsSend 失败时错误包装
+ *   Property 8: 超时参数透传
  *
- * Validates: Requirements 2.3, 2.4, 2.5, 2.8, 7.1, 7.2, 7.3
+ * Validates: Requirements 2.3, 2.4, 2.5, 2.8, 7.1, 7.2, 7.3, 11.1, 11.4
  */
 
 import type { DatabaseSync } from "node:sqlite";
@@ -443,6 +444,69 @@ describe("Feature: a2a-communication, Property 4: callSessionsSend failure wraps
 
           // callSessionsSend must have been called (error happens during its execution)
           expect(callSessionsSend).toHaveBeenCalledOnce();
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property 8: 超时参数透传
+// ---------------------------------------------------------------------------
+
+describe("Feature: multi-agent-chat-view, Property 8: 超时参数透传", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /**
+   * Validates: Requirements 11.1, 11.4
+   *
+   * For any timeoutSeconds value (including undefined), the value passed to
+   * callSessionsSend must be the original value when provided, or 120 when
+   * undefined.
+   */
+  it("enforces minimum 600s for timeoutSeconds, defaults to 600", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        arbSessionKey,
+        arbAgentId,
+        fc.option(fc.integer({ min: 0, max: 1200 }), { nil: undefined }),
+        async (callerSessionKey, targetAgentId, timeoutSeconds) => {
+          mockedCreateStore.mockReturnValue({
+            loadRootSession: vi.fn().mockReturnValue(undefined),
+          } as never);
+
+          let capturedTimeout: number | undefined;
+          const callSessionsSend = vi
+            .fn()
+            .mockImplementation(async (params: { timeoutSeconds?: number }) => {
+              capturedTimeout = params.timeoutSeconds;
+              return { status: "ok" };
+            });
+
+          const tool = createAiemasSessionsSendTool(
+            { db: {} as DatabaseSync, callSessionsSend },
+            { agentSessionKey: callerSessionKey },
+          );
+
+          const params: Record<string, unknown> = {
+            agentId: targetAgentId,
+            message: "test",
+          };
+          if (timeoutSeconds !== undefined) {
+            params.timeoutSeconds = timeoutSeconds;
+          }
+
+          await tool.execute("pbt-call", params);
+
+          // callSessionsSend must have been called
+          expect(callSessionsSend).toHaveBeenCalledOnce();
+
+          // Effective timeout = Math.max(provided ?? 600, 600)
+          const expected = Math.max(timeoutSeconds ?? 600, 600);
+          expect(capturedTimeout).toBe(expected);
         },
       ),
       { numRuns: 100 },

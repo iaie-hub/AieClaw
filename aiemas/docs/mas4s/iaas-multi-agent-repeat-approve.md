@@ -946,3 +946,35 @@ if (mainAgentId && agentId !== mainAgentId && stream === "assistant") {
 - E.2 前端过滤子 agent streaming，消除重复渲染
 
 **状态：暂不实施，待后续排期。**
+
+### 10.7 历史视图验证（2026-04-13 第二次测试补充）
+
+通过 `session.history.range` 请求获取的历史消息渲染正常，每条消息只出现一次，结构清晰：
+
+- resource agent 的完整调用链（思考 → read SKILL.md → exec hosts list → 格式化输出）只出现 1 次
+- orchestrator 的 `aiemas_sessions_send` tool result 只出现 1 次
+- orchestrator 的最终回复"资源管理 Agent 正在处理您的请求"只出现 1 次
+
+**结论：后端存储的消息数据本身没有重复，问题完全出在实时 streaming 事件的前端渲染逻辑上。**
+
+这意味着：
+
+1. 方案 E.2（前端过滤子 agent streaming）是正确方向
+2. 还有一个更简单的补充思路：**实时视图在 agent run 结束后（收到 `chat` event `state=final`），用 `session.history.range` 的结果替换 streaming 期间累积的碎片消息**，实现与历史视图一致的渲染效果。这可以作为 E.2 的兜底方案，确保即使 streaming 期间有渲染碎片，run 结束后也能自动修复
+
+#### 方案 E.4：run 结束时用历史消息替换 streaming 碎片
+
+**思路：** 在 `handleChatEvent` 收到 `state=final` 时，调用 `session.history.range` 获取该 run 的完整消息列表，替换 `messagesBySession` 中该 run 期间的所有碎片消息。
+
+**优势：**
+
+- 不需要在 streaming 阶段做复杂的过滤/去重逻辑
+- 最终渲染结果与历史视图完全一致
+- 对 streaming 期间的渲染逻辑零侵入
+
+**劣势：**
+
+- run 结束时有一次额外的 `session.history.range` 请求
+- streaming 期间用户仍会看到碎片化的中间状态（但 run 结束后自动修复）
+
+**推荐组合：E.2（减少 streaming 碎片）+ E.4（run 结束时兜底修复）+ E.1（增加超时减少 running 状态）**

@@ -237,10 +237,10 @@ export class SessionSidebar extends LitElement {
     }
 
     .session-item {
-      height: 34px;
+      min-height: 32px;
       display: flex;
       align-items: center;
-      padding: 0 8px 0 48px;
+      padding: 0px 0px 0px 48px;
       cursor: pointer;
       border-radius: 7px;
       margin: 1px 8px;
@@ -277,32 +277,32 @@ export class SessionSidebar extends LitElement {
     .session-item-body {
       flex: 1;
       display: flex;
-      flex-direction: row;
-      align-items: center;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
       overflow: hidden;
-      gap: 6px;
+      gap: 0;
       /* 作为 actions 的定位容器 */
       position: relative;
     }
 
     .session-label {
-      flex: 1;
+      width: 100%;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       font-size: 13px;
-      line-height: 1.3;
+      line-height: 1.4;
     }
 
     .session-time {
-      font-size: 11px;
+      font-size: 10px;
       color: #94a3b8;
       font-variant-numeric: tabular-nums;
       letter-spacing: 0.1px;
       white-space: nowrap;
       flex-shrink: 0;
-      /* 为 actions 悬浮留出空间 */
-      margin-right: 2px;
+      line-height: 1.2;
     }
 
     .session-item.active .session-time {
@@ -593,7 +593,7 @@ export class SessionSidebar extends LitElement {
     }
     const d = new Date(ts);
     const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   }
 
   private _renderSession(session: MasSession) {

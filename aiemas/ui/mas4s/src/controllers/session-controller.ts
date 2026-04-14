@@ -1,3 +1,4 @@
+import { fetchTopology } from "../gateway/agents-api.js";
 import { getClient } from "../gateway/client.js";
 import { restoreSessionRunState } from "../gateway/run-state-recovery.js";
 import { archiveSession, unarchiveSession } from "../gateway/session-archive.js";
@@ -11,7 +12,8 @@ import {
   renameSession,
   updateSessionAgent,
 } from "../gateway/session-manager.js";
-import type { AppStore } from "../store/app-store.js";
+import type { AppStore, TopologyEdge } from "../store/app-store.js";
+import { extractAgentNameFromKey } from "../utils/session-utils.js";
 
 /**
  * 会话管理控制器。
@@ -48,6 +50,7 @@ export class SessionController {
       // from the key so the store can resolve the active session correctly.
       const uuid = session.key.split(":").pop()!;
       this.store.setActiveSession(uuid);
+      this._loadSessionState(session.key, uuid);
       console.debug("[mas4s:session] create ← key=%s sessions=%d", session.key, sessions.length);
     } catch (err) {
       console.error("[mas4s:session] createSession failed:", err);
@@ -135,18 +138,43 @@ export class SessionController {
     }
   };
 
-  onSessionSelect = (e: CustomEvent<{ sessionKey: string }>) => {
-    const { sessionKey } = e.detail;
-    const uuid = sessionKey.split(":").pop()!;
-    console.debug("[mas4s:session] select → sessionKey=%s (uuid=%s)", sessionKey, uuid);
-    this.store.setActiveSession(uuid);
-
+  private _loadSessionState(sessionKey: string, uuid: string) {
     // Always re-fetch history on selection (clear previous cache first)
     this.store.clearMessages(uuid);
     const client = getClient();
+
+    // ── 拓扑获取：决定视图模式 ──
+    const rootAgentId = extractAgentNameFromKey(sessionKey);
+    const cachedTopology = this.store.getTopology(rootAgentId);
+    if (cachedTopology !== undefined) {
+      // 使用缓存
+      const mode = cachedTopology.length > 0 ? "multi" : "single";
+      this.store.setViewMode(uuid, mode);
+    } else {
+      // 异步获取
+      void fetchTopology(client, rootAgentId)
+        .then((result) => {
+          const edges =
+            (result as { topology?: { edges?: TopologyEdge[] } })?.topology?.edges ?? [];
+          this.store.setTopology(rootAgentId, edges);
+          this.store.setViewMode(uuid, edges.length > 0 ? "multi" : "single");
+        })
+        .catch((err) => {
+          console.error("[mas4s:session] fetchTopology failed:", err);
+          this.store.setViewMode(uuid, "single"); // 回退到单窗口
+        });
+    }
+
     void fetchSessionHistoryRange(client, sessionKey, { page: 1, pageSize: 200 })
       .then((result) => {
-        this.store.messagesBySession.set(uuid, result.messages);
+        // messagesBySession 仅存储根 Agent 消息（Primary_Panel 数据源）
+        const rootMsgs = result.messages.filter((msg) => {
+          if (!msg.sessionKey) {
+            return true;
+          } // 无 sessionKey 的消息保留（兼容）
+          return extractAgentNameFromKey(msg.sessionKey) === rootAgentId;
+        });
+        this.store.messagesBySession.set(uuid, rootMsgs);
         this.store.setHistoryMeta(uuid, {
           truncated: result.truncated,
           hasSummary: result.hasSummary,
@@ -154,6 +182,15 @@ export class SessionController {
           totalPages: result.totalPages,
           sessionStats: result.sessionStats,
         });
+        // 将历史消息按 sessionKey 路由到 messagesByAgent（所有 Agent）
+        for (const msg of result.messages) {
+          if (msg.sessionKey) {
+            const agentId = extractAgentNameFromKey(msg.sessionKey);
+            this.store.appendAgentMessage(uuid, agentId, msg);
+          }
+        }
+        // 历史消息加载后，自动选中第一个有消息的子 Agent Tab（与实时消息路由对齐）
+        this._initActiveSubAgentTab(uuid, rootAgentId);
         console.debug(
           "[mas4s:session] select ← history re-loaded (range): count=%d page=%d/%d",
           result.messages.length,
@@ -171,7 +208,14 @@ export class SessionController {
         // Fallback to chat.history
         void fetchSessionHistory(client, sessionKey)
           .then((messages) => {
-            this.store.messagesBySession.set(uuid, messages);
+            // messagesBySession 仅存储根 Agent 消息
+            const rootMsgs = messages.filter((msg) => {
+              if (!msg.sessionKey) {
+                return true;
+              }
+              return extractAgentNameFromKey(msg.sessionKey) === rootAgentId;
+            });
+            this.store.messagesBySession.set(uuid, rootMsgs);
             this.store.setHistoryMeta(uuid, {
               truncated: false,
               hasSummary: false,
@@ -179,6 +223,15 @@ export class SessionController {
               totalPages: 1,
               sessionStats: { firstMsgAt: null, lastMsgAt: null, totalMsgCount: 0 },
             });
+            // 将历史消息按 sessionKey 路由到 messagesByAgent（所有 Agent）
+            for (const msg of messages) {
+              if (msg.sessionKey) {
+                const agentId = extractAgentNameFromKey(msg.sessionKey);
+                this.store.appendAgentMessage(uuid, agentId, msg);
+              }
+            }
+            // 历史消息加载后，自动选中第一个有消息的子 Agent Tab（与实时消息路由对齐）
+            this._initActiveSubAgentTab(uuid, rootAgentId);
             this.store.notify();
             console.debug(
               "[mas4s:session] select ← history re-loaded (fallback): count=%d",
@@ -192,7 +245,37 @@ export class SessionController {
             );
           });
       });
+  }
+
+  onSessionSelect = (e: CustomEvent<{ sessionKey: string }>) => {
+    const { sessionKey } = e.detail;
+    const uuid = sessionKey.split(":").pop()!;
+    console.debug("[mas4s:session] select → sessionKey=%s (uuid=%s)", sessionKey, uuid);
+    this.store.setActiveSession(uuid);
+    this._loadSessionState(sessionKey, uuid);
   };
+
+  /**
+   * 历史消息加载后，自动选中第一个有消息的子 Agent 作为活跃 Tab。
+   * 与实时消息路由中 handleAgentEvent 的 setActiveSubAgentTab 对齐。
+   */
+  private _initActiveSubAgentTab(sessionUuid: string, rootAgentId: string): void {
+    // 如果已有活跃 tab（例如实时消息已设置过），不覆盖
+    if (this.store.activeSubAgentTab.get(sessionUuid)) {
+      return;
+    }
+    const agentMap = this.store.messagesByAgent.get(sessionUuid);
+    if (!agentMap) {
+      return;
+    }
+    // 从 messagesByAgent 中找到第一个非 rootAgent 且有消息的 agentId
+    for (const [agentId, msgs] of agentMap) {
+      if (agentId !== rootAgentId && msgs.length > 0) {
+        this.store.setActiveSubAgentTab(sessionUuid, agentId);
+        return;
+      }
+    }
+  }
 
   /**
    * 向上翻页：加载比当前已有消息更早的一页历史。
@@ -212,11 +295,28 @@ export class SessionController {
     }
 
     const nextPage = meta.page + 1;
+    const rootAgentId = extractAgentNameFromKey(sessionKey);
     const client = getClient();
     void fetchSessionHistoryRange(client, sessionKey, { page: nextPage, pageSize: 200 })
       .then((result) => {
+        // messagesBySession 仅前插根 Agent 消息
+        const rootMsgs = result.messages.filter((msg) => {
+          if (!msg.sessionKey) {
+            return true;
+          }
+          return extractAgentNameFromKey(msg.sessionKey) === rootAgentId;
+        });
         // prependMessages 不触发 notify，由下面统一触发
-        this.store.prependMessages(uuid, result.messages);
+        this.store.prependMessages(uuid, rootMsgs);
+        // 将所有历史消息按 agentId 路由到 messagesByAgent
+        for (const msg of result.messages) {
+          if (msg.sessionKey) {
+            const agentId = extractAgentNameFromKey(msg.sessionKey);
+            this.store.appendAgentMessage(uuid, agentId, msg);
+          }
+        }
+        // 翻页加载后也尝试初始化子 Agent Tab（首次加载可能未触发）
+        this._initActiveSubAgentTab(uuid, rootAgentId);
         this.store.setHistoryMeta(uuid, {
           truncated: result.truncated,
           hasSummary: result.hasSummary,

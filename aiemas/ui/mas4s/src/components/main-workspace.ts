@@ -6,6 +6,7 @@ import type { MasSession } from "../types/session-types.js";
 import "./main-header.js";
 import "../views/chat-view.js";
 import "../views/agents-view.js";
+import "../views/secondary-panel.js";
 
 /**
  * 主工作区：组合 main-header + chat-view + approval-drawer（第二期）。
@@ -26,6 +27,30 @@ export class MainWorkspace extends LitElement {
   @property({ type: Boolean }) hasMoreHistory = false;
   @property({ type: Boolean }) isChatting = false;
   @property({ type: Boolean }) showToolMessages = true;
+
+  /** 视图模式 */
+  @property({ type: String })
+  viewMode: "single" | "multi" = "single";
+
+  /** Sub_Agent 消息集合 (agentId → messages) */
+  @property({ attribute: false })
+  subAgentMessages: Map<string, ChatMessage[]> = new Map();
+
+  /** Sub_Agent 列表 */
+  @property({ attribute: false })
+  subAgents: string[] = [];
+
+  /** 当前活跃的 Sub_Agent Tab */
+  @property({ type: String })
+  activeSubAgentTab = "";
+
+  /** 有未读消息的 Sub_Agent 集合 */
+  @property({ attribute: false })
+  unreadAgents: Set<string> = new Set();
+
+  /** 正在执行中的 Sub_Agent 集合 */
+  @property({ attribute: false })
+  activeAgents: Set<string> = new Set();
 
   // ── SOP state (passed through to chat-view → message-list) ────────────────
   @property({ attribute: false }) sopSteps: unknown[] = [];
@@ -59,6 +84,40 @@ export class MainWorkspace extends LitElement {
       justify-content: center;
       color: #94a3b8;
       font-size: 16px;
+    }
+
+    .workspace-content.multi-view {
+      flex-direction: row;
+    }
+
+    .workspace-content.single-view {
+      flex-direction: column;
+    }
+
+    .primary-panel {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    .workspace-content.multi-view .primary-panel {
+      flex: 6;
+    }
+
+    .panel-divider {
+      width: 1px;
+      background: #e2e8f0;
+      flex-shrink: 0;
+    }
+
+    .secondary-panel-wrapper {
+      display: flex;
+      flex-direction: column;
+      flex: 4;
+      overflow: hidden;
+      min-width: 0;
     }
   `;
 
@@ -110,28 +169,50 @@ export class MainWorkspace extends LitElement {
               @session-unarchive=${this._onSessionUnarchive}
               @toggle-tool-messages=${this._onToggleToolMessages}
             ></main-header>
-            <div class="workspace-content">
-              <chat-view
-                .messages=${this.messages}
-                .session=${this.session}
-                .isInitiator=${isInitiator}
-                .pendingApprovals=${this.pendingApprovals}
-                .resolvedApprovals=${this.resolvedApprovals}
-                .hasSummary=${this.hasSummary}
-                .truncated=${this.truncated}
-                .hasMoreHistory=${this.hasMoreHistory}
-                .isChatting=${this.isChatting}
-                .showToolMessages=${this.showToolMessages}
-                .sopSteps=${this.sopSteps}
-                .sopLabel=${this.sopLabel}
-                .activeProgress=${this.activeProgress}
-                .progressLogs=${this.progressLogs}
-                .currentStepIndex=${this.currentStepIndex}
-                .sopCompletedAt=${this.sopCompletedAt}
-                @resolve=${this._onResolve}
-                @load-more-history=${this._onLoadMoreHistory}
-                @abort-chat=${this._onAbortChat}
-              ></chat-view>
+            <div
+              class="workspace-content ${this.viewMode === "multi" ? "multi-view" : "single-view"}"
+            >
+              <div class="primary-panel">
+                <chat-view
+                  .messages=${this.messages}
+                  .session=${this.session}
+                  .isInitiator=${isInitiator}
+                  .pendingApprovals=${this.pendingApprovals}
+                  .resolvedApprovals=${this.resolvedApprovals}
+                  .hasSummary=${this.hasSummary}
+                  .truncated=${this.truncated}
+                  .hasMoreHistory=${this.hasMoreHistory}
+                  .isChatting=${this.isChatting}
+                  .showToolMessages=${this.showToolMessages}
+                  .sopSteps=${this.sopSteps}
+                  .sopLabel=${this.sopLabel}
+                  .activeProgress=${this.activeProgress}
+                  .progressLogs=${this.progressLogs}
+                  .currentStepIndex=${this.currentStepIndex}
+                  .sopCompletedAt=${this.sopCompletedAt}
+                  @resolve=${this._onResolve}
+                  @load-more-history=${this._onLoadMoreHistory}
+                  @abort-chat=${this._onAbortChat}
+                ></chat-view>
+              </div>
+              <div
+                class="panel-divider"
+                style="${this.viewMode === "multi" ? "" : "display:none"}"
+              ></div>
+              <div
+                class="secondary-panel-wrapper"
+                style="${this.viewMode === "multi" ? "" : "display:none"}"
+              >
+                <secondary-panel
+                  .agentMessages=${this.subAgentMessages}
+                  .subAgents=${this.subAgents}
+                  .activeTab=${this.activeSubAgentTab}
+                  .unreadAgents=${this.unreadAgents}
+                  .activeAgents=${this.activeAgents}
+                  .showToolMessages=${this.showToolMessages}
+                  @tab-change=${this._onTabChange}
+                ></secondary-panel>
+              </div>
             </div>
           `
         : html`
@@ -141,6 +222,12 @@ export class MainWorkspace extends LitElement {
           `}
     `;
   }
+
+  private _onTabChange = (e: CustomEvent<{ agentId: string }>) => {
+    this.dispatchEvent(
+      new CustomEvent("tab-change", { detail: e.detail, bubbles: true, composed: true }),
+    );
+  };
 
   private _onResolve = (e: CustomEvent) => {
     this.dispatchEvent(

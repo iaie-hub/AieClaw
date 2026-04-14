@@ -5,7 +5,7 @@ import type { ApprovalRequest, ApprovalResolved } from "../types/approval-types.
 import type { ChatMessage } from "../types/chat-types.js";
 import type { MasSession } from "../types/session-types.js";
 import { parseSenderPrefix } from "../utils/message-format.js";
-import { extractUuidFromKey } from "../utils/session-utils.js";
+import { extractUuidFromKey, extractAgentNameFromKey } from "../utils/session-utils.js";
 import { addEventHandler } from "./client.js";
 
 const TOOL_OUTPUT_CHAR_LIMIT = 120_000;
@@ -220,6 +220,26 @@ export function registerEventHandlers(): void {
   });
 }
 
+/**
+ * 从 sessionKey 中解析消息目标：sessionUuid、agentId、是否为 Root_Agent。
+ * 用于 handleChatEvent 和 handleAgentEvent 的统一路由判定。
+ */
+export function resolveMessageTarget(
+  store: AppStore,
+  sessionKey: string,
+): {
+  sessionUuid: string;
+  agentId: string;
+  isRootAgent: boolean;
+} {
+  const sessionUuid = extractUuidFromKey(sessionKey);
+  const agentId = extractAgentNameFromKey(sessionKey);
+  const activeSession = store.activeSession;
+  const rootAgentId = activeSession ? extractAgentNameFromKey(activeSession.key) : agentId;
+  const isRootAgent = agentId === rootAgentId;
+  return { sessionUuid, agentId, isRootAgent };
+}
+
 function handleChatEvent(store: AppStore, payload: unknown): void {
   const { runId, sessionKey, state, message } = payload as {
     runId?: string;
@@ -228,11 +248,11 @@ function handleChatEvent(store: AppStore, payload: unknown): void {
     message?: unknown;
   };
 
-  const uuid = extractUuidFromKey(sessionKey);
+  const { sessionUuid, agentId, isRootAgent } = resolveMessageTarget(store, sessionKey);
 
   if (state === "clear") {
-    store.clearMessages(uuid);
-    store.resetToolStream(uuid);
+    store.clearMessages(sessionUuid);
+    store.resetToolStream(sessionUuid);
     return;
   }
 
@@ -249,6 +269,7 @@ function handleChatEvent(store: AppStore, payload: unknown): void {
     ...normalized,
     // 用 runId 作为流式消息的稳定 id，供去重匹配
     id: normalized.id ?? runId,
+    sessionKey, // 需求 9.1：所有 ChatMessage 携带 sessionKey
     senderLabel: senderLabel ?? normalized.senderLabel,
     content: firstText
       ? [{ type: "text" as const, text: cleanText }, ...normalized.content.slice(1)]
@@ -266,15 +287,72 @@ function handleChatEvent(store: AppStore, payload: unknown): void {
   // run 结束，清理 thinking 缓存
   if (state === "final" && runId) {
     _thinkingByRun.delete(runId);
-    store.setIsChatting(uuid, false);
+    store.setIsChatting(sessionUuid, false);
+
+    // 子 Agent run 结束，清除活跃状态
+    if (!isRootAgent) {
+      store.clearAgentActive(sessionUuid, agentId);
+    }
+
+    // ── 碎片修复：Root_Agent run 结束后用 History_Range_API 替换 streaming 碎片 ──
+    if (isRootAgent && runId) {
+      void (async () => {
+        try {
+          const { getClient } = await import("./client.js");
+          const { fetchSessionHistoryRange } = await import("./session-manager.js");
+          const client = getClient();
+          const result = await fetchSessionHistoryRange(client, sessionKey);
+          const completeMessages = result.messages;
+
+          // 保留 user 和 approval(pending) 消息，用完整消息替换 assistant + tool 碎片
+          const currentMsgs = store.messagesBySession.get(sessionUuid) ?? [];
+          const preserved = currentMsgs.filter((m) => m.role === "user" || m.subType === "pending");
+
+          // 合并：保留的消息 + API 返回的完整消息（过滤掉 user、pending，且仅保留根 Agent 消息）
+          const rootAgentId = extractAgentNameFromKey(sessionKey);
+          const apiNonUserMsgs = completeMessages.filter((m) => {
+            if (m.role === "user" || m.subType === "pending") {
+              return false;
+            }
+            // 仅保留根 Agent 的消息，过滤子 Agent 消息
+            if (m.sessionKey) {
+              return extractAgentNameFromKey(m.sessionKey) === rootAgentId;
+            }
+            return true; // 无 sessionKey 的消息保留（兼容）
+          });
+
+          // 按时间戳排序合并
+          const merged = [...preserved, ...apiNonUserMsgs].toSorted(
+            (a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0),
+          );
+
+          store.messagesBySession.set(sessionUuid, merged);
+          // 同步更新 messagesByAgent 中根 Agent 的消息（Primary_Panel 数据源）
+          const agentMap = store.messagesByAgent.get(sessionUuid);
+          if (agentMap) {
+            agentMap.set(rootAgentId, merged);
+          }
+          store.notify();
+        } catch (err) {
+          console.error("[mas4s:event-handler] fragment repair failed:", err);
+          // 失败时保留现有消息不做替换
+        }
+      })();
+    }
   } else if (state === "delta" && runId) {
     // 收到 delta 表示正在聊天，确保 UI 状态同步（即便不是由当前客户端发起的 run）
-    if (!store.isChattingBySession.get(uuid)) {
-      store.setIsChatting(uuid, true, runId);
+    if (!store.isChattingBySession.get(sessionUuid)) {
+      store.setIsChatting(sessionUuid, true, runId);
     }
   }
 
-  updateChatStream(store, sessionKey, chatMsg, state === "final");
+  // 所有消息路由到 messagesByAgent（无论视图模式）
+  updateAgentChatStream(store, sessionUuid, agentId, chatMsg, state === "final");
+
+  // Root_Agent 消息同时写入 messagesBySession（向后兼容）
+  if (isRootAgent) {
+    updateChatStream(store, sessionUuid, chatMsg, state === "final");
+  }
 }
 
 function handleAgentEvent(store: AppStore, payload: unknown): void {
@@ -298,12 +376,14 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
     return;
   }
 
+  const { sessionUuid, agentId, isRootAgent } = resolveMessageTarget(store, sessionKey);
+
   if (stream === "prompt" && data?.text !== undefined) {
-    const uuid = extractUuidFromKey(sessionKey);
     const normalized = normalizeMessage(data.text);
     const chatMsg: ChatMessage = {
       ...normalized,
       id: runId ?? normalized.id,
+      sessionKey, // 需求 9.1
       timestamp: Date.now(),
       role: normalized.role,
       senderLabel: null,
@@ -313,7 +393,12 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
       `[mas4s:event-handler] Appending manual prompt message (role=${chatMsg.role})`,
       chatMsg,
     );
-    store.appendMessage(uuid, chatMsg);
+    // 路由到 messagesByAgent
+    store.appendAgentMessage(sessionUuid, agentId, chatMsg);
+    // Root_Agent 同时写入 messagesBySession（向后兼容）
+    if (isRootAgent) {
+      store.appendMessage(sessionUuid, chatMsg);
+    }
     return;
   }
 
@@ -330,10 +415,32 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
       content,
       timestamp: Date.now(),
       id: runId,
+      sessionKey, // 需求 9.1
       senderLabel: null,
     };
-    const uuid = extractUuidFromKey(sessionKey);
-    updateChatStream(store, uuid, streamMsg, false);
+
+    // 路由到 messagesByAgent
+    updateAgentChatStream(store, sessionUuid, agentId, streamMsg, false);
+    // Root_Agent 同时写入 messagesBySession（向后兼容）
+    if (isRootAgent) {
+      updateChatStream(store, sessionUuid, streamMsg, false);
+    }
+
+    // Sub_Agent 自动切换 Tab、未读标记和活跃状态
+    if (!isRootAgent) {
+      store.markAgentActive(sessionUuid, agentId);
+      const currentTab = store.activeSubAgentTab.get(sessionUuid);
+      // 自动切换到正在 streaming 的 sub-agent
+      store.setActiveSubAgentTab(sessionUuid, agentId);
+      // 如果之前活跃的 tab 不是当前 agent，清除当前 agent 的未读（因为已切换过来）
+      if (currentTab && currentTab !== agentId) {
+        store.clearAgentUnread(sessionUuid, agentId);
+      }
+      // 如果当前 agent 不是活跃 tab，标记未读
+      if (currentTab && currentTab !== agentId) {
+        store.markAgentUnread(sessionUuid, agentId);
+      }
+    }
     return;
   }
 
@@ -351,19 +458,21 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
           ? formatToolOutput(data.result)
           : existing?.output;
 
-    const uuid = extractUuidFromKey(sessionKey);
-    store.upsertToolStream(
-      {
-        toolCallId,
-        runId,
-        sessionKey, // toolStream 内部可能仍需要原始 key
-        name,
-        args: phase === "start" ? data.args : existing?.args,
-        output: output ?? undefined,
-        startedAt: existing?.startedAt ?? Date.now(),
-      },
-      uuid,
-    );
+    // Root_Agent 的 toolStream 写入 messagesBySession（向后兼容）
+    if (isRootAgent) {
+      store.upsertToolStream(
+        {
+          toolCallId,
+          runId,
+          sessionKey,
+          name,
+          args: phase === "start" ? data.args : existing?.args,
+          output: output ?? undefined,
+          startedAt: existing?.startedAt ?? Date.now(),
+        },
+        sessionUuid,
+      );
+    }
 
     // When a tool execution finishes (phase="result"), append a dedicated toolResult message
     // to the chat flow so it is rendered by MsgToolResult/MsgToolCard.
@@ -373,6 +482,7 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
         content: [{ type: "tool_result", text: formatToolOutput(data.result) }],
         timestamp: Date.now(),
         id: `${toolCallId}-result`,
+        sessionKey, // 需求 9.1
         senderLabel: null,
         toolCallId,
         toolName: name,
@@ -385,8 +495,27 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
         ),
       };
       debugLog(`[mas4s:event-handler] Appending manual toolResult message for ${name}`, toolMsg);
-      const uuid = extractUuidFromKey(sessionKey);
-      store.appendMessage(uuid, toolMsg);
+
+      // 路由到 messagesByAgent
+      store.appendAgentMessage(sessionUuid, agentId, toolMsg);
+      // Root_Agent 同时写入 messagesBySession（向后兼容）
+      if (isRootAgent) {
+        store.appendMessage(sessionUuid, toolMsg);
+      }
+    }
+
+    // Sub_Agent 自动切换 Tab、未读标记和活跃状态
+    if (!isRootAgent) {
+      store.markAgentActive(sessionUuid, agentId);
+      const currentTab = store.activeSubAgentTab.get(sessionUuid);
+      // 自动切换到正在 streaming 的 sub-agent
+      store.setActiveSubAgentTab(sessionUuid, agentId);
+      if (currentTab && currentTab !== agentId) {
+        store.clearAgentUnread(sessionUuid, agentId);
+      }
+      if (currentTab && currentTab !== agentId) {
+        store.markAgentUnread(sessionUuid, agentId);
+      }
     }
     return;
   }
@@ -397,15 +526,20 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
     _thinkingByRun.set(runId, thinkingText);
 
     if (sessionKey) {
-      const uuid = extractUuidFromKey(sessionKey);
       const streamMsg: ChatMessage = {
         role: "assistant",
         content: [{ type: "thinking", thinking: thinkingText }],
         timestamp: Date.now(),
         id: runId,
+        sessionKey, // 需求 9.1
         senderLabel: null,
       };
-      updateChatStream(store, uuid, streamMsg, false);
+      // 路由到 messagesByAgent
+      updateAgentChatStream(store, sessionUuid, agentId, streamMsg, false);
+      // Root_Agent 同时写入 messagesBySession（向后兼容）
+      if (isRootAgent) {
+        updateChatStream(store, sessionUuid, streamMsg, false);
+      }
     }
     return;
   }
@@ -446,6 +580,37 @@ export function updateChatStream(
 
   // 不存在匹配的末尾消息，则追加
   store.appendMessage(sessionUuid, msg);
+}
+
+/**
+ * 按 Agent 维度的流式消息更新策略（镜像 updateChatStream，操作 messagesByAgent）：
+ * - 在 messagesByAgent[sessionUuid][agentId] 中查找末尾消息进行原地更新
+ * - chat final 更新时保留已有的 thinking 内容，只更新 text 部分
+ * - 找不到则追加新消息
+ * - 确保不同 Agent 的 streaming delta 互不干扰
+ */
+export function updateAgentChatStream(
+  store: AppStore,
+  sessionUuid: string,
+  agentId: string,
+  msg: ChatMessage,
+  isFinal: boolean,
+): void {
+  const msgs = store.getAgentMessages(sessionUuid, agentId);
+  const last = msgs[msgs.length - 1];
+  if (msg.id && last && last.id === msg.id && last.role === msg.role) {
+    let mergedContent = msg.content;
+    if (isFinal) {
+      const existingThinking = last.content.filter((c) => c.type === "thinking");
+      const incomingNonThinking = msg.content.filter((c) => c.type !== "thinking");
+      if (existingThinking.length > 0 && incomingNonThinking.length > 0) {
+        mergedContent = [...existingThinking, ...incomingNonThinking];
+      }
+    }
+    store.updateAgentLastMessage(sessionUuid, agentId, { ...last, content: mergedContent });
+    return;
+  }
+  store.appendAgentMessage(sessionUuid, agentId, msg);
 }
 
 /**

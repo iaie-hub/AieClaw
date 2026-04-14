@@ -145,6 +145,13 @@ export class Mas4sApp extends LitElement {
       onInviteOpen: () => this._ui.onInviteOpen(),
       onDialogClose: () => this._ui.onDialogClose(),
       onLoadMoreHistory: (e) => this._session.onLoadMoreHistory(e),
+      onTabChange: (e: CustomEvent<{ agentId: string }>) => {
+        const uuid = this._ctrl.store.activeSessionUuid;
+        if (uuid) {
+          this._ctrl.store.setActiveSubAgentTab(uuid, e.detail.agentId);
+          this._ctrl.store.clearAgentUnread(uuid, e.detail.agentId);
+        }
+      },
     });
   }
 }

@@ -48,12 +48,13 @@ async function startAgentRun(params: {
   runId: string;
   sendParams: Record<string, unknown>;
   sessionKey: string;
+  timeoutMs: number;
 }): Promise<{ ok: true; runId: string } | { ok: false; result: ReturnType<typeof jsonResult> }> {
   try {
     const response = await params.callGateway<{ runId: string }>({
       method: "agent",
       params: params.sendParams,
-      timeoutMs: 10_000,
+      timeoutMs: Math.max(10_000, params.timeoutMs),
     });
     return {
       ok: true,
@@ -262,6 +263,7 @@ export function createSessionsSendTool(opts?: {
           : await readLatestAssistantReplySnapshot({
               sessionKey: resolvedKey,
               limit: SESSIONS_SEND_REPLY_HISTORY_LIMIT,
+              timeoutMs: Math.max(10_000, timeoutMs),
               callGateway: gatewayCall,
             });
 
@@ -309,6 +311,7 @@ export function createSessionsSendTool(opts?: {
           runId,
           sendParams,
           sessionKey: displayKey,
+          timeoutMs: announceTimeoutMs,
         });
         if (!start.ok) {
           return start.result;
@@ -328,6 +331,7 @@ export function createSessionsSendTool(opts?: {
         runId,
         sendParams,
         sessionKey: displayKey,
+        timeoutMs,
       });
       if (!start.ok) {
         return start.result;

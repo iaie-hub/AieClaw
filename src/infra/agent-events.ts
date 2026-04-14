@@ -217,10 +217,8 @@ export function emitAgentEvent(event: Omit<AgentEventPayload, "seq" | "ts">) {
   };
 
   if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
-    const dataStr = JSON.stringify(enriched.data);
-    const content = dataStr.length > 512 ? `${dataStr.slice(0, 512)}...` : dataStr;
     console.log(
-      `[infra:agent-events] emit runId=${enriched.runId} stream=${enriched.stream} seq=${enriched.seq} sessionKey=${enriched.sessionKey ?? "(none)"} listeners=${state.listeners.size} data=${content}`,
+      `[infra:agent-events] emit runId=${enriched.runId} stream=${enriched.stream} seq=${enriched.seq} sessionKey=${enriched.sessionKey ?? "(none)"} listeners=${state.listeners.size}`,
     );
   }
 

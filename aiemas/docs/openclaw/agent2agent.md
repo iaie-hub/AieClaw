@@ -26,7 +26,7 @@ Agent 通过 `sessions_send` 工具向另一个 session 发送消息，支持**�
   label?:          string;          // 目标 session 的人类可读标签
   agentId?:        string;          // 配合 label 使用，指定目标 agentId（跨 agent label 查找时用）
   message:         string;          // 要发送的消息（必填）
-  timeoutSeconds?: number;          // 等待回复的最大秒数，默认 30，设为 0 = 不等待（异步）
+  timeoutSeconds?: number;          // 等待回复的最大秒数，默认 600，设为 0 = 不等待（异步）
 }
 ```
 
@@ -796,7 +796,7 @@ export function resolvePingPongTurns(cfg?: OpenClawConfig) {
 `announceTimeoutMs` 计算规则（来自 `sessions-send-tool.ts`）：
 
 ```typescript
-const timeoutSeconds = params.timeoutSeconds ?? 30;
+const timeoutSeconds = params.timeoutSeconds ?? 600;
 const timeoutMs = timeoutSeconds * 1000;
 const announceTimeoutMs = timeoutSeconds === 0 ? 30_000 : timeoutMs;
 // 异步模式（timeoutSeconds=0）：announceTimeoutMs 固定 30s

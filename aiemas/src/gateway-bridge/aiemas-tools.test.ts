@@ -78,7 +78,7 @@ describe("aiemas_sessions_send", () => {
       expect(callSessionsSend).toHaveBeenCalledWith({
         sessionKey: descendantSessionKey,
         message: "hello",
-        timeoutSeconds: 30,
+        timeoutSeconds: 600,
       });
       // constructKeyFromUuid should NOT be called when descendant is found
       expect(mockedConstructKey).not.toHaveBeenCalled();
@@ -111,7 +111,7 @@ describe("aiemas_sessions_send", () => {
       expect(callSessionsSend).toHaveBeenCalledWith({
         sessionKey: derivedKey,
         message: "deploy",
-        timeoutSeconds: 30,
+        timeoutSeconds: 600,
       });
     });
 
@@ -141,7 +141,7 @@ describe("aiemas_sessions_send", () => {
       expect(callSessionsSend).toHaveBeenCalledWith({
         sessionKey: derivedKey,
         message: "hi",
-        timeoutSeconds: 30,
+        timeoutSeconds: 600,
       });
     });
   });
@@ -222,7 +222,7 @@ describe("aiemas_sessions_send", () => {
       expect(callSessionsSend).toHaveBeenCalledWith({
         sessionKey: derivedKey,
         message: "retry",
-        timeoutSeconds: 30,
+        timeoutSeconds: 600,
       });
 
       warnSpy.mockRestore();
@@ -278,7 +278,7 @@ describe("aiemas_sessions_send", () => {
 
   // ── Validates: Requirements 2.1 ──
   describe("timeoutSeconds parameter", () => {
-    it("passes custom timeoutSeconds to callSessionsSend", async () => {
+    it("enforces minimum 600s and passes to callSessionsSend", async () => {
       const callerKey = "agent:orchestrator:group:mas-timeout";
 
       mockedExtractUuid.mockReturnValue("mas-timeout");
@@ -292,12 +292,36 @@ describe("aiemas_sessions_send", () => {
         agentSessionKey: callerKey,
       });
 
+      // LLM 传入 120，但最小值强制为 600
       await tool.execute("call-11", { agentId: "target", message: "slow", timeoutSeconds: 120 });
 
       expect(callSessionsSend).toHaveBeenCalledWith({
         sessionKey: "agent:target:group:mas-timeout",
         message: "slow",
-        timeoutSeconds: 120,
+        timeoutSeconds: 600,
+      });
+    });
+
+    it("passes through timeoutSeconds >= 600 as-is", async () => {
+      const callerKey = "agent:orchestrator:group:mas-timeout2";
+
+      mockedExtractUuid.mockReturnValue("mas-timeout2");
+      mockedCreateStore.mockReturnValue({
+        loadRootSession: vi.fn().mockReturnValue(undefined),
+      } as never);
+      mockedConstructKey.mockReturnValue("agent:target:group:mas-timeout2");
+
+      const callSessionsSend = vi.fn().mockResolvedValue({ status: "ok" });
+      const tool = createAiemasSessionsSendTool(makeDeps({ callSessionsSend }), {
+        agentSessionKey: callerKey,
+      });
+
+      await tool.execute("call-12", { agentId: "target", message: "long", timeoutSeconds: 900 });
+
+      expect(callSessionsSend).toHaveBeenCalledWith({
+        sessionKey: "agent:target:group:mas-timeout2",
+        message: "long",
+        timeoutSeconds: 900,
       });
     });
   });

@@ -9,8 +9,16 @@ import type { MessageContentItem } from "../types/chat-types.js";
 export class MsgToolCard extends LitElement {
   @property({ attribute: false }) item!: MessageContentItem;
 
+  /** 该 ToolCall 是否已有对应的 ToolResult（由父组件传入） */
+  @property({ type: Boolean }) hasResult = false;
+
   /** body 是否展开，默认折叠 */
   @state() private _expanded = false;
+
+  /** 等待计时器（秒） */
+  @state() private _elapsedSeconds = 0;
+  private _timerHandle: ReturnType<typeof setInterval> | null = null;
+  private _startTime = 0;
 
   static styles = css`
     :host {
@@ -286,11 +294,124 @@ export class MsgToolCard extends LitElement {
     .expand-btn:hover {
       text-decoration: underline;
     }
+
+    /* ── aiemas_sessions_send 等待状态样式 ── */
+    .tool-card--waiting {
+      border-color: #c4b5fd;
+      background: #f5f3ff;
+    }
+
+    .tool-card--waiting .tool-name {
+      color: #7c3aed;
+    }
+
+    .tool-card--waiting .tool-kind-tag {
+      background: #ede9fe;
+      color: #7c3aed;
+    }
+
+    .waiting-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: #6d28d9;
+      border-top: 1px solid #c4b5fd;
+    }
+
+    .waiting-spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid #c4b5fd;
+      border-top-color: #7c3aed;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .waiting-timer {
+      font-variant-numeric: tabular-nums;
+      color: #8b5cf6;
+    }
   `;
 
   private _toggleBody = () => {
     this._expanded = !this._expanded;
   };
+
+  /** 是否为 aiemas_sessions_send 的 ToolCall */
+  private get _isSessionsSend(): boolean {
+    return this.item.type === "tool_call" && (this.item.name ?? "").includes("sessions_send");
+  }
+
+  /** 是否正在等待（ToolCall 且无 Result） */
+  private get _isWaiting(): boolean {
+    return this._isSessionsSend && !this.hasResult;
+  }
+
+  /** 从 args 中提取子 Agent 名称 */
+  private get _targetAgent(): string {
+    if (!this.item.args || typeof this.item.args !== "object") {
+      return "";
+    }
+    const args = this.item.args as Record<string, unknown>;
+    return (args["agentId"] as string) ?? (args["agent_id"] as string) ?? "";
+  }
+
+  /** 从 args 中提取超时秒数，与后端 aiemas-tools.ts 保持一致：最小 600s */
+  private get _timeoutSeconds(): number {
+    if (!this.item.args || typeof this.item.args !== "object") {
+      return 600;
+    }
+    const args = this.item.args as Record<string, unknown>;
+    const t = args["timeoutSeconds"] ?? args["timeout_seconds"];
+    const raw = typeof t === "number" && t > 0 ? t : 600;
+    return Math.max(raw, 600);
+  }
+
+  override connectedCallback(): void {
+    super.connectedCallback();
+    this._maybeStartTimer();
+  }
+
+  override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this._stopTimer();
+  }
+
+  override updated(changed: Map<string, unknown>): void {
+    if (changed.has("hasResult")) {
+      if (this.hasResult) {
+        this._stopTimer();
+      } else {
+        this._maybeStartTimer();
+      }
+    }
+  }
+
+  private _maybeStartTimer(): void {
+    if (this._isWaiting && !this._timerHandle) {
+      this._startTime = Date.now();
+      this._elapsedSeconds = 0;
+      this._timerHandle = setInterval(() => {
+        this._elapsedSeconds = Math.floor((Date.now() - this._startTime) / 1000);
+      }, 1000);
+    }
+  }
+
+  private _stopTimer(): void {
+    if (this._timerHandle) {
+      clearInterval(this._timerHandle);
+      this._timerHandle = null;
+    }
+  }
 
   private _renderArgs(args: unknown): string {
     if (args == null) {
@@ -316,6 +437,58 @@ export class MsgToolCard extends LitElement {
     }
 
     const rawName = this.item.name ?? (isCall ? "tool_call" : "tool_result");
+
+    // ── aiemas_sessions_send 专用渲染 ──
+    if (this._isSessionsSend && isCall) {
+      const agent = this._targetAgent;
+      const timeout = this._timeoutSeconds;
+      const waiting = this._isWaiting;
+      const cardClass = waiting ? "tool-card--waiting" : "tool-card--call";
+      const icon = waiting ? "🔄" : "✅";
+      const label = agent ? `调用子 Agent: ${agent}` : "调用子 Agent";
+      const kindLabel = waiting ? "执行中" : "已完成";
+      const bodyText = this._renderArgs(this.item.args);
+      const hasBody = bodyText.trim().length > 0;
+
+      return html`
+        <div class="tool-card-wrapper">
+          <div class="tool-card ${cardClass}">
+            <div class="tool-header" @click=${this._toggleBody}>
+              <span class="tool-icon">${icon}</span>
+              <span class="tool-name">${label}</span>
+              <span class="tool-kind-tag">${kindLabel}</span>
+              <copy-button
+                class="tool-copy-btn"
+                .value=${bodyText}
+                title="仅复制内容"
+              ></copy-button>
+              <span class="toggle-icon ${this._expanded ? "is-expanded" : ""}">▼</span>
+            </div>
+            ${waiting
+              ? html`
+                  <div class="waiting-info">
+                    <span class="waiting-spinner"></span>
+                    <span>正在等待子 Agent 完成${agent ? ` (${agent})` : ""}…</span>
+                    <span class="waiting-timer">${this._elapsedSeconds}s / ${timeout}s</span>
+                  </div>
+                `
+              : nothing}
+            ${this._expanded && hasBody
+              ? html`<div class="tool-body"><pre>${bodyText}</pre></div>`
+              : nothing}
+          </div>
+          ${this._expanded && hasBody
+            ? html`<copy-button
+                class="tool-body-copy-btn"
+                .value=${`${label}\n${bodyText}`}
+                title="复制标题和内容"
+              ></copy-button>`
+            : nothing}
+        </div>
+      `;
+    }
+
+    // ── 通用 ToolCall / ToolResult 渲染 ──
     const prefix = isCall ? "ToolCall: " : "ToolResult: ";
     const name = `${prefix}${rawName}`;
     const icon = isCall ? "⚙️" : isError ? "❌" : "✅";
