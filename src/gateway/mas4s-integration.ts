@@ -7,7 +7,6 @@
  * the gateway continues without multi-tenant features.
  */
 
-import type { Mas4sGatewayPlugin } from "../../aiemas/src/gateway-bridge/aiemas-types.js";
 import { resolveEnvApiKey } from "../agents/model-auth-env.js";
 import type { AnyAgentTool } from "../agents/tools/common.js";
 import { createSessionsSendTool } from "../agents/tools/sessions-send-tool.js";
