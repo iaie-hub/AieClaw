@@ -81,6 +81,7 @@ function rowToStoredMessage(row: Record<string, unknown>): StoredMessage {
     toolCallId: (row["toolCallId"] as string | null) ?? null,
     toolName: (row["toolName"] as string | null) ?? null,
     parentSessionUuid: (row["parentSessionUuid"] as string | null) ?? null,
+    sourceAgentId: (row["sourceAgentId"] as string | null) ?? null,
   };
 }
 
@@ -164,9 +165,11 @@ export function queryHistoryRange(
   const enriched: StoredMessageWithSender[] = messages.map((m) => ({
     ...m,
     senderLabel:
-      m.role === "user" && m.userId && resolveDisplayName
-        ? (resolveDisplayName(m.userId) ?? null)
-        : null,
+      m.role === "agent" && m.sourceAgentId
+        ? `Agent: ${m.sourceAgentId}`
+        : m.role === "user" && m.userId && resolveDisplayName
+          ? (resolveDisplayName(m.userId) ?? null)
+          : null,
   }));
 
   // ── Session-level statistics from session_msg_statistic ──────────────────

@@ -43,7 +43,7 @@ export class MsgColleague extends LitElement {
       margin: 0 16px 0 0;
       flex-shrink: 0;
       box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
-      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+      background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
     }
 
     .message-content {
@@ -95,8 +95,8 @@ export class MsgColleague extends LitElement {
       margin: 0.2em 0;
     }
     .message-bubble code {
-      background: #fef9c3;
-      border: 1px solid #fde68a;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
       border-radius: 4px;
       padding: 1px 5px;
       font-size: 0.88em;
@@ -117,11 +117,11 @@ export class MsgColleague extends LitElement {
       font-size: 0.85em;
     }
     .message-bubble blockquote {
-      border-left: 3px solid #f59e0b;
+      border-left: 3px solid #6366f1;
       margin: 0.6em 0;
       padding: 4px 12px;
       color: #475569;
-      background: #fffbeb;
+      background: #f8fafc;
       border-radius: 0 6px 6px 0;
     }
     .message-bubble strong {
@@ -142,7 +142,7 @@ export class MsgColleague extends LitElement {
       padding: 6px 10px;
     }
     .message-bubble th {
-      background: #fffbeb;
+      background: #f8fafc;
       font-weight: 600;
     }
   `;

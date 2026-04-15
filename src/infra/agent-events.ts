@@ -219,8 +219,11 @@ export function emitAgentEvent(event: Omit<AgentEventPayload, "seq" | "ts">) {
 
   if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
     console.log(
-      `[infra:agent-events] emit runId=${enriched.runId} stream=${enriched.stream} seq=${enriched.seq} sessionKey=${enriched.sessionKey ?? "(none)"} listeners=${state.listeners.size}`,
+      `[infra:agent-events] emit runId=${enriched.runId} stream=${enriched.stream} seq=${enriched.seq} sessionKey=${enriched.sessionKey ?? "(none)"} listeners=${state.listeners.size}}`,
     );
+    // console.log(
+    //   `[infra:agent-events] emit runId=${enriched.runId} stream=${enriched.stream} seq=${enriched.seq} sessionKey=${enriched.sessionKey ?? "(none)"} listeners=${state.listeners.size} data=${JSON.stringify(enriched.data)}`,
+    // );
   }
 
   notifyListeners(state.listeners, enriched);

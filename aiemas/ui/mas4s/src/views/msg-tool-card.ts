@@ -36,21 +36,19 @@ export class MsgToolCard extends LitElement {
     }
 
     .tool-card--call {
-      border-color: #fde047;
-      background: #fefce8;
-      border-left: 4px solid var(--ai-color-warning, #eab308);
+      border-color: #e2e8f0;
+      background: #f8fafc;
     }
 
     .tool-card--result {
-      border-color: #bbf7d0;
-      background: #ecfdf5;
-      border-left: 4px solid var(--ai-color-success, #10b981);
+      border-color: #e2e8f0;
+      background: #f8fafc;
     }
 
     .tool-card--error {
       border-color: #fecaca;
       background: #fef2f2;
-      border-left: 4px solid var(--ai-color-danger, #f97316);
+      border-left: 4px solid #ef4444;
     }
 
     .tool-header {
@@ -77,13 +75,13 @@ export class MsgToolCard extends LitElement {
       flex: 1;
       font-family: "SF Mono", "Fira Code", monospace;
       font-size: 12px;
-      color: #1d4ed8;
+      color: #475569;
       white-space: normal;
       word-break: break-all;
     }
 
     .tool-card--result .tool-name {
-      color: #15803d;
+      color: #475569;
     }
 
     .tool-card--error .tool-name {
@@ -99,13 +97,13 @@ export class MsgToolCard extends LitElement {
     }
 
     .tool-card--call .tool-kind-tag {
-      background: #dbeafe;
-      color: #1d4ed8;
+      background: #f1f5f9;
+      color: #64748b;
     }
 
     .tool-card--result .tool-kind-tag {
-      background: #dcfce7;
-      color: #15803d;
+      background: #f1f5f9;
+      color: #475569;
     }
 
     .tool-card--error .tool-kind-tag {
@@ -164,11 +162,11 @@ export class MsgToolCard extends LitElement {
     }
 
     .tool-card--call .tool-body {
-      border-color: #bfdbfe;
+      border-color: #e2e8f0;
     }
 
     .tool-card--result .tool-body {
-      border-color: #bbf7d0;
+      border-color: #e2e8f0;
     }
 
     .tool-card--error .tool-body {
@@ -218,7 +216,7 @@ export class MsgToolCard extends LitElement {
     }
     .tool-result-body code {
       background: rgba(255, 255, 255, 0.8);
-      border: 1px solid #bbf7d0;
+      border: 1px solid #e2e8f0;
       border-radius: 3px;
       padding: 1px 4px;
       font-size: 0.87em;
@@ -230,7 +228,7 @@ export class MsgToolCard extends LitElement {
 
     .tool-result-body pre {
       background: rgba(255, 255, 255, 0.7);
-      border: 1px solid #bbf7d0;
+      border: 1px solid #e2e8f0;
       border-radius: 6px;
       padding: 7px 10px;
       overflow-x: auto;
@@ -250,7 +248,7 @@ export class MsgToolCard extends LitElement {
       padding: 0;
     }
     .tool-result-body blockquote {
-      border-left: 3px solid #4ade80;
+      border-left: 3px solid #cbd5e1;
       margin: 0.4em 0;
       padding: 2px 8px;
       color: #475569;
@@ -271,7 +269,7 @@ export class MsgToolCard extends LitElement {
     }
     .tool-result-body th,
     .tool-result-body td {
-      border: 1px solid #bbf7d0;
+      border: 1px solid #e2e8f0;
       padding: 3px 7px;
     }
     .tool-card--error .tool-result-body th,
@@ -290,7 +288,7 @@ export class MsgToolCard extends LitElement {
       border: none;
       cursor: pointer;
       font-size: 12px;
-      color: #3b82f6;
+      color: #64748b;
       padding: 0;
     }
 
@@ -300,17 +298,17 @@ export class MsgToolCard extends LitElement {
 
     /* ── aiemas_sessions_send 等待状态样式 ── */
     .tool-card--waiting {
-      border-color: #c4b5fd;
-      background: #f5f3ff;
+      border-color: #e2e8f0;
+      background: #f8fafc;
     }
 
     .tool-card--waiting .tool-name {
-      color: #7c3aed;
+      color: #475569;
     }
 
     .tool-card--waiting .tool-kind-tag {
-      background: #ede9fe;
-      color: #7c3aed;
+      background: #f1f5f9;
+      color: #475569;
     }
 
     .waiting-info {
@@ -319,15 +317,15 @@ export class MsgToolCard extends LitElement {
       gap: 8px;
       padding: 8px 12px;
       font-size: 12px;
-      color: #6d28d9;
-      border-top: 1px solid #c4b5fd;
+      color: #64748b;
+      border-top: 1px solid #e2e8f0;
     }
 
     .waiting-spinner {
       width: 14px;
       height: 14px;
-      border: 2px solid #c4b5fd;
-      border-top-color: #7c3aed;
+      border: 2px solid #e2e8f0;
+      border-top-color: #64748b;
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
       flex-shrink: 0;
@@ -341,7 +339,7 @@ export class MsgToolCard extends LitElement {
 
     .waiting-timer {
       font-variant-numeric: tabular-nums;
-      color: #8b5cf6;
+      color: #94a3b8;
     }
   `;
 

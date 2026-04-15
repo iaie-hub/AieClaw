@@ -235,14 +235,15 @@ export function ensureMessageSchema(db: DatabaseSync): void {
       userId      TEXT    NULL,
       tenantId    TEXT    NULL,
       role        TEXT    NOT NULL
-                  CHECK(role IN ('user','assistant','tool','approval','system','progress','summary')),
+                  CHECK(role IN ('user','assistant','tool','approval','system','progress','summary','agent')),
       content     TEXT    NOT NULL,
       timestamp   INTEGER NOT NULL,
       seq         INTEGER NOT NULL DEFAULT 0,
       archivedDate TEXT   NULL,
       toolCallId  TEXT    NULL,
       toolName    TEXT    NULL,
-      parentSessionUuid TEXT NULL
+      parentSessionUuid TEXT NULL,
+      sourceAgentId TEXT  NULL
     );
   `);
 

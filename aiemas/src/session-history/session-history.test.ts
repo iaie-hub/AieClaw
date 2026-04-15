@@ -40,6 +40,7 @@ function makeMsg(
     toolCallId: null,
     toolName: null,
     parentSessionUuid: null,
+    sourceAgentId: null,
     ...overrides,
   };
 }

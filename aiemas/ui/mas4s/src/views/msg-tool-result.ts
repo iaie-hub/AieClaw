@@ -39,11 +39,10 @@ export class MsgToolResult extends LitElement {
       display: flex;
       align-items: center;
       justify-content: center;
-      color: #fff;
+      color: #94a3b8;
       margin: 0 16px 0 0;
       flex-shrink: 0;
-      box-shadow: 0 4px 14px rgba(71, 85, 105, 0.3);
-      background: linear-gradient(135deg, #64748b 0%, #334155 100%);
+      background: #f1f5f9;
     }
 
     .avatar-icon {

@@ -785,3 +785,31 @@
 | ----------------- | -------------- |
 | PERMISSION_DENIED | 角色权限不足   |
 | INTERNAL          | 数据库查询失败 |
+
+---
+
+## 七、消息格式 (Message Format)
+
+### session_messages 表 role 字段
+
+`session.history.range` 返回的消息中，`role` 字段标识消息的来源类型：
+
+| role        | 说明                                                          | sourceAgentId           |
+| :---------- | :------------------------------------------------------------ | :---------------------- |
+| `user`      | 人类用户直接发送的消息                                        | null                    |
+| `agent`     | 其他 Agent 通过 `aiemas_sessions_send` 发送的消息（A2A 通信） | 发送方 Agent 的 agentId |
+| `assistant` | Agent（LLM）的回复消息                                        | null                    |
+| `tool`      | 工具调用结果                                                  | null                    |
+| `approval`  | 审批事件（requested / resolved / user-resolve）               | null                    |
+| `system`    | 系统消息                                                      | null                    |
+| `progress`  | SOP/Skill 进度事件                                            | null                    |
+| `summary`   | 会话摘要                                                      | null                    |
+
+### sourceAgentId 字段
+
+`sourceAgentId` 仅在 `role = "agent"` 时有值，标识消息的来源 Agent。例如：
+
+- 根 Agent `aieiaas` 通过 `aiemas_sessions_send` 向子 Agent `aieiaas-resource` 发送消息
+- 子 Agent session 中该消息的 `role = "agent"`，`sourceAgentId = "aieiaas"`
+
+这使得 UI 和审计系统能够区分"人类用户直接发送"和"Agent 间转发"的消息。

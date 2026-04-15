@@ -9,7 +9,10 @@ import "./notif-badge.js";
 import "./confirm-dialog.js";
 
 /**
- * 主工作区顶部 Header（70px 高）。
+ * 主工作区顶部 Header — 重构版。
+ *
+ * 布局：左侧会话信息 + 中间操作按钮组 + 右侧通知/用户。
+ * 视觉：磨砂玻璃质感，与 session-sidebar 的渐变体系保持一致。
  */
 @customElement("main-header")
 export class MainHeader extends LitElement {
@@ -28,181 +31,582 @@ export class MainHeader extends LitElement {
   @state() private _selectedAgentId = "default";
 
   static styles = css`
+    /* ── Host: frosted glass header ── */
     :host {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      height: 70px;
-      background: #ffffff;
-      border-bottom: 1px solid #e2e8f0;
-      padding: 0 30px;
+      height: 64px;
+      background: rgba(255, 255, 255, 0.72);
+      backdrop-filter: blur(20px) saturate(1.6);
+      -webkit-backdrop-filter: blur(20px) saturate(1.6);
+      border-bottom: 1px solid rgba(226, 232, 240, 0.5);
+      padding: 0 24px;
       flex-shrink: 0;
       z-index: 100;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
       box-sizing: border-box;
+      font-family: "DM Sans", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+      position: relative;
     }
 
+    :host::after {
+      content: "";
+      position: absolute;
+      bottom: -1px;
+      left: 24px;
+      right: 24px;
+      height: 1px;
+      background: #e2e8f0;
+    }
+
+    /* ── Left: session identity ── */
     .left {
       display: flex;
       align-items: center;
-      gap: 12px;
-      color: #1e293b;
+      gap: 14px;
+      min-width: 0;
+      flex: 1;
     }
 
-    .session-info-col {
+    .session-identity {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      max-width: 320px;
+      flex-shrink: 1;
+    }
+
+    .session-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: #eff6ff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: #2563eb;
+    }
+
+    .session-text {
       display: flex;
       flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .session-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #1e293b;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.3;
+    }
+
+    .session-agent {
+      font-size: 11px;
+      font-weight: 500;
+      color: #94a3b8;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: flex;
+      align-items: center;
       gap: 4px;
     }
 
-    .session-title-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 18px;
-      font-weight: 600;
+    .agent-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #22c55e;
+      flex-shrink: 0;
     }
 
-    .status-tag {
+    /* ── Divider between identity and actions ── */
+    .v-divider {
+      width: 1px;
+      height: 28px;
+      background: linear-gradient(180deg, transparent, #e2e8f0, transparent);
+      flex-shrink: 0;
+    }
+
+    /* ── Center: action button group ── */
+    .actions-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(241, 245, 249, 0.6);
+      border: 1px solid rgba(226, 232, 240, 0.5);
+      border-radius: 12px;
+      padding: 3px;
+      flex-shrink: 0;
+    }
+
+    .act-btn {
       display: inline-flex;
       align-items: center;
-      padding: 2px 8px;
-      border-radius: 6px;
+      gap: 5px;
+      padding: 5px 11px;
+      border-radius: 9px;
+      border: 1px solid transparent;
+      background: transparent;
+      cursor: pointer;
       font-size: 12px;
-      font-weight: 500;
-    }
-
-    .invite-btn {
-      padding: 5px 12px;
-      border-radius: 8px;
-      border: 1px solid #e2e8f0;
-      background: white;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 13px;
-      font-weight: 500;
-      transition: all 0.2s;
-      color: #3b82f6;
-    }
-
-    .invite-btn:hover {
-      border-color: #3b82f6;
-      background: #eff6ff;
-    }
-
-    .summary-btn {
-      padding: 5px 12px;
-      border-radius: 8px;
-      border: 1px solid #e2e8f0;
-      background: white;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 13px;
-      font-weight: 500;
-      color: #7c3aed;
-      transition: all 0.2s;
-    }
-
-    .summary-btn:hover {
-      border-color: #7c3aed;
-      background: #f5f3ff;
-    }
-
-    .archive-btn {
-      padding: 5px 12px;
-      border-radius: 8px;
-      border: 1px solid #e2e8f0;
-      background: white;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 13px;
-      font-weight: 500;
+      font-weight: 600;
+      font-family: inherit;
       color: #64748b;
-      transition: all 0.2s;
-      position: relative;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      white-space: nowrap;
+      line-height: 1;
     }
 
-    .archive-btn:hover {
-      background: #f1f5f9;
+    .act-btn:hover {
+      background: #ffffff;
       color: #1e293b;
-      border-color: #94a3b8;
+      border-color: rgba(226, 232, 240, 0.8);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
     }
 
-    .archive-btn.unarchive {
-      background: #fdf2f2;
-      color: #ef4444;
-      border-color: #fecaca;
+    .act-btn.agent {
+      color: #64748b;
+    }
+    .act-btn.agent:hover {
+      background: #f8fafc;
+      border-color: #e2e8f0;
+      color: #1e293b;
+    }
+
+    .act-btn.invite {
+      color: #64748b;
+    }
+    .act-btn.invite:hover {
+      background: #f8fafc;
+      border-color: #e2e8f0;
+      color: #1e293b;
+    }
+
+    .act-btn.archive {
+      color: #64748b;
+    }
+    .act-btn.archive:hover {
+      background: #f8fafc;
+      border-color: #e2e8f0;
+      color: #1e293b;
+    }
+
+    .act-btn.unarchive {
+      color: #64748b;
+    }
+    .act-btn.unarchive:hover {
+      background: #f8fafc;
+      border-color: #e2e8f0;
+      color: #1e293b;
+    }
+
+    .act-btn.summary {
+      color: #64748b;
+    }
+    .act-btn.summary:hover {
+      background: #f8fafc;
+      border-color: #e2e8f0;
+      color: #1e293b;
+    }
+
+    /* CSS tooltip for action buttons */
+    .act-btn {
       position: relative;
     }
-
-    .archive-btn.unarchive:hover {
-      background: #fef2f2;
-      border-color: #fca5a5;
-    }
-
-    /* CSS tooltip */
-    .archive-btn::after {
+    .act-btn::after {
       content: attr(data-tip);
       position: absolute;
       top: calc(100% + 8px);
       left: 50%;
-      transform: translateX(-50%);
+      transform: translateX(-50%) scale(0.92);
       background: #1e293b;
-      color: #fff;
+      color: #f1f5f9;
       font-size: 11px;
-      font-weight: 400;
+      font-weight: 500;
       white-space: pre-wrap;
       line-height: 1.5;
       text-align: center;
       width: max-content;
-      max-width: 260px;
-      padding: 6px 12px;
-      border-radius: 6px;
+      max-width: 240px;
+      padding: 5px 10px;
+      border-radius: 8px;
       pointer-events: none;
       opacity: 0;
-      transition: opacity 0.15s;
+      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
       z-index: 200;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
     }
-
-    .archive-btn:hover::after {
+    .act-btn:hover::after {
       opacity: 1;
+      transform: translateX(-50%) scale(1);
     }
 
-    .agent-btn {
-      padding: 5px 12px;
-      border-radius: 8px;
-      border: 1px solid #e2e8f0;
-      background: white;
-      cursor: pointer;
+    /* ── Tool toggle (pill switch) ── */
+    .tool-toggle {
       display: flex;
       align-items: center;
       gap: 6px;
-      font-size: 13px;
-      font-weight: 500;
-      color: #0891b2;
+      padding: 5px 11px;
+      border-radius: 9px;
+      border: 1px solid transparent;
+      background: transparent;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      color: #94a3b8;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      user-select: none;
+      white-space: nowrap;
+      line-height: 1;
+    }
+
+    .tool-toggle:hover {
+      background: #ffffff;
+      color: #64748b;
+      border-color: rgba(226, 232, 240, 0.8);
+    }
+
+    .tool-toggle.active {
+      color: #3b82f6;
+    }
+
+    .toggle-track {
+      position: relative;
+      width: 26px;
+      height: 14px;
+      border-radius: 7px;
+      background: #d1d5db;
+      transition: background 0.2s;
+      flex-shrink: 0;
+    }
+
+    .tool-toggle.active .toggle-track {
+      background: #3b82f6;
+    }
+
+    .toggle-thumb {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: white;
+      transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    }
+
+    .tool-toggle.active .toggle-thumb {
+      transform: translateX(12px);
+    }
+
+    /* ── Right: notifications + user ── */
+    .right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .notif-anchor {
+      position: relative;
+    }
+
+    .user-chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 12px 4px 4px;
+      border-radius: 22px;
+      background: rgba(241, 245, 249, 0.6);
+      border: 1px solid rgba(226, 232, 240, 0.5);
+      cursor: default;
       transition: all 0.2s;
     }
 
-    .agent-btn:hover {
-      border-color: #0891b2;
-      background: #ecfeff;
+    .user-chip:hover {
+      background: rgba(241, 245, 249, 0.9);
+      border-color: rgba(226, 232, 240, 0.8);
     }
 
-    /* Agent 对话框 */
+    .user-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: #64748b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: -0.02em;
+      flex-shrink: 0;
+    }
+
+    .user-name {
+      font-size: 13px;
+      color: #475569;
+      font-weight: 600;
+      letter-spacing: -0.005em;
+    }
+
+    /* ── Notification panel ── */
+    .notif-panel {
+      position: absolute;
+      top: calc(100% + 10px);
+      right: 0;
+      width: 380px;
+      max-height: 500px;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(24px) saturate(1.4);
+      -webkit-backdrop-filter: blur(24px) saturate(1.4);
+      border: 1px solid rgba(226, 232, 240, 0.6);
+      border-radius: 16px;
+      box-shadow:
+        0 12px 40px rgba(0, 0, 0, 0.1),
+        0 0 0 1px rgba(0, 0, 0, 0.02);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      animation: panelReveal 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes panelReveal {
+      from {
+        opacity: 0;
+        transform: translateY(-6px) scale(0.97);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .notif-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 18px 12px;
+      border-bottom: 1px solid rgba(241, 245, 249, 0.8);
+      font-size: 14px;
+      font-weight: 700;
+      color: #1e293b;
+      letter-spacing: -0.01em;
+      flex-shrink: 0;
+    }
+
+    .notif-batch-actions {
+      display: flex;
+      gap: 8px;
+      padding: 10px 18px;
+      border-bottom: 1px solid rgba(241, 245, 249, 0.8);
+      flex-shrink: 0;
+    }
+
+    .notif-batch-btn {
+      flex: 1;
+      padding: 7px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.15s;
+    }
+
+    .notif-batch-btn.allow {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: white;
+      box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+    }
+
+    .notif-batch-btn.allow:hover {
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+      transform: translateY(-1px);
+    }
+
+    .notif-batch-btn.deny {
+      background: white;
+      color: #ef4444;
+      border-color: #fecaca;
+    }
+
+    .notif-batch-btn.deny:hover {
+      background: #fef2f2;
+      border-color: #fca5a5;
+    }
+
+    .notif-close-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #94a3b8;
+      font-size: 15px;
+      padding: 4px 6px;
+      border-radius: 6px;
+      line-height: 1;
+      transition: all 0.15s;
+    }
+
+    .notif-close-btn:hover {
+      color: #475569;
+      background: rgba(241, 245, 249, 0.8);
+    }
+
+    .notif-list {
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .notif-empty {
+      padding: 36px 18px;
+      text-align: center;
+      color: #94a3b8;
+      font-size: 13px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .notif-empty-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: rgba(148, 163, 184, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #cbd5e1;
+    }
+
+    .notif-item {
+      padding: 14px 18px;
+      border-bottom: 1px solid rgba(241, 245, 249, 0.6);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: background 0.15s;
+    }
+
+    .notif-item:hover {
+      background: rgba(248, 250, 252, 0.6);
+    }
+
+    .notif-item:last-child {
+      border-bottom: none;
+    }
+
+    .notif-item-top {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .notif-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: rgba(245, 158, 11, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: #f59e0b;
+    }
+
+    .notif-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .notif-command {
+      font-size: 13px;
+      font-weight: 700;
+      color: #1e293b;
+      font-family: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      letter-spacing: -0.01em;
+    }
+
+    .notif-meta {
+      font-size: 11px;
+      color: #94a3b8;
+      margin-top: 3px;
+      font-weight: 500;
+    }
+
+    .notif-ask {
+      font-size: 12px;
+      color: #475569;
+      background: rgba(241, 245, 249, 0.6);
+      border: 1px solid rgba(226, 232, 240, 0.4);
+      border-radius: 8px;
+      padding: 8px 10px;
+      line-height: 1.5;
+    }
+
+    .notif-actions {
+      display: flex;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+
+    .notif-btn {
+      padding: 5px 14px;
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.15s;
+    }
+
+    .notif-btn.allow {
+      background: #10b981;
+      color: white;
+    }
+
+    .notif-btn.allow:hover {
+      background: #059669;
+    }
+
+    .notif-btn.deny {
+      background: white;
+      color: #ef4444;
+      border-color: #fecaca;
+    }
+
+    .notif-btn.deny:hover {
+      background: #fef2f2;
+    }
+
+    /* ── Agent dialog ── */
     .agent-dialog-overlay {
       position: fixed;
       top: 0;
       left: 0;
       width: 100vw;
       height: 100vh;
-      background: rgba(0, 0, 0, 0.2);
+      background: rgba(15, 23, 42, 0.3);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
       z-index: 1000;
       display: flex;
       align-items: center;
@@ -210,30 +614,35 @@ export class MainHeader extends LitElement {
     }
 
     .agent-dialog {
-      width: 320px;
-      background: white;
-      border-radius: 16px;
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+      width: 340px;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border-radius: 20px;
+      border: 1px solid rgba(226, 232, 240, 0.5);
+      box-shadow:
+        0 20px 60px rgba(0, 0, 0, 0.12),
+        0 0 0 1px rgba(0, 0, 0, 0.03);
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      animation: dialogPop 0.2s ease-out;
+      animation: dialogPop 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     @keyframes dialogPop {
       from {
-        transform: scale(0.95);
+        transform: scale(0.92) translateY(8px);
         opacity: 0;
       }
       to {
-        transform: scale(1);
+        transform: scale(1) translateY(0);
         opacity: 1;
       }
     }
 
     .agent-dialog-header {
-      padding: 16px 20px;
-      border-bottom: 1px solid #f1f5f9;
+      padding: 18px 22px;
+      border-bottom: 1px solid rgba(241, 245, 249, 0.8);
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -242,64 +651,72 @@ export class MainHeader extends LitElement {
     .agent-dialog-header h3 {
       margin: 0;
       font-size: 16px;
-      font-weight: 600;
+      font-weight: 700;
       color: #1e293b;
+      letter-spacing: -0.01em;
     }
 
     .agent-list {
-      max-height: 300px;
+      max-height: 320px;
       overflow-y: auto;
       padding: 8px;
     }
 
     .agent-item {
-      padding: 10px 12px;
-      border-radius: 10px;
+      padding: 12px 14px;
+      border-radius: 12px;
       cursor: pointer;
       display: flex;
       flex-direction: column;
-      gap: 2px;
-      transition: all 0.2s;
+      gap: 3px;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
       margin-bottom: 4px;
+      border: 1px solid transparent;
     }
 
     .agent-item:hover {
-      background: #f8fafc;
+      background: rgba(248, 250, 252, 0.8);
+      border-color: rgba(226, 232, 240, 0.5);
     }
 
     .agent-item.active {
       background: #ecfeff;
-      border: 1px solid #0891b2;
+      border-color: rgba(8, 145, 178, 0.25);
+      box-shadow: 0 0 0 1px rgba(8, 145, 178, 0.08);
     }
 
     .agent-name-row {
       font-size: 14px;
-      font-weight: 600;
+      font-weight: 700;
       color: #1e293b;
+      letter-spacing: -0.005em;
     }
 
     .agent-desc-row {
       font-size: 12px;
       color: #64748b;
+      line-height: 1.4;
     }
 
     .agent-dialog-footer {
-      padding: 12px 20px;
-      background: #f8fafc;
-      border-top: 1px solid #f1f5f9;
+      padding: 14px 22px;
+      background: rgba(248, 250, 252, 0.6);
+      border-top: 1px solid rgba(241, 245, 249, 0.8);
       display: flex;
       justify-content: flex-end;
       gap: 10px;
     }
 
     .dialog-btn {
-      padding: 6px 14px;
-      border-radius: 8px;
+      padding: 8px 18px;
+      border-radius: 10px;
       font-size: 13px;
-      font-weight: 600;
+      font-weight: 700;
+      font-family: inherit;
       cursor: pointer;
       border: 1px solid transparent;
-      transition: all 0.2s;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      letter-spacing: -0.005em;
     }
 
     .dialog-btn.cancel {
@@ -314,291 +731,47 @@ export class MainHeader extends LitElement {
     }
 
     .dialog-btn.confirm {
-      background: #0891b2;
+      background: linear-gradient(135deg, #0891b2, #0e7490);
       color: white;
+      box-shadow: 0 2px 8px rgba(8, 145, 178, 0.3);
     }
 
     .dialog-btn.confirm:hover {
-      background: #0e7490;
+      box-shadow: 0 4px 14px rgba(8, 145, 178, 0.4);
+      transform: translateY(-1px);
     }
 
-    .tool-toggle {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 10px;
-      border-radius: 8px;
-      border: 1px solid #e2e8f0;
-      background: white;
-      cursor: pointer;
-      font-size: 12px;
-      color: #64748b;
-      transition: all 0.2s;
-      user-select: none;
-      white-space: nowrap;
-    }
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+      :host {
+        padding: 0 14px;
+        height: 56px;
+      }
 
-    .tool-toggle:hover {
-      border-color: #94a3b8;
-      background: #f8fafc;
-    }
+      .session-title {
+        font-size: 13px;
+      }
 
-    .tool-toggle.active {
-      color: #0891b2;
-      border-color: #0891b2;
-      background: #ecfeff;
-    }
+      .act-btn span {
+        display: none;
+      }
 
-    .toggle-track {
-      position: relative;
-      width: 28px;
-      height: 16px;
-      border-radius: 8px;
-      background: #cbd5e1;
-      transition: background 0.2s;
-      flex-shrink: 0;
-    }
+      .act-btn {
+        padding: 6px 8px;
+      }
 
-    .tool-toggle.active .toggle-track {
-      background: #0891b2;
-    }
+      .user-name {
+        display: none;
+      }
 
-    .toggle-thumb {
-      position: absolute;
-      top: 2px;
-      left: 2px;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: white;
-      transition: transform 0.2s;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-    }
+      .user-chip {
+        padding: 4px;
+        border-radius: 50%;
+      }
 
-    .tool-toggle.active .toggle-thumb {
-      transform: translateX(12px);
-    }
-
-    .right {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
-
-    .user-info {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      cursor: pointer;
-    }
-
-    .user-avatar {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #f43f5e, #8b5cf6);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-weight: 700;
-      font-size: 13px;
-    }
-
-    .user-name {
-      font-size: 14px;
-      color: #475569;
-      font-weight: 500;
-    }
-
-    /* 通知面板 */
-    .notif-anchor {
-      position: relative;
-    }
-
-    .notif-panel {
-      position: absolute;
-      top: calc(100% + 8px);
-      right: 0;
-      width: 360px;
-      max-height: 480px;
-      background: #ffffff;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-      z-index: 100;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-
-    .notif-panel-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 14px 16px 10px;
-      border-bottom: 1px solid #f1f5f9;
-      font-size: 14px;
-      font-weight: 600;
-      color: #1e293b;
-      flex-shrink: 0;
-    }
-
-    .notif-batch-actions {
-      display: flex;
-      gap: 8px;
-      padding: 8px 16px;
-      border-bottom: 1px solid #f1f5f9;
-      flex-shrink: 0;
-    }
-
-    .notif-batch-btn {
-      flex: 1;
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      border: 1px solid transparent;
-      transition: all 0.15s;
-    }
-
-    .notif-batch-btn.allow {
-      background: #10b981;
-      color: white;
-      border-color: #10b981;
-    }
-
-    .notif-batch-btn.allow:hover {
-      background: #059669;
-    }
-
-    .notif-batch-btn.deny {
-      background: white;
-      color: #ef4444;
-      border-color: #fca5a5;
-    }
-
-    .notif-batch-btn.deny:hover {
-      background: #fef2f2;
-    }
-
-    .notif-close-btn {
-      background: none;
-      border: none;
-      cursor: pointer;
-      color: #94a3b8;
-      font-size: 16px;
-      padding: 2px 4px;
-      border-radius: 4px;
-      line-height: 1;
-    }
-
-    .notif-close-btn:hover {
-      color: #475569;
-      background: #f1f5f9;
-    }
-
-    .notif-list {
-      overflow-y: auto;
-      flex: 1;
-    }
-
-    .notif-empty {
-      padding: 32px 16px;
-      text-align: center;
-      color: #94a3b8;
-      font-size: 14px;
-    }
-
-    .notif-item {
-      padding: 12px 16px;
-      border-bottom: 1px solid #f8fafc;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    .notif-item:last-child {
-      border-bottom: none;
-    }
-
-    .notif-item-top {
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-    }
-
-    .notif-icon {
-      font-size: 16px;
-      flex-shrink: 0;
-      margin-top: 1px;
-    }
-
-    .notif-content {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .notif-command {
-      font-size: 13px;
-      font-weight: 600;
-      color: #1e293b;
-      font-family: "SF Mono", "Fira Code", monospace;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .notif-meta {
-      font-size: 11px;
-      color: #94a3b8;
-      margin-top: 2px;
-    }
-
-    .notif-ask {
-      font-size: 12px;
-      color: #475569;
-      background: #f8fafc;
-      border-radius: 6px;
-      padding: 6px 8px;
-      line-height: 1.5;
-    }
-
-    .notif-actions {
-      display: flex;
-      gap: 6px;
-      justify-content: flex-end;
-    }
-
-    .notif-btn {
-      padding: 4px 12px;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      border: 1px solid transparent;
-      transition: all 0.15s;
-    }
-
-    .notif-btn.allow {
-      background: #10b981;
-      color: white;
-      border-color: #10b981;
-    }
-
-    .notif-btn.allow:hover {
-      background: #059669;
-    }
-
-    .notif-btn.deny {
-      background: white;
-      color: #ef4444;
-      border-color: #fca5a5;
-    }
-
-    .notif-btn.deny:hover {
-      background: #fef2f2;
+      .tool-toggle span:last-child {
+        display: none;
+      }
     }
   `;
 
@@ -753,12 +926,41 @@ export class MainHeader extends LitElement {
           <div class="agent-dialog-header">
             <h3>选择执行 Agent</h3>
             <button class="notif-close-btn" @click=${() => (this._agentDialogOpen = false)}>
-              ✕
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
             </button>
           </div>
           <div class="agent-list">
             ${agents.length === 0
-              ? html`<div class="notif-empty">未发现可用 Agent</div>`
+              ? html`<div class="notif-empty">
+                  <div class="notif-empty-icon">
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <line x1="8" y1="12" x2="16" y2="12"></line>
+                    </svg>
+                  </div>
+                  未发现可用 Agent
+                </div>`
               : agents.map(
                   (a) => html`
                     <div
@@ -795,7 +997,19 @@ export class MainHeader extends LitElement {
         <div class="notif-panel-header">
           <span>待审批通知 ${hasPending ? `(${approvals.length})` : ""}</span>
           <button class="notif-close-btn" @click=${this._onNotifClose} aria-label="关闭通知面板">
-            ✕
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
           </button>
         </div>
         ${hasPending
@@ -810,7 +1024,26 @@ export class MainHeader extends LitElement {
           : nothing}
         <div class="notif-list">
           ${!hasPending
-            ? html` <div class="notif-empty">暂无待审批通知</div> `
+            ? html`
+                <div class="notif-empty">
+                  <div class="notif-empty-icon">
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                    </svg>
+                  </div>
+                  暂无待审批通知
+                </div>
+              `
             : approvals.map((a) => this._renderNotifItem(a))}
         </div>
       </div>
@@ -825,7 +1058,20 @@ export class MainHeader extends LitElement {
     return html`
       <div class="notif-item">
         <div class="notif-item-top">
-          <span class="notif-icon">⚡</span>
+          <div class="notif-icon">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+          </div>
           <div class="notif-content">
             <div class="notif-command" title=${cmd}>${cmd}</div>
             <div class="notif-meta">会话：${session} · ${timeLabel}</div>
@@ -865,20 +1111,24 @@ export class MainHeader extends LitElement {
   render() {
     const isInitiator = this.session?.masType === "initiated";
     const isArchived = this.session?.archivedAt != null;
+    const agentName =
+      this.session?.currentAgentId ||
+      (this.session ? extractAgentNameFromKey(this.session.key) : "default");
 
     return html`
+      <!-- Left: session identity -->
       <div class="left">
         ${this.title
           ? html`
-              <div class="session-info-col">
-                <div class="session-title-row">
+              <div class="session-identity">
+                <div class="session-icon">
                   <svg
-                    width="20"
-                    height="20"
+                    width="16"
+                    height="16"
                     viewBox="0 0 24 24"
                     fill="none"
-                    stroke="#2563eb"
-                    stroke-width="2"
+                    stroke="currentColor"
+                    stroke-width="2.5"
                     stroke-linecap="round"
                     stroke-linejoin="round"
                   >
@@ -886,70 +1136,30 @@ export class MainHeader extends LitElement {
                     <path d="M12 12v9"></path>
                     <path d="m16 16-4-4-4 4"></path>
                   </svg>
-                  <span
-                    >${this.title} ·
-                    ${this.session?.currentAgentId ||
-                    (this.session ? extractAgentNameFromKey(this.session.key) : "default")}</span
-                  >
+                </div>
+                <div class="session-text">
+                  <span class="session-title">${this.title}</span>
+                  <span class="session-agent">
+                    <span class="agent-dot"></span>
+                    ${agentName}
+                  </span>
                 </div>
               </div>
-              ${isInitiator
-                ? html`
-                    <button class="agent-btn" @click=${this._onAgentClick} title="切换执行 Agent">
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <path
-                          d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"
-                        ></path>
-                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-                        <line x1="12" y1="22.08" x2="12" y2="12"></line>
-                      </svg>
-                      切换
-                    </button>
-                  `
-                : nothing}
-              ${this.showInvite
-                ? html`
-                    <button class="invite-btn" @click=${this._onInviteClick} title="邀请协作者">
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
-                        <circle cx="9" cy="7" r="4"></circle>
-                        <line x1="19" y1="8" x2="19" y2="14"></line>
-                        <line x1="22" y1="11" x2="16" y2="11"></line>
-                      </svg>
-                      邀请
-                    </button>
-                  `
-                : nothing}
-              ${isInitiator
-                ? isArchived
+
+              <span class="v-divider"></span>
+
+              <!-- Action buttons group -->
+              <div class="actions-group">
+                ${isInitiator
                   ? html`
                       <button
-                        class="archive-btn unarchive"
-                        @click=${this._onUnarchive}
-                        title="取消归档"
-                        data-tip="取消归档后将恢复会话，&#10;成员可继续发送消息"
+                        class="act-btn agent"
+                        @click=${this._onAgentClick}
+                        data-tip="切换执行 Agent"
                       >
                         <svg
-                          width="16"
-                          height="16"
+                          width="13"
+                          height="13"
                           viewBox="0 0 24 24"
                           fill="none"
                           stroke="currentColor"
@@ -957,29 +1167,26 @@ export class MainHeader extends LitElement {
                           stroke-linecap="round"
                           stroke-linejoin="round"
                         >
-                          <path d="M3 10h18"></path>
-                          <path d="M8 14h8"></path>
                           <path
-                            d="M7 6v1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1z"
+                            d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"
                           ></path>
-                          <path
-                            d="M21 5h-2a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1z"
-                          ></path>
-                          <path d="M12 2v3"></path>
+                          <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                          <line x1="12" y1="22.08" x2="12" y2="12"></line>
                         </svg>
-                        取消归档
+                        <span>切换</span>
                       </button>
                     `
-                  : html`
+                  : nothing}
+                ${this.showInvite
+                  ? html`
                       <button
-                        class="archive-btn"
-                        @click=${this._onArchive}
-                        title="归档会话"
-                        data-tip="归档后会话将冻结，同时生成摘要，&#10;成员无法继续发送消息。如需恢复可取消归档"
+                        class="act-btn invite"
+                        @click=${this._onInviteClick}
+                        data-tip="邀请协作者"
                       >
                         <svg
-                          width="16"
-                          height="16"
+                          width="13"
+                          height="13"
                           viewBox="0 0 24 24"
                           fill="none"
                           stroke="currentColor"
@@ -987,26 +1194,80 @@ export class MainHeader extends LitElement {
                           stroke-linecap="round"
                           stroke-linejoin="round"
                         >
-                          <polyline points="21 8 21 21 3 21 3 8"></polyline>
-                          <rect x="1" y="3" width="22" height="5"></rect>
-                          <line x1="10" y1="12" x2="14" y2="12"></line>
+                          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+                          <circle cx="9" cy="7" r="4"></circle>
+                          <line x1="19" y1="8" x2="19" y2="14"></line>
+                          <line x1="22" y1="11" x2="16" y2="11"></line>
                         </svg>
-                        归档
+                        <span>邀请</span>
                       </button>
                     `
-                : nothing}
-              ${
-                // 摘要按钮：未归档时所有成员可见；已归档时仅 owner 可见（需求 4.10）
-                !isArchived || isInitiator
+                  : nothing}
+                ${isInitiator
+                  ? isArchived
+                    ? html`
+                        <button
+                          class="act-btn unarchive"
+                          @click=${this._onUnarchive}
+                          data-tip="取消归档后将恢复会话，&#10;成员可继续发送消息"
+                        >
+                          <svg
+                            width="13"
+                            height="13"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          >
+                            <path d="M3 10h18"></path>
+                            <path d="M8 14h8"></path>
+                            <path
+                              d="M7 6v1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1z"
+                            ></path>
+                            <path
+                              d="M21 5h-2a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1z"
+                            ></path>
+                            <path d="M12 2v3"></path>
+                          </svg>
+                          <span>取消归档</span>
+                        </button>
+                      `
+                    : html`
+                        <button
+                          class="act-btn archive"
+                          @click=${this._onArchive}
+                          data-tip="归档后会话将冻结，同时生成摘要，&#10;成员无法继续发送消息"
+                        >
+                          <svg
+                            width="13"
+                            height="13"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          >
+                            <polyline points="21 8 21 21 3 21 3 8"></polyline>
+                            <rect x="1" y="3" width="22" height="5"></rect>
+                            <line x1="10" y1="12" x2="14" y2="12"></line>
+                          </svg>
+                          <span>归档</span>
+                        </button>
+                      `
+                  : nothing}
+                ${!isArchived || isInitiator
                   ? html`
                       <button
-                        class="summary-btn"
+                        class="act-btn summary"
                         @click=${this._onSummaryClick}
-                        title="查看/生成摘要"
+                        data-tip="查看/生成摘要"
                       >
                         <svg
-                          width="15"
-                          height="15"
+                          width="13"
+                          height="13"
                           viewBox="0 0 24 24"
                           fill="none"
                           stroke="currentColor"
@@ -1022,29 +1283,31 @@ export class MainHeader extends LitElement {
                           <line x1="16" y1="17" x2="8" y2="17"></line>
                           <polyline points="10 9 9 9 8 9"></polyline>
                         </svg>
-                        摘要
+                        <span>摘要</span>
                       </button>
                     `
-                  : nothing
-              }
-              <span
-                class="tool-toggle ${this.showToolMessages ? "active" : ""}"
-                @click=${this._onToggleToolMessages}
-                title=${this.showToolMessages ? "隐藏工具调用消息" : "显示工具调用消息"}
-              >
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-                工具消息
-              </span>
+                  : nothing}
+
+                <span
+                  class="tool-toggle ${this.showToolMessages ? "active" : ""}"
+                  @click=${this._onToggleToolMessages}
+                  title=${this.showToolMessages ? "隐藏工具调用消息" : "显示工具调用消息"}
+                >
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                  <span>工具</span>
+                </span>
+              </div>
             `
           : nothing}
       </div>
 
+      <!-- Right: notifications + user -->
       <div class="right">
         <div class="notif-anchor">
           <notif-badge .count=${this.approvalCount} @notif-open=${this._onNotifOpen}></notif-badge>
           ${this._renderNotifPanel()}
         </div>
-        <div class="user-info">
+        <div class="user-chip">
           <div class="user-avatar">
             ${this._ctrl.store.currentUser?.displayName?.charAt(0).toUpperCase() || "U"}
           </div>

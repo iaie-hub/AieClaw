@@ -5,10 +5,13 @@ import "../components/copy-button.js";
 import type { ChatMessage } from "../types/chat-types.js";
 
 /**
- * 用户消息气泡（右对齐，蓝紫渐变）。
+ * Agent-to-Agent 输入消息气泡（右对齐，琥珀/橙色系）。
+ * 用于渲染来自其他 Agent 通过 aiemas_sessions_send 发送的消息（role="agent"）。
+ *
+ * 色系选择：琥珀/橙色 — 与蓝色(用户)、绿色(Agent回复/工具)、灰色(assistant)均有明显区分。
  */
-@customElement("msg-user")
-export class MsgUser extends LitElement {
+@customElement("msg-agent-input")
+export class MsgAgentInput extends LitElement {
   @property({ attribute: false }) message!: ChatMessage;
 
   static styles = css`
@@ -48,9 +51,21 @@ export class MsgUser extends LitElement {
       gap: 6px;
     }
 
-    .check-icon {
-      color: #3b82f6;
-      font-size: 12px;
+    .agent-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: #fff;
+      background: #16a34a;
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .badge-icon {
+      display: inline-flex;
     }
 
     .message-time {
@@ -86,7 +101,7 @@ export class MsgUser extends LitElement {
       opacity: 1;
     }
 
-    /* Markdown resets for user bubble */
+    /* Markdown resets for A2A bubble */
     .message-bubble p {
       margin: 0 0 0.5em;
     }
@@ -95,6 +110,7 @@ export class MsgUser extends LitElement {
     }
     .message-bubble a {
       color: #2563eb;
+      text-decoration: underline;
     }
     .message-bubble code {
       background: rgba(37, 99, 235, 0.1);
@@ -134,6 +150,21 @@ export class MsgUser extends LitElement {
       padding: 2px 10px;
       opacity: 0.85;
     }
+    .message-bubble table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 0.6em 0;
+      font-size: 0.9em;
+    }
+    .message-bubble th,
+    .message-bubble td {
+      border: 1px solid rgba(37, 99, 235, 0.15);
+      padding: 6px 10px;
+    }
+    .message-bubble th {
+      background: rgba(37, 99, 235, 0.06);
+      font-weight: 600;
+    }
 
     .message-avatar {
       width: 40px;
@@ -155,7 +186,7 @@ export class MsgUser extends LitElement {
       .filter((c) => c.type === "text")
       .map((c) => c.text ?? "")
       .join("");
-    const name = this.message.senderLabel ?? "You";
+    const name = this.message.senderLabel ?? "Agent";
     const ts = this.message.timestamp;
     const timeStr = ts
       ? (() => {
@@ -169,7 +200,26 @@ export class MsgUser extends LitElement {
       <div class="message-row">
         <div class="message-content">
           <div class="message-name">
-            ${name} ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
+            ${name}
+            <span class="agent-badge">
+              <span class="badge-icon">
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M5 12h14"></path>
+                  <path d="m12 5 7 7-7 7"></path>
+                </svg>
+              </span>
+              A2A
+            </span>
+            ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
           </div>
           ${text.trim()
             ? html`
@@ -184,7 +234,25 @@ export class MsgUser extends LitElement {
               `
             : nothing}
         </div>
-        <div class="message-avatar">👤</div>
+        <div class="message-avatar">
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M12 8V4H8"></path>
+            <rect width="16" height="12" x="4" y="8" rx="2"></rect>
+            <path d="M2 14h2"></path>
+            <path d="M20 14h2"></path>
+            <path d="M15 13v2"></path>
+            <path d="M9 13v2"></path>
+          </svg>
+        </div>
       </div>
     `;
   }
@@ -192,6 +260,6 @@ export class MsgUser extends LitElement {
 
 declare global {
   interface HTMLElementTagNameMap {
-    "msg-user": MsgUser;
+    "msg-agent-input": MsgAgentInput;
   }
 }

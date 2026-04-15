@@ -14,22 +14,21 @@ export class SessionCreateControl extends LitElement {
       width: 28px;
       height: 28px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
-      border: none;
-      color: white;
+      background: #eff6ff;
+      border: 1px solid #dbeafe;
+      color: #2563eb;
       font-size: 18px;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
       position: relative;
-      box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
       transition: all 0.2s;
     }
 
     .add-btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 10px rgba(59, 130, 246, 0.4);
+      background: #dbeafe;
+      border-color: #bfdbfe;
     }
   `;
 

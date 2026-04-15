@@ -66,12 +66,10 @@ export class MsgAgent extends LitElement {
       display: flex;
       align-items: center;
       justify-content: center;
-      color: #fff;
+      color: #64748b;
       margin: 0 16px 0 0;
       flex-shrink: 0;
-      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
-      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-      /* SVG icon instead of emoji */
+      background: #f1f5f9;
     }
 
     .avatar-icon {
@@ -89,7 +87,7 @@ export class MsgAgent extends LitElement {
 
     .message-name {
       font-size: 13px;
-      color: #059669;
+      color: #475569;
       margin-bottom: 6px;
       display: flex;
       align-items: center;
@@ -104,8 +102,8 @@ export class MsgAgent extends LitElement {
     }
 
     .agent-tag {
-      background: #d1fae5;
-      color: #059669;
+      background: #f1f5f9;
+      color: #64748b;
       border-radius: 4px;
       padding: 1px 5px;
       font-size: 10px;
@@ -116,9 +114,9 @@ export class MsgAgent extends LitElement {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      background: #fef3c7;
-      color: #92400e;
-      border: 1px solid #fde68a;
+      background: #f1f5f9;
+      color: #64748b;
+      border: 1px solid #e2e8f0;
       border-radius: 4px;
       padding: 1px 6px;
       font-size: 10px;
@@ -128,6 +126,7 @@ export class MsgAgent extends LitElement {
 
     .tool-tag-icon {
       font-size: 11px;
+      color: #94a3b8;
     }
 
     .message-bubble {
@@ -189,8 +188,8 @@ export class MsgAgent extends LitElement {
       margin: 0.2em 0;
     }
     .message-bubble code {
-      background: #f0fdf4;
-      border: 1px solid #d1fae5;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
       border-radius: 4px;
       padding: 1px 5px;
       font-size: 0.88em;
@@ -214,15 +213,15 @@ export class MsgAgent extends LitElement {
       word-break: break-all;
     }
     .message-bubble blockquote {
-      border-left: 3px solid #10b981;
+      border-left: 3px solid #cbd5e1;
       margin: 0.6em 0;
       padding: 4px 12px;
       color: #475569;
-      background: #f0fdf4;
+      background: #f8fafc;
       border-radius: 0 6px 6px 0;
     }
     .message-bubble a {
-      color: #059669;
+      color: #1e293b;
       text-decoration: underline;
     }
     .message-bubble strong {
@@ -274,9 +273,9 @@ export class MsgAgent extends LitElement {
     .quick-reply-btn {
       padding: 6px 16px;
       border-radius: 20px;
-      border: 1.5px solid #10b981;
+      border: 1.5px solid #cbd5e1;
       background: #ffffff;
-      color: #059669;
+      color: #475569;
       font-size: 13px;
       font-weight: 500;
       cursor: pointer;
@@ -286,10 +285,11 @@ export class MsgAgent extends LitElement {
     }
 
     .quick-reply-btn:hover {
-      background: #ecfdf5;
-      border-color: #059669;
+      background: #f8fafc;
+      border-color: #94a3b8;
+      color: #1e293b;
       transform: translateY(-1px);
-      box-shadow: 0 3px 8px rgba(16, 185, 129, 0.2);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
     }
 
     .quick-reply-btn:active {
@@ -298,7 +298,7 @@ export class MsgAgent extends LitElement {
 
     .thinking-block {
       margin-bottom: 6px;
-      border: 1px solid #d1fae5;
+      border: 1px solid #e2e8f0;
       border-radius: 10px;
       overflow: hidden;
       font-size: 13px;
@@ -309,15 +309,15 @@ export class MsgAgent extends LitElement {
       align-items: center;
       gap: 6px;
       padding: 7px 12px;
-      background: #f0fdf4;
-      color: #059669;
+      background: #f8fafc;
+      color: #64748b;
       cursor: pointer;
       user-select: none;
       font-weight: 500;
     }
 
     .thinking-toggle:hover {
-      background: #dcfce7;
+      background: #f1f5f9;
     }
 
     .thinking-wrapper {
@@ -340,11 +340,11 @@ export class MsgAgent extends LitElement {
 
     .thinking-body {
       padding: 10px 14px;
-      background: #fafffe;
+      background: #fafafa;
       color: #475569;
       line-height: 1.6;
       word-break: break-word;
-      border-top: 1px solid #d1fae5;
+      border-top: 1px solid #e2e8f0;
     }
 
     .thinking-body-copy-btn {
@@ -383,16 +383,16 @@ export class MsgAgent extends LitElement {
       margin: 0.15em 0;
     }
     .thinking-body code {
-      background: #ecfdf5;
-      border: 1px solid #d1fae5;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
       border-radius: 3px;
       padding: 1px 4px;
       font-size: 0.87em;
       font-family: ui-monospace, monospace;
     }
     .thinking-body pre {
-      background: #f0fdf4;
-      border: 1px solid #d1fae5;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
       border-radius: 6px;
       padding: 8px 12px;
       overflow-x: auto;
@@ -404,11 +404,11 @@ export class MsgAgent extends LitElement {
       padding: 0;
     }
     .thinking-body blockquote {
-      border-left: 3px solid #10b981;
+      border-left: 3px solid #cbd5e1;
       margin: 0.5em 0;
       padding: 3px 10px;
       color: #64748b;
-      background: #f0fdf4;
+      background: #f8fafc;
       border-radius: 0 4px 4px 0;
     }
     .thinking-body strong {
@@ -425,11 +425,11 @@ export class MsgAgent extends LitElement {
     }
     .thinking-body th,
     .thinking-body td {
-      border: 1px solid #d1fae5;
+      border: 1px solid #e2e8f0;
       padding: 4px 8px;
     }
     .thinking-body th {
-      background: #ecfdf5;
+      background: #f1f5f9;
       font-weight: 600;
     }
   `;
@@ -579,19 +579,24 @@ export class MsgAgent extends LitElement {
               width="18"
               height="12"
               rx="3"
-              fill="rgba(255,255,255,0.25)"
-              stroke="white"
+              fill="none"
+              stroke="currentColor"
               stroke-width="1.5"
             />
-            <circle cx="9" cy="14" r="2" fill="white" />
-            <circle cx="15" cy="14" r="2" fill="white" />
-            <path d="M9 8V6" stroke="white" stroke-width="1.5" stroke-linecap="round" />
-            <path d="M15 8V6" stroke="white" stroke-width="1.5" stroke-linecap="round" />
-            <circle cx="9" cy="5" r="1" fill="white" />
-            <circle cx="15" cy="5" r="1" fill="white" />
-            <path d="M12 6V4" stroke="white" stroke-width="1.5" stroke-linecap="round" />
-            <circle cx="12" cy="3" r="1.2" fill="white" />
-            <path d="M7 20v1M17 20v1" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+            <circle cx="9" cy="14" r="2" fill="currentColor" />
+            <circle cx="15" cy="14" r="2" fill="currentColor" />
+            <path d="M9 8V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            <path d="M15 8V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            <circle cx="9" cy="5" r="1" fill="currentColor" />
+            <circle cx="15" cy="5" r="1" fill="currentColor" />
+            <path d="M12 6V4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            <circle cx="12" cy="3" r="1.2" fill="currentColor" />
+            <path
+              d="M7 20v1M17 20v1"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
           </svg>
         </div>
         <div class="message-content">

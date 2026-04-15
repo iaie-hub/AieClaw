@@ -25,7 +25,7 @@ export interface StoredMessage {
   sessionId: string;
   userId: string | null;
   tenantId: string | null;
-  role: "user" | "assistant" | "tool" | "approval" | "system" | "progress" | "summary";
+  role: "user" | "assistant" | "tool" | "approval" | "system" | "progress" | "summary" | "agent";
   content: string;
   timestamp: number;
   seq: number;
@@ -33,6 +33,7 @@ export interface StoredMessage {
   toolCallId: string | null;
   toolName: string | null;
   parentSessionUuid: string | null;
+  sourceAgentId: string | null;
 }
 
 export interface SessionTranscriptStoreOptions {
@@ -150,7 +151,7 @@ function extractContent(raw: unknown): string {
 /** Normalise raw role strings to the allowed set. */
 function normaliseRole(
   raw: unknown,
-): "user" | "assistant" | "tool" | "approval" | "system" | "progress" {
+): "user" | "assistant" | "tool" | "approval" | "system" | "progress" | "agent" {
   if (raw === "human" || raw === "user") {
     return "user";
   }
@@ -169,9 +170,26 @@ function normaliseRole(
   if (raw === "progress") {
     return "progress";
   }
+  if (raw === "agent") {
+    return "agent";
+  }
   // Unknown roles fall back to "user" to satisfy the DB CHECK constraint.
   return "user";
 }
+
+// ── Helpers (A2A agent mark) ─────────────────────────────────────────────────
+
+/** Pending agent mark: tracks that the next user message for a sessionKey is from an agent. */
+interface PendingAgentMark {
+  sourceAgentId: string;
+  sourceSessionKey: string;
+  /** First 100 chars of the message for fingerprint matching */
+  messageFingerprint: string;
+  markedAt: number;
+}
+
+/** TTL for pending agent marks in milliseconds (30 seconds). */
+const AGENT_MARK_TTL_MS = 30_000;
 
 // ── Helpers (tool event) ─────────────────────────────────────────────────────
 
@@ -278,6 +296,14 @@ export class SessionTranscriptStore {
    */
   private readonly storedRunIds = new Set<string>();
 
+  /**
+   * Pending agent marks keyed by sessionKey.
+   * Each entry is a FIFO queue of marks. When aiemas_sessions_send is about to
+   * dispatch a message, it pushes a mark here. handleUpdate consumes the mark
+   * by matching the message content fingerprint, converting role from "user" to "agent".
+   */
+  private readonly pendingAgentMarks = new Map<string, PendingAgentMark[]>();
+
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private unsubscribe: (() => void) | null = null;
 
@@ -376,6 +402,34 @@ export class SessionTranscriptStore {
     ctx: SenderContext,
   ): void {
     this.getOrInitState(sessionUuid, sessionKey, sessionId).sender = ctx;
+  }
+
+  // ── markNextMessageAsAgent ─────────────────────────────────────────────────
+
+  /**
+   * Mark the next user message arriving at `targetSessionKey` as agent-sourced.
+   * Called by aiemas_sessions_send before dispatching callSessionsSend.
+   *
+   * Uses a FIFO queue per sessionKey to support async concurrent sends.
+   * Each mark includes a message fingerprint (first 100 chars) for content
+   * matching, preventing misattribution when user messages interleave.
+   * Marks expire after AGENT_MARK_TTL_MS (30s).
+   */
+  markNextMessageAsAgent(
+    targetSessionKey: string,
+    source: { sourceAgentId: string; sourceSessionKey: string; message: string },
+  ): void {
+    const queue = this.pendingAgentMarks.get(targetSessionKey) ?? [];
+    queue.push({
+      sourceAgentId: source.sourceAgentId,
+      sourceSessionKey: source.sourceSessionKey,
+      messageFingerprint: source.message.slice(0, 100),
+      markedAt: Date.now(),
+    });
+    this.pendingAgentMarks.set(targetSessionKey, queue);
+    debugLog(
+      `[mas4s:transcript-store] markNextMessageAsAgent sessionKey=${targetSessionKey} sourceAgentId=${source.sourceAgentId} queueLen=${queue.length}`,
+    );
   }
 
   // ── start ──────────────────────────────────────────────────────────────────
@@ -594,6 +648,7 @@ export class SessionTranscriptStore {
     toolCallId?: string | null;
     toolName?: string | null;
     parentSessionKey?: string;
+    sourceAgentId?: string | null;
   }): void {
     const { sessionKey, role, content, timestamp, toolCallId, toolName } = params;
     let { sessionId } = params;
@@ -630,6 +685,7 @@ export class SessionTranscriptStore {
       toolCallId: toolCallId ?? null,
       toolName: toolName ?? null,
       parentSessionUuid: state.parentSessionUuid,
+      sourceAgentId: params.sourceAgentId ?? null,
     });
 
     if (this.buffer.length >= this.maxBufferSize) {
@@ -681,6 +737,42 @@ export class SessionTranscriptStore {
         return;
       }
 
+      // ── A2A agent mark detection ──────────────────────────────────────────
+      // If this is a "user" message and there is a pending agent mark for this
+      // sessionKey, check if the message content matches the fingerprint.
+      // If so, convert role to "agent" and extract sourceAgentId.
+      let finalRole: StoredMessage["role"] = role;
+      let sourceAgentId: string | null = null;
+
+      if (finalRole === "user") {
+        const queue = this.pendingAgentMarks.get(sessionKey);
+        if (queue && queue.length > 0) {
+          // Purge expired marks (older than AGENT_MARK_TTL_MS)
+          const now = Date.now();
+          while (queue.length > 0 && now - queue[0].markedAt > AGENT_MARK_TTL_MS) {
+            queue.shift();
+          }
+          if (queue.length > 0) {
+            // Content fingerprint match: sessions_send wraps the message with a
+            // timestamp prefix like "[Tue 2026-04-14 21:14 GMT+8] original message",
+            // so we use includes() for fuzzy matching.
+            const idx = queue.findIndex((mark) => content.includes(mark.messageFingerprint));
+            if (idx >= 0) {
+              const mark = queue.splice(idx, 1)[0];
+              finalRole = "agent";
+              sourceAgentId = mark.sourceAgentId;
+              debugLog(
+                `[mas4s:transcript-store] A2A mark matched: sessionKey=${sessionKey} sourceAgentId=${sourceAgentId} fingerprint="${mark.messageFingerprint.slice(0, 30)}..."`,
+              );
+            }
+          }
+          // Clean up empty queue
+          if (queue.length === 0) {
+            this.pendingAgentMarks.delete(sessionKey);
+          }
+        }
+      }
+
       const state = this.getOrInitState(sessionUuid, sessionKey, sessionId, parentSessionUuid);
       const seq = state.lastSeq + 1;
       state.lastSeq = seq;
@@ -692,7 +784,7 @@ export class SessionTranscriptStore {
         sessionId,
         userId: state.sender.userId,
         tenantId: state.sender.tenantId,
-        role,
+        role: finalRole,
         content,
         timestamp,
         seq,
@@ -701,6 +793,7 @@ export class SessionTranscriptStore {
           (msg["toolCallId"] as string | null) ?? (msg["tool_call_id"] as string | null) ?? null,
         toolName: (msg["toolName"] as string | null) ?? (msg["tool_name"] as string | null) ?? null,
         parentSessionUuid: state.parentSessionUuid,
+        sourceAgentId,
       };
 
       debugLog(
@@ -830,8 +923,8 @@ export class SessionTranscriptStore {
 
     const insertStmt = this.db.prepare(
       `INSERT INTO session_messages
-         (id, sessionUuid, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate, toolCallId, toolName, parentSessionUuid)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, sessionUuid, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate, toolCallId, toolName, parentSessionUuid, sourceAgentId)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
     // Upsert statistic row: on first insert create the row; on subsequent inserts
@@ -891,6 +984,7 @@ export class SessionTranscriptStore {
           m.toolCallId,
           m.toolName,
           m.parentSessionUuid,
+          m.sourceAgentId,
         );
       }
 

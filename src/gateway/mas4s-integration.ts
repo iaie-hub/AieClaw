@@ -720,7 +720,7 @@ export async function initMas4sIntegration(
           };
           tools.push(
             createAiemasSessionsSendTool(
-              { db: plugin.db, callSessionsSend },
+              { db: plugin.db, callSessionsSend, transcriptStore: plugin.transcriptStore },
               { agentSessionKey: context.agentSessionKey },
             ),
           );

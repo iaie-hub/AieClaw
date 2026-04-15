@@ -10,6 +10,7 @@ import type { ChatMessage } from "../types/chat-types.js";
 import "./msg-user.js";
 import "./msg-colleague.js";
 import "./msg-agent.js";
+import "./msg-agent-input.js";
 import "./msg-tool-result.js";
 import "./msg-approval-card.js";
 import "./msg-system-card.js";
@@ -223,6 +224,9 @@ export class MessageList extends LitElement {
     }
     if (msg.role === "user" || msg.role === "User") {
       return html`<msg-user .message=${msg}></msg-user>`;
+    }
+    if (msg.role === "agent") {
+      return html`<msg-agent-input .message=${msg}></msg-agent-input>`;
     }
     if (msg.role === "assistant") {
       // Suppress assistant messages that triggered an approval request.

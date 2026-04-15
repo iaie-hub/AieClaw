@@ -1,8 +1,13 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { TSchema } from "@sinclair/typebox";
 import { Type } from "@sinclair/typebox";
+import type { SessionTranscriptStore } from "../session-history/session-transcript-store.js";
 import { createAiemasSessionsStore } from "../store/aiemas-sessions-store.js";
-import { constructKeyFromUuid, extractUuidFromKey } from "../utils/session-utils.js";
+import {
+  constructKeyFromUuid,
+  extractAgentNameFromKey,
+  extractUuidFromKey,
+} from "../utils/session-utils.js";
 
 // ── Local tool type (compatible with AnyAgentTool from Gateway core) ──
 // Defined locally to avoid importing from src/ (architecture boundary).
@@ -35,6 +40,8 @@ export interface AiemasToolDeps {
     message: string;
     timeoutSeconds?: number;
   }) => Promise<unknown>;
+  /** Optional: transcript store for marking A2A messages with role="agent" */
+  transcriptStore?: SessionTranscriptStore;
 }
 
 // ── Parameter schema ──
@@ -69,7 +76,7 @@ export function createAiemasSessionsSendTool(
   deps: AiemasToolDeps,
   context?: { agentSessionKey?: string },
 ): AiemasAgentTool {
-  const { db, callSessionsSend } = deps;
+  const { db, callSessionsSend, transcriptStore } = deps;
   const agentSessionKey = context?.agentSessionKey;
 
   return {
@@ -135,6 +142,19 @@ export function createAiemasSessionsSendTool(
         console.log(
           `[aiemas:tools] dispatching message to sessionKey=${targetSessionKey} timeout=${effectiveTimeout}s`,
         );
+
+        // 5a. Mark the next user message on the target session as agent-sourced.
+        // This must happen BEFORE callSessionsSend so the transcript store can
+        // match the incoming message and convert role from "user" to "agent".
+        if (transcriptStore && agentSessionKey) {
+          const sourceAgentId = extractAgentNameFromKey(agentSessionKey);
+          transcriptStore.markNextMessageAsAgent(targetSessionKey, {
+            sourceAgentId,
+            sourceSessionKey: agentSessionKey,
+            message: message ?? "",
+          });
+        }
+
         const result = (await callSessionsSend({
           sessionKey: targetSessionKey,
           message: message ?? "",
