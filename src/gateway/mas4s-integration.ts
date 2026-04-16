@@ -13,7 +13,7 @@ import { createSessionsSendTool } from "../agents/tools/sessions-send-tool.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { collectConfigRuntimeEnvVars } from "../config/env-vars.js";
 import { isValidEnvSecretRefId } from "../config/types.secrets.js";
-import { onAgentEvent } from "../infra/agent-events.js";
+import { emitAgentEvent, onAgentEvent } from "../infra/agent-events.js";
 import type { SubsystemLogger } from "../logging/subsystem.js";
 import { resolveSecretInputString } from "../secrets/resolve-secret-input-string.js";
 import { callGateway } from "./call.js";
@@ -720,7 +720,30 @@ export async function initMas4sIntegration(
           };
           tools.push(
             createAiemasSessionsSendTool(
-              { db: plugin.db, callSessionsSend, transcriptStore: plugin.transcriptStore },
+              {
+                db: plugin.db,
+                callSessionsSend,
+                transcriptStore: plugin.transcriptStore,
+                broadcastChatEvent: (params) => {
+                  // Broadcast A2A input message via the agent event bus so the
+                  // UI's handleAgentEvent (stream="prompt") can render it in the
+                  // sub-agent drawer in real-time.
+                  try {
+                    emitAgentEvent({
+                      runId: params.runId,
+                      sessionKey: params.sessionKey,
+                      stream: "agent",
+                      data: {
+                        role: params.message.role,
+                        text: params.message,
+                        senderLabel: params.message.senderLabel,
+                      },
+                    });
+                  } catch (err) {
+                    log.warn(`[mas4s] broadcastChatEvent failed: ${String(err)}`);
+                  }
+                },
+              },
               { agentSessionKey: context.agentSessionKey },
             ),
           );

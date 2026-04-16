@@ -416,6 +416,35 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
     return;
   }
 
+  // A2A input message: broadcast by aiemas_sessions_send via emitAgentEvent({ stream: "agent" }).
+  // data.text carries the full message object ({ role, content, timestamp, senderLabel }),
+  // data.role carries the explicit role ("agent"), data.senderLabel carries the source agent id.
+  if (stream === "agent" && data?.text !== undefined) {
+    const normalized = normalizeMessage(data.text);
+    const dataRecord = data as Record<string, unknown>;
+    const effectiveRole = typeof dataRecord.role === "string" ? dataRecord.role : normalized.role;
+    const effectiveSenderLabel =
+      typeof dataRecord.senderLabel === "string" ? dataRecord.senderLabel : null;
+    const chatMsg: ChatMessage = {
+      ...normalized,
+      id: runId ?? `a2a-${Date.now()}`,
+      sessionKey,
+      timestamp: Date.now(),
+      role: effectiveRole,
+      senderLabel: effectiveSenderLabel ?? normalized.senderLabel,
+      subType: undefined,
+    };
+    debugLog(
+      `[mas4s:event-handler] Appending A2A agent input message (role=${chatMsg.role})`,
+      chatMsg,
+    );
+    store.appendAgentMessage(sessionUuid, agentId, chatMsg);
+    if (isRootAgent) {
+      store.appendMessage(sessionUuid, chatMsg);
+    }
+    return;
+  }
+
   if (stream === "assistant" && data?.text !== undefined && runId) {
     // 用 runId 作为稳定 id，流式更新 assistant 消息气泡
     const thinkingText = _thinkingByRun.get(runId);

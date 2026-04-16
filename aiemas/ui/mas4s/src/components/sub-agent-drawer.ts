@@ -1,5 +1,6 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state, query } from "lit/decorators.js";
+import type { ApprovalRequest, ApprovalResolved } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
 import "../views/message-list.js";
 import "../views/chat-input.js";
@@ -29,6 +30,15 @@ export class SubAgentDrawer extends LitElement {
   @property({ type: Number }) unreadCount = 0;
   /** 是否显示工具消息 */
   @property({ type: Boolean }) showToolMessages = true;
+  /** 待审批队列（用于在子 Agent 抽屉中渲染审核卡片） */
+  @property({ attribute: false }) pendingApprovals: ApprovalRequest[] = [];
+  /** 已决策审批（用于在子 Agent 抽屉中渲染已审批状态） */
+  @property({ attribute: false }) resolvedApprovals: Map<
+    string,
+    { approval: ApprovalRequest; resolved: ApprovalResolved }
+  > = new Map();
+  /** 是否为会话发起者（控制审批按钮是否显示） */
+  @property({ type: Boolean }) isInitiator = false;
   /** 正在执行中 */
   @property({ type: Boolean }) isActive = false;
   /** 自动展示模式 */
@@ -413,6 +423,9 @@ export class SubAgentDrawer extends LitElement {
             ? html`<div class="empty-hint">暂无消息</div>`
             : html`<message-list
                 .messages=${this.messages}
+                .pendingApprovals=${this.pendingApprovals}
+                .resolvedApprovals=${this.resolvedApprovals}
+                .isInitiator=${this.isInitiator}
                 .showToolMessages=${this.showToolMessages}
               ></message-list>`}
         </div>

@@ -551,6 +551,9 @@ export class MainWorkspace extends LitElement {
                     .messages=${drawerMessages}
                     .unreadCount=${0}
                     .showToolMessages=${this.showToolMessages}
+                    .pendingApprovals=${this.pendingApprovals}
+                    .resolvedApprovals=${this.resolvedApprovals}
+                    .isInitiator=${isInitiator}
                     .isActive=${drawerIsActive}
                     .autoOpenMode=${this._autoOpenMode}
                     @drawer-close=${this._onDrawerClose}

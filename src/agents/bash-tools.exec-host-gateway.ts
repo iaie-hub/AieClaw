@@ -17,6 +17,7 @@ import {
   detectInterpreterInlineEvalArgv,
 } from "../infra/exec-inline-eval.js";
 import type { SafeBinProfile } from "../infra/exec-safe-bin-policy.js";
+import type { InputProvenance } from "../sessions/input-provenance.js";
 import { markBackgrounded, tail } from "./bash-process-registry.js";
 import {
   buildExecApprovalRequesterContext,
@@ -43,6 +44,118 @@ import {
   runExecProcess,
 } from "./bash-tools.exec-runtime.js";
 import type { ExecToolDetails } from "./bash-tools.exec-types.js";
+
+/**
+ * A2A blocking approval path: when the run originates from inter_session (sessions_send),
+ * block the tool execution until approval is resolved instead of returning pendingResult.
+ * This keeps the entire task within a single agent run so that agent.wait can capture
+ * the final result, avoiding the multi-run fragmentation problem.
+ *
+ * Returns a ProcessGatewayAllowlistResult that falls through to normal command execution
+ * (no pendingResult), or throws if the approval is denied.
+ */
+async function resolveA2ABlockingApproval(ctx: {
+  approvalId: string;
+  preResolvedDecision: string | null | undefined;
+  followupTarget: Parameters<typeof sendExecApprovalFollowupResult>[0];
+  command: string;
+  askFallback: ExecSecurity;
+  enforcedCommand: string | undefined;
+  requiresInlineEvalApproval: boolean;
+  approvals: ReturnType<typeof resolveExecHostApprovalContext>["approvals"];
+  allowlistEval: ReturnType<typeof evaluateShellAllowlist>;
+  params: ProcessGatewayAllowlistParams;
+  hostSecurity: ExecSecurity;
+  analysisOk: boolean;
+  allowlistSatisfied: boolean;
+  durableApprovalSatisfied: boolean;
+  resolvedPath: string | undefined;
+  recordMatchedAllowlistUse: (resolvedPath?: string) => void;
+}): Promise<ProcessGatewayAllowlistResult> {
+  const decision = await resolveApprovalDecisionOrUndefined({
+    approvalId: ctx.approvalId,
+    preResolvedDecision: ctx.preResolvedDecision,
+    onFailure: () =>
+      void sendExecApprovalFollowupResult(
+        ctx.followupTarget,
+        `Exec denied (gateway id=${ctx.approvalId}, approval-request-failed): ${ctx.command}`,
+      ),
+  });
+
+  if (decision === undefined) {
+    return {
+      execCommandOverride: ctx.enforcedCommand,
+      allowWithoutEnforcedCommand: ctx.enforcedCommand === undefined,
+    };
+  }
+
+  const {
+    baseDecision,
+    approvedByAsk: initialApproved,
+    deniedReason: initialDenied,
+  } = createExecApprovalDecisionState({ decision, askFallback: ctx.askFallback });
+  let approvedByAsk = initialApproved;
+  let deniedReason = initialDenied;
+
+  if (baseDecision.timedOut && ctx.askFallback === "allowlist") {
+    if (!ctx.analysisOk || !ctx.allowlistSatisfied) {
+      deniedReason = "approval-timeout (allowlist-miss)";
+    } else {
+      approvedByAsk = true;
+    }
+  } else if (decision === "allow-once") {
+    approvedByAsk = true;
+  } else if (decision === "allow-always") {
+    approvedByAsk = true;
+    if (!ctx.requiresInlineEvalApproval) {
+      const patterns = persistAllowAlwaysPatterns({
+        approvals: ctx.approvals.file,
+        agentId: ctx.params.agentId,
+        segments: ctx.allowlistEval.segments,
+        cwd: ctx.params.workdir,
+        env: ctx.params.env,
+        platform: process.platform,
+        strictInlineEval: ctx.params.strictInlineEval === true,
+      });
+      if (patterns.length === 0) {
+        addDurableCommandApproval(ctx.approvals.file, ctx.params.agentId, ctx.command);
+      }
+    }
+  }
+
+  ({ approvedByAsk, deniedReason } = enforceStrictInlineEvalApprovalBoundary({
+    baseDecision,
+    approvedByAsk,
+    deniedReason,
+    requiresInlineEvalApproval: ctx.requiresInlineEvalApproval,
+  }));
+
+  if (
+    !approvedByAsk &&
+    hasGatewayAllowlistMiss({
+      hostSecurity: ctx.hostSecurity,
+      analysisOk: ctx.analysisOk,
+      allowlistSatisfied: ctx.allowlistSatisfied,
+      durableApprovalSatisfied: ctx.durableApprovalSatisfied,
+    })
+  ) {
+    deniedReason = deniedReason ?? "allowlist-miss";
+  }
+
+  if (deniedReason) {
+    throw new Error(`exec denied: ${deniedReason}`);
+  }
+
+  ctx.recordMatchedAllowlistUse(ctx.resolvedPath);
+
+  // Approval granted — fall through to normal command execution
+  // (no pendingResult, no fire-and-forget). The caller (bash-tools.exec.ts) will
+  // proceed to runExecProcess with the resolved enforcedCommand.
+  return {
+    execCommandOverride: ctx.enforcedCommand,
+    allowWithoutEnforcedCommand: ctx.enforcedCommand === undefined,
+  };
+}
 
 export type ProcessGatewayAllowlistParams = {
   command: string;
@@ -71,6 +184,8 @@ export type ProcessGatewayAllowlistParams = {
   maxOutput: number;
   pendingMaxOutput: number;
   trustedSafeBinDirs?: ReadonlySet<string>;
+  /** Input provenance for the current run — when kind is "inter_session" (A2A), exec blocks during approval instead of returning pendingResult. */
+  inputProvenance?: InputProvenance;
 };
 
 export type ProcessGatewayAllowlistResult = {
@@ -288,6 +403,35 @@ export async function processGatewayAllowlist(
       turnSourceThreadId: params.turnSourceThreadId,
     });
 
+    // ── A2A blocking path: when the run originates from inter_session (sessions_send),
+    // block the tool execution until approval is resolved instead of returning pendingResult.
+    // This keeps the entire task within a single agent run so that agent.wait can capture
+    // the final result, avoiding the multi-run fragmentation problem. ──
+    const isA2AContext = params.inputProvenance?.kind === "inter_session";
+
+    if (isA2AContext) {
+      return await resolveA2ABlockingApproval({
+        approvalId,
+        preResolvedDecision,
+        followupTarget,
+        command: params.command,
+        askFallback,
+        enforcedCommand,
+        requiresInlineEvalApproval,
+        approvals,
+        allowlistEval,
+        params,
+        hostSecurity,
+        analysisOk,
+        allowlistSatisfied,
+        durableApprovalSatisfied,
+        resolvedPath,
+        recordMatchedAllowlistUse,
+      });
+    }
+
+    // ── Normal (non-A2A) path: fire-and-forget approval wait + command execution,
+    // return pendingResult immediately so the LLM can inform the user. ──
     void (async () => {
       const decision = await resolveApprovalDecisionOrUndefined({
         approvalId,

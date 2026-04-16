@@ -1,6 +1,7 @@
 import type { ExecApprovalDecision } from "../infra/exec-approvals.js";
 import type { ExecAsk, ExecHost, ExecSecurity, ExecTarget } from "../infra/exec-approvals.js";
 import type { SafeBinProfileFixture } from "../infra/exec-safe-bin-policy.js";
+import type { InputProvenance } from "../sessions/input-provenance.js";
 import type { BashSandboxConfig } from "./bash-tools.shared.js";
 import type { EmbeddedFullAccessBlockedReason } from "./pi-embedded-runner/types.js";
 
@@ -34,6 +35,8 @@ export type ExecToolDefaults = {
   notifyOnExit?: boolean;
   notifyOnExitEmptySuccess?: boolean;
   cwd?: string;
+  /** Input provenance for the current run — used to detect A2A context and block exec during approval instead of returning pendingResult. */
+  inputProvenance?: InputProvenance;
 };
 
 export type ExecElevatedDefaults = {

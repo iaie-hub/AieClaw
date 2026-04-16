@@ -3,6 +3,7 @@ import type { ApprovalRequest, ApprovalResolved } from "../types/approval-types.
 import type { ChatMessage } from "../types/chat-types.js";
 import type { MasSession, MasParticipant } from "../types/session-types.js";
 import type { SkillStatusReport } from "../types/skills-types.js";
+import { extractAgentNameFromKey } from "../utils/session-utils.js";
 
 export type GlobalRole = "admin" | "member" | "viewer";
 
@@ -754,6 +755,12 @@ export class AppStore {
       ? targetSessionKey.split(":").pop()!
       : this.activeSessionUuid;
 
+    if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
+      console.log(
+        `[mas4s:addApproval] id=${req.id} targetSessionKey=${targetSessionKey} targetSessionUuid=${targetSessionUuid} activeSessionUuid=${this.activeSessionUuid}`,
+      );
+    }
+
     if (targetSessionUuid) {
       const pendingMsg: ChatMessage = {
         id: req.id,
@@ -762,24 +769,54 @@ export class AppStore {
         content: [],
         timestamp: req.createdAtMs,
       };
+
+      // 审核卡片在根 Agent 主面板和子 Agent 抽屉都显示，
+      // 用户可以在任意面板审批，审批结果通过 exec.approval.resolved 广播同步。
       const msgs = this.messagesBySession.get(targetSessionUuid) ?? [];
       // 避免重复插入
       if (!msgs.some((m) => m.id === req.id)) {
         this.messagesBySession.set(targetSessionUuid, [...msgs, pendingMsg]);
+        if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
+          console.log(
+            `[mas4s:addApproval] inserted pending msg into messagesBySession[${targetSessionUuid}], count=${msgs.length + 1}`,
+          );
+        }
+      } else {
+        if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
+          console.log(
+            `[mas4s:addApproval] SKIPPED duplicate in messagesBySession[${targetSessionUuid}]`,
+          );
+        }
       }
 
-      // Sync to messagesByAgent
-      if (targetSessionKey) {
-        const parts = targetSessionKey.split(":");
-        const agentId = parts.length >= 2 && parts[0] === "agent" ? parts[1] : "Agent";
-        let agentMap = this.messagesByAgent.get(targetSessionUuid);
-        if (!agentMap) {
-          agentMap = new Map();
-          this.messagesByAgent.set(targetSessionUuid, agentMap);
-        }
-        const agentMsgs = agentMap.get(agentId) ?? [];
-        if (!agentMsgs.some((m) => m.id === req.id)) {
-          agentMap.set(agentId, [...agentMsgs, pendingMsg]);
+      // Sync to messagesByAgent（审批来源 Agent）
+      const msgAgentId = targetSessionKey ? extractAgentNameFromKey(targetSessionKey) : "Agent";
+      let agentMap = this.messagesByAgent.get(targetSessionUuid);
+      if (!agentMap) {
+        agentMap = new Map();
+        this.messagesByAgent.set(targetSessionUuid, agentMap);
+      }
+      const agentMsgs = agentMap.get(msgAgentId) ?? [];
+      if (!agentMsgs.some((m) => m.id === req.id)) {
+        agentMap.set(msgAgentId, [...agentMsgs, pendingMsg]);
+      }
+
+      // 同时写入根 Agent 的 messagesByAgent，确保根 Agent 主面板也能显示审批卡片。
+      // 当审批来自子 Agent 时，根 Agent 面板从 messagesByAgent[rootAgentId] 取数据，
+      // 如果不写入根 Agent 条目，主面板将看不到子 Agent 的审批。
+      const activeSession = this.activeSession;
+      if (activeSession) {
+        const rootAgentId = extractAgentNameFromKey(activeSession.key);
+        if (rootAgentId !== msgAgentId) {
+          const rootMsgs = agentMap.get(rootAgentId) ?? [];
+          if (!rootMsgs.some((m) => m.id === req.id)) {
+            agentMap.set(rootAgentId, [...rootMsgs, pendingMsg]);
+            if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
+              console.log(
+                `[mas4s:addApproval] also inserted into messagesByAgent[${targetSessionUuid}][${rootAgentId}]`,
+              );
+            }
+          }
         }
       }
     }
@@ -838,27 +875,42 @@ export class AppStore {
           timestamp: r.ts,
           senderLabel: r.resolvedBy ?? undefined,
         };
+
+        // 审批操作消息在根 Agent 主面板和子 Agent 抽屉都显示，
+        // 与审核卡片的双面板显示策略一致。
         const msgs = this.messagesBySession.get(sessionUuid) ?? [];
         // 避免重复插入（乐观 + gateway 广播各触发一次）
         if (!msgs.some((m) => m.id === actionMsg.id)) {
           this.messagesBySession.set(sessionUuid, [...msgs, actionMsg]);
         }
 
-        // Sync to messagesByAgent
-        if (sessionKey) {
-          const parts = sessionKey.split(":");
-          const agentId = parts.length >= 2 && parts[0] === "agent" ? parts[1] : "Agent";
-          let agentMap = this.messagesByAgent.get(sessionUuid);
-          if (!agentMap) {
-            agentMap = new Map();
-            this.messagesByAgent.set(sessionUuid, agentMap);
+        // Sync to messagesByAgent（审批来源 Agent）
+        const msgAgentId = sessionKey ? extractAgentNameFromKey(sessionKey) : "Agent";
+        let agentMap = this.messagesByAgent.get(sessionUuid);
+        if (!agentMap) {
+          agentMap = new Map();
+          this.messagesByAgent.set(sessionUuid, agentMap);
+        }
+        const agentMsgs = agentMap.get(msgAgentId) ?? [];
+        if (!agentMsgs.some((m) => m.id === actionMsg.id)) {
+          agentMap.set(msgAgentId, [...agentMsgs, actionMsg]);
+        }
+
+        // 同时写入根 Agent 的 messagesByAgent，确保根 Agent 主面板也能显示审批操作消息
+        const activeSession = this.activeSession;
+        if (activeSession) {
+          const rootAgentId = extractAgentNameFromKey(activeSession.key);
+          if (rootAgentId !== msgAgentId) {
+            const rootMsgs = agentMap.get(rootAgentId) ?? [];
+            if (!rootMsgs.some((m) => m.id === actionMsg.id)) {
+              agentMap.set(rootAgentId, [...rootMsgs, actionMsg]);
+            }
           }
-          const agentMsgs = agentMap.get(agentId) ?? [];
-          if (!agentMsgs.some((m) => m.id === actionMsg.id)) {
-            agentMap.set(agentId, [...agentMsgs, actionMsg]);
-          }
-        } else {
-          // 已存在时用 gateway 广播的完整数据（含 resolvedBy）覆盖
+        }
+
+        if (!sessionKey) {
+          // 无 sessionKey 时用 gateway 广播的完整数据（含 resolvedBy）覆盖
+          const msgs = this.messagesBySession.get(sessionUuid) ?? [];
           this.messagesBySession.set(
             sessionUuid,
             msgs.map((m) => (m.id === actionMsg.id ? actionMsg : m)),

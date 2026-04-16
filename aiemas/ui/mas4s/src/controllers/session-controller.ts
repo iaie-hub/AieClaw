@@ -86,7 +86,15 @@ export class SessionController {
     const client = getClient();
     try {
       const result = await fetchSessionHistoryRange(client, sessionKey, { page: 1, pageSize: 200 });
-      this.store.messagesBySession.set(uuid, result.messages);
+      // messagesBySession 仅存储根 Agent 消息（Primary_Panel 数据源），与 _loadSessionState 一致
+      const rootAgentId = extractAgentNameFromKey(sessionKey);
+      const rootMsgs = result.messages.filter((msg) => {
+        if (!msg.sessionKey) {
+          return true;
+        } // 无 sessionKey 的消息保留（兼容）
+        return extractAgentNameFromKey(msg.sessionKey) === rootAgentId;
+      });
+      this.store.messagesBySession.set(uuid, rootMsgs);
       this.store.setHistoryMeta(uuid, {
         truncated: result.truncated,
         hasSummary: result.hasSummary,
@@ -94,9 +102,19 @@ export class SessionController {
         totalPages: result.totalPages,
         sessionStats: result.sessionStats,
       });
+      // 将历史消息按 sessionKey 路由到 messagesByAgent（所有 Agent）
+      for (const msg of result.messages) {
+        if (msg.sessionKey) {
+          const agentId = extractAgentNameFromKey(msg.sessionKey);
+          this.store.appendAgentMessage(uuid, agentId, msg);
+        }
+      }
+      // 历史消息加载后，自动选中第一个有消息的子 Agent Tab（与实时消息路由对齐）
+      this._initActiveSubAgentTab(uuid, rootAgentId);
       console.debug(
-        "[mas4s:session] history-refresh ← re-loaded: count=%d",
+        "[mas4s:session] history-refresh ← re-loaded: count=%d (root=%d)",
         result.messages.length,
+        rootMsgs.length,
       );
       // Restore SOP run state after history is ready
       void restoreSessionRunState(client, this.store, sessionKey, uuid);

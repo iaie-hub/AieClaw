@@ -42,6 +42,17 @@ export interface AiemasToolDeps {
   }) => Promise<unknown>;
   /** Optional: transcript store for marking A2A messages with role="agent" */
   transcriptStore?: SessionTranscriptStore;
+  /** 依赖注入：广播 chat 事件到 WebSocket 客户端，用于 A2A 输入消息实时显示在子 Agent 抽屉中 */
+  broadcastChatEvent?: (params: {
+    sessionKey: string;
+    runId: string;
+    message: {
+      role: string;
+      content: Array<{ type: string; text: string }>;
+      timestamp: number;
+      senderLabel?: string;
+    };
+  }) => void;
 }
 
 // ── Parameter schema ──
@@ -152,6 +163,23 @@ export function createAiemasSessionsSendTool(
             sourceAgentId,
             sourceSessionKey: agentSessionKey,
             message: message ?? "",
+          });
+        }
+
+        // 5b. Broadcast A2A input message to UI so the sub-agent drawer shows it in real-time.
+        // This fires BEFORE callSessionsSend so the input bubble appears immediately,
+        // before the child agent starts its run and streams assistant/tool events.
+        if (deps.broadcastChatEvent && targetSessionKey && agentSessionKey) {
+          const sourceAgentId = extractAgentNameFromKey(agentSessionKey);
+          deps.broadcastChatEvent({
+            sessionKey: targetSessionKey,
+            runId: `a2a-input-${Date.now()}`,
+            message: {
+              role: "agent",
+              content: [{ type: "text", text: message ?? "" }],
+              timestamp: Date.now(),
+              senderLabel: sourceAgentId,
+            },
           });
         }
 

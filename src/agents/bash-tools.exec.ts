@@ -1637,6 +1637,7 @@ export function createExecTool(
           maxOutput,
           pendingMaxOutput,
           trustedSafeBinDirs,
+          inputProvenance: defaults?.inputProvenance,
         });
         if (gatewayResult.pendingResult) {
           return gatewayResult.pendingResult;

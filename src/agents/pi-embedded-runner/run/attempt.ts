@@ -501,6 +501,7 @@ export async function runEmbeddedAttempt(
             exec: {
               ...params.execOverrides,
               elevated: params.bashElevated,
+              inputProvenance: params.inputProvenance,
             },
             sandbox,
             messageProvider: params.messageChannel ?? params.messageProvider,
