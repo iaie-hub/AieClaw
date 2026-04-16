@@ -21,6 +21,8 @@ export interface AgentContext {
     recordSessionCreated: (sessionKey: string, userId: string, tenantId: string) => void;
     deleteSessionRecords: (sessionKey: string) => void;
   };
+  /** Optional: broadcast an event to all connected WebSocket clients. */
+  broadcastEvent?: (event: string, payload: unknown) => void;
 }
 
 export function registerAgentHandlers(extraHandlers: Record<string, unknown>, ctx: AgentContext) {
@@ -121,6 +123,13 @@ export function registerAgentHandlers(extraHandlers: Record<string, unknown>, ct
             newTopology: topologyTree,
             tenantId,
           });
+          // 推送 topology.changed 事件到所有在线客户端
+          if (ctx.broadcastEvent) {
+            ctx.broadcastEvent("topology.changed", {
+              rootAgentId,
+              edges: topologyTree.edges,
+            });
+          }
         } catch (syncErr) {
           console.warn(
             `[mas4s:topology.save] syncTopologyChanges failed for rootAgentId=${rootAgentId}: ${String(syncErr)}`,

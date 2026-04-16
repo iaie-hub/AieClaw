@@ -173,6 +173,7 @@
 | `session.archived`        | 会话归档通知                 |
 | `session.unarchived`      | 会话取消归档通知             |
 | `session.summary.updated` | 会话摘要完成更新             |
+| `topology.changed`        | Agent 拓扑关系变更通知       |
 
 ### 4. 审批、安全与自动化
 
@@ -425,6 +426,25 @@
     "tenantId": "default",
     "isOnline": true,
     "ts": 1711618000000
+  }
+}
+```
+
+### 3. 拓扑变更通知 (topology.changed)
+
+当 Agent 拓扑关系被保存（`aiemas.agents.topology.save`）并完成会话级联同步后，服务端向所有在线客户端推送此事件。
+
+```json
+{
+  "type": "event",
+  "event": "topology.changed",
+  "payload": {
+    "rootAgentId": "aieiaas",
+    "edges": [
+      { "from": "aieiaas", "to": "aieiaas-model" },
+      { "from": "aieiaas", "to": "aieiaas-monitor" },
+      { "from": "aieiaas", "to": "aieiaas-resource" }
+    ]
   }
 }
 ```

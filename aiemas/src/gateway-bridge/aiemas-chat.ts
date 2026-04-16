@@ -215,5 +215,13 @@ export function filterBroadcast(
       }
     }
   }
+
+  // 审批事件始终打印诊断日志
+  if (event === "exec.approval.requested" || event === "exec.approval.resolved") {
+    console.log(
+      `[aiemas:filterBroadcast:approval] event=${event} targets(userIds)=[${[...targets].join(",")}] connectedUsers.size=${connectedUsers.size} targetConnIds=[${[...targetConnIds].join(",")}] totalClients=${clients.length}`,
+    );
+  }
+
   return targetConnIds;
 }

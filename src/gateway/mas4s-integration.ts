@@ -569,6 +569,7 @@ export async function initMas4sIntegration(
         return (method: string, callParams: Record<string, unknown>) =>
           dispatch(method, callParams, null);
       },
+      broadcastEvent: broadcastToAll,
       sessionCallbacks: {
         recordSessionCreated: (sessionKey: string, uid: string, tid: string) => {
           plugin.bridge.onSessionCreated(sessionKey, "", {

@@ -325,6 +325,17 @@ export class GatewayAuthBridge {
       `[bridge.filterBroadcastTargets] event=${event} sessionKey=${sessionKey ?? "(none)"} connectedUsers=${_connectedUsers.size} payloadKeys=${Object.keys(payloadObj ?? {}).join(",")}`,
     );
 
+    // 审批事件始终打印诊断日志（不受 DEBUG_EVENTS 开关控制）
+    if (event === "exec.approval.requested" || event === "exec.approval.resolved") {
+      const uuid = sessionKey ? extractUuidFromKey(sessionKey) : "(no-key)";
+      const connUserIds = [..._connectedUsers.entries()].map(
+        ([connId, ctx]) => `${connId.slice(0, 8)}→${ctx.userId ?? "null"}`,
+      );
+      console.log(
+        `[bridge.filterBroadcastTargets:approval] event=${event} sessionKey=${sessionKey} uuid=${uuid} connectedUsers=[${connUserIds.join(", ")}]`,
+      );
+    }
+
     if (!sessionKey) {
       if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
         console.log(
@@ -349,6 +360,9 @@ export class GatewayAuthBridge {
     let targetUserIds: string[];
     if (event === "exec.approval.requested") {
       targetUserIds = sessionManager.getSessionOwnerUserIds(this.db, sessionKey);
+      console.log(
+        `[bridge.filterBroadcastTargets:approval] ownerUserIds=[${targetUserIds.join(",")}] sessionKey=${sessionKey}`,
+      );
     } else {
       // chat, agent, and other session events: all members
       targetUserIds = sessionManager.getSessionMemberUserIds(this.db, sessionKey);

@@ -755,11 +755,9 @@ export class AppStore {
       ? targetSessionKey.split(":").pop()!
       : this.activeSessionUuid;
 
-    if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
-      console.log(
-        `[mas4s:addApproval] id=${req.id} targetSessionKey=${targetSessionKey} targetSessionUuid=${targetSessionUuid} activeSessionUuid=${this.activeSessionUuid}`,
-      );
-    }
+    console.log(
+      `[mas4s:addApproval] id=${req.id} targetSessionKey=${targetSessionKey} targetSessionUuid=${targetSessionUuid} activeSessionUuid=${this.activeSessionUuid}`,
+    );
 
     if (targetSessionUuid) {
       const pendingMsg: ChatMessage = {
@@ -776,17 +774,13 @@ export class AppStore {
       // 避免重复插入
       if (!msgs.some((m) => m.id === req.id)) {
         this.messagesBySession.set(targetSessionUuid, [...msgs, pendingMsg]);
-        if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
-          console.log(
-            `[mas4s:addApproval] inserted pending msg into messagesBySession[${targetSessionUuid}], count=${msgs.length + 1}`,
-          );
-        }
+        console.log(
+          `[mas4s:addApproval] inserted pending msg into messagesBySession[${targetSessionUuid}], count=${msgs.length + 1}`,
+        );
       } else {
-        if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
-          console.log(
-            `[mas4s:addApproval] SKIPPED duplicate in messagesBySession[${targetSessionUuid}]`,
-          );
-        }
+        console.log(
+          `[mas4s:addApproval] SKIPPED duplicate in messagesBySession[${targetSessionUuid}]`,
+        );
       }
 
       // Sync to messagesByAgent（审批来源 Agent）
@@ -799,25 +793,36 @@ export class AppStore {
       const agentMsgs = agentMap.get(msgAgentId) ?? [];
       if (!agentMsgs.some((m) => m.id === req.id)) {
         agentMap.set(msgAgentId, [...agentMsgs, pendingMsg]);
+        console.log(
+          `[mas4s:addApproval] inserted into messagesByAgent[${targetSessionUuid}][${msgAgentId}], count=${agentMsgs.length + 1}`,
+        );
       }
 
       // 同时写入根 Agent 的 messagesByAgent，确保根 Agent 主面板也能显示审批卡片。
       // 当审批来自子 Agent 时，根 Agent 面板从 messagesByAgent[rootAgentId] 取数据，
       // 如果不写入根 Agent 条目，主面板将看不到子 Agent 的审批。
       const activeSession = this.activeSession;
+      console.log(
+        `[mas4s:addApproval] activeSession=${activeSession ? activeSession.key : "(null)"} msgAgentId=${msgAgentId}`,
+      );
       if (activeSession) {
         const rootAgentId = extractAgentNameFromKey(activeSession.key);
+        console.log(
+          `[mas4s:addApproval] rootAgentId=${rootAgentId} msgAgentId=${msgAgentId} same=${rootAgentId === msgAgentId}`,
+        );
         if (rootAgentId !== msgAgentId) {
           const rootMsgs = agentMap.get(rootAgentId) ?? [];
           if (!rootMsgs.some((m) => m.id === req.id)) {
             agentMap.set(rootAgentId, [...rootMsgs, pendingMsg]);
-            if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
-              console.log(
-                `[mas4s:addApproval] also inserted into messagesByAgent[${targetSessionUuid}][${rootAgentId}]`,
-              );
-            }
+            console.log(
+              `[mas4s:addApproval] also inserted into messagesByAgent[${targetSessionUuid}][${rootAgentId}], count=${rootMsgs.length + 1}`,
+            );
           }
         }
+      } else {
+        console.log(
+          `[mas4s:addApproval] WARNING: no activeSession, cannot write to root agent messagesByAgent`,
+        );
       }
     }
     this.notify();

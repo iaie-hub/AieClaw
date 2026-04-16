@@ -80,10 +80,16 @@ export function registerEventHandlers(): void {
         handleAgentEvent(store, evt.payload);
         break;
       case "exec.approval.requested":
+        console.log(
+          `[mas4s:event-handler] exec.approval.requested received, id=${String((evt.payload as Record<string, unknown>)?.["id"])}, sessionKey=${String(((evt.payload as Record<string, unknown>)?.["request"] as Record<string, unknown>)?.["sessionKey"])}`,
+        );
         store.addApproval(evt.payload as ApprovalRequest);
         break;
       case "exec.approval.resolved": {
         const resolved = evt.payload as ApprovalResolved;
+        console.log(
+          `[mas4s:event-handler] exec.approval.resolved received, id=${resolved.id}, decision=${resolved.decision}`,
+        );
         store.resolveApproval(resolved.id, resolved);
         break;
       }
@@ -213,6 +219,28 @@ export function registerEventHandlers(): void {
         if (sessionKey) {
           const sessionUuid = extractUuidFromKey(sessionKey);
           store.updateSkillProgress(sessionUuid, data);
+        }
+        break;
+      }
+      // ── Topology change events ──────────────────────────────────────────
+      case "topology.changed": {
+        const data = evt.payload as Record<string, unknown>;
+        const rootAgentId = data["rootAgentId"] as string | undefined;
+        if (rootAgentId) {
+          const edges = data["edges"] as Array<{ from: string; to: string }> | undefined;
+          if (Array.isArray(edges)) {
+            store.setTopology(rootAgentId, edges);
+            // 同步更新受影响会话的 viewMode
+            for (const session of store.sessions) {
+              if (extractAgentNameFromKey(session.key) === rootAgentId) {
+                const uuid = extractUuidFromKey(session.key);
+                store.setViewMode(uuid, edges.length > 0 ? "multi" : "single");
+              }
+            }
+            console.debug(
+              `[mas4s:event-handler] topology.changed → rootAgentId=${rootAgentId}, edges=${edges.length}`,
+            );
+          }
         }
         break;
       }

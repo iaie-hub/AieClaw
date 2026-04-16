@@ -352,9 +352,9 @@
   - 写操作类（如 `aiemas.agents.preDelete`、`aiemas.agents.export`、`aiemas.files.download`、`aiemas.file.upload`）→ `new Set(["admin", "member"])`
   - 创建/破坏性操作类（如 `aiemas.agents.import`）→ `new Set(["admin"])`
 
-  ### 4. bug修复约束
+  ### 4. 方案实施约束
 
-  修复bug时，务必先分析问题原因，若原因不确定，先添加日志，协助定位，原因确定后再修改
+  方案实施前，如有日志，务必先根据日志分析问题原因，若原因不确定，先添加日志，协助定位，原因确定后再修改
 
   ### 5. 输出语言约束
   - 所有方案输出，必须使用中文
