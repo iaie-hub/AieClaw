@@ -413,6 +413,19 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
     if (isRootAgent) {
       store.appendMessage(sessionUuid, chatMsg);
     }
+
+    // Sub_Agent 收到 prompt 消息时标记活跃状态、自动切换 Tab 和未读标记
+    if (!isRootAgent) {
+      store.markAgentActive(sessionUuid, agentId);
+      const currentTab = store.activeSubAgentTab.get(sessionUuid);
+      store.setActiveSubAgentTab(sessionUuid, agentId);
+      if (currentTab && currentTab !== agentId) {
+        store.clearAgentUnread(sessionUuid, agentId);
+      }
+      if (currentTab && currentTab !== agentId) {
+        store.markAgentUnread(sessionUuid, agentId);
+      }
+    }
     return;
   }
 
@@ -441,6 +454,19 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
     store.appendAgentMessage(sessionUuid, agentId, chatMsg);
     if (isRootAgent) {
       store.appendMessage(sessionUuid, chatMsg);
+    }
+
+    // Sub_Agent 收到 A2A 消息时标记活跃状态、自动切换 Tab 和未读标记
+    if (!isRootAgent) {
+      store.markAgentActive(sessionUuid, agentId);
+      const currentTab = store.activeSubAgentTab.get(sessionUuid);
+      store.setActiveSubAgentTab(sessionUuid, agentId);
+      if (currentTab && currentTab !== agentId) {
+        store.clearAgentUnread(sessionUuid, agentId);
+      }
+      if (currentTab && currentTab !== agentId) {
+        store.markAgentUnread(sessionUuid, agentId);
+      }
     }
     return;
   }
@@ -582,6 +608,19 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
       // Root_Agent 同时写入 messagesBySession（向后兼容）
       if (isRootAgent) {
         updateChatStream(store, sessionUuid, streamMsg, false);
+      }
+
+      // Sub_Agent 思考过程中标记活跃状态、自动切换 Tab 和未读标记
+      if (!isRootAgent) {
+        store.markAgentActive(sessionUuid, agentId);
+        const currentTab = store.activeSubAgentTab.get(sessionUuid);
+        store.setActiveSubAgentTab(sessionUuid, agentId);
+        if (currentTab && currentTab !== agentId) {
+          store.clearAgentUnread(sessionUuid, agentId);
+        }
+        if (currentTab && currentTab !== agentId) {
+          store.markAgentUnread(sessionUuid, agentId);
+        }
       }
     }
     return;

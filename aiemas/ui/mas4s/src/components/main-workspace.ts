@@ -500,6 +500,7 @@ export class MainWorkspace extends LitElement {
                         .activeAgents=${this.activeAgents}
                         .unreadAgents=${this.unreadAgents}
                         .expandedAgent=${this._drawerAgentId}
+                        .rootRunning=${this.isChatting}
                         @agent-expand=${this._onAgentExpand}
                         @agent-collapse=${this._onAgentCollapse}
                       ></topology-bar>

@@ -201,24 +201,7 @@ export class MsgAgentInput extends LitElement {
         <div class="message-content">
           <div class="message-name">
             ${name}
-            <span class="agent-badge">
-              <span class="badge-icon">
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M5 12h14"></path>
-                  <path d="m12 5 7 7-7 7"></path>
-                </svg>
-              </span>
-              A2A
-            </span>
+            <span class="agent-badge"> A2A </span>
             ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
           </div>
           ${text.trim()

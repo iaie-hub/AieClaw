@@ -23,6 +23,8 @@ export class TopologyBar extends LitElement {
   @property({ attribute: false }) activeAgents: Set<string> = new Set();
   @property({ attribute: false }) unreadAgents: Set<string> = new Set();
   @property({ type: String }) expandedAgent = "";
+  /** 根 Agent 是否正在对话中（streaming） */
+  @property({ type: Boolean }) rootRunning = false;
 
   static styles = css`
     :host {
@@ -105,6 +107,7 @@ export class TopologyBar extends LitElement {
     }
 
     .root-icon {
+      position: relative;
       width: 28px;
       height: 28px;
       border-radius: 8px;
@@ -113,8 +116,14 @@ export class TopologyBar extends LitElement {
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
-      position: relative;
       color: #2563eb;
+    }
+
+    .root-icon-wrap {
+      position: relative;
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
     }
 
     /* 主节点呼吸光环 — 移除 */
@@ -440,6 +449,43 @@ export class TopologyBar extends LitElement {
       letter-spacing: -0.01em;
     }
 
+    /* ── 实时输出滚动容器 ── */
+    .card-preview-scroll {
+      overflow: hidden;
+      max-width: 150px;
+      line-height: 1.2;
+      position: relative;
+      /* 右侧渐隐遮罩，暗示文本可滚动 */
+      -webkit-mask-image: linear-gradient(to right, #000 75%, transparent 100%);
+      mask-image: linear-gradient(to right, #000 75%, transparent 100%);
+    }
+
+    .card-preview.running {
+      color: #16a34a;
+      font-weight: 500;
+      white-space: nowrap;
+      text-overflow: clip;
+      display: inline-block;
+      max-width: none;
+      animation: previewScroll var(--scroll-duration, 6s) linear infinite;
+      animation-play-state: running;
+    }
+
+    @keyframes previewScroll {
+      0% {
+        transform: translateX(0);
+      }
+      15% {
+        transform: translateX(0);
+      }
+      85% {
+        transform: translateX(var(--scroll-distance, -60px));
+      }
+      100% {
+        transform: translateX(var(--scroll-distance, -60px));
+      }
+    }
+
     .card-preview.empty {
       font-family: "DM Sans", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
       font-style: italic;
@@ -453,6 +499,10 @@ export class TopologyBar extends LitElement {
 
     .child-card.active .card-preview.empty {
       color: #94a3b8;
+    }
+
+    .child-card.active .card-preview.running {
+      color: #15803d;
     }
 
     /* ── 活跃指示条（卡片底部） ── */
@@ -543,8 +593,42 @@ export class TopologyBar extends LitElement {
       .status-indicator.unread {
         animation: none;
       }
+      .card-preview.running {
+        animation: none;
+      }
     }
   `;
+
+  /**
+   * 每次渲染后，动态计算 running 状态预览文本的滚动距离和动画时长。
+   * 根据文本实际宽度与容器宽度的差值设置 CSS 变量。
+   */
+  protected override updated(): void {
+    const scrollContainers = this.shadowRoot?.querySelectorAll(".card-preview-scroll");
+    if (!scrollContainers) {
+      return;
+    }
+    for (const container of scrollContainers) {
+      const textEl = container.querySelector(".card-preview.running") as HTMLElement | null;
+      if (!textEl) {
+        continue;
+      }
+      const containerWidth = (container as HTMLElement).offsetWidth;
+      const textWidth = textEl.scrollWidth;
+      const overflow = textWidth - containerWidth;
+      if (overflow > 0) {
+        // 滚动距离 = 溢出量，速率约 30px/s，最短 3s 最长 10s
+        const duration = Math.min(Math.max(overflow / 30, 3), 10);
+        textEl.style.setProperty("--scroll-distance", `-${overflow + 8}px`);
+        textEl.style.setProperty("--scroll-duration", `${duration.toFixed(1)}s`);
+      } else {
+        // 文本未溢出，不需要滚动
+        textEl.style.removeProperty("--scroll-distance");
+        textEl.style.setProperty("--scroll-duration", "0s");
+        textEl.style.animationPlayState = "paused";
+      }
+    }
+  }
 
   private _getLatestPreview(agentId: string): string {
     const msgs = this.agentMessages.get(agentId);
@@ -553,7 +637,39 @@ export class TopologyBar extends LitElement {
     }
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
-      if (m.role === "assistant" || m.role === "Agent") {
+      const role = m.role?.toLowerCase();
+
+      // A2A 消息（role="agent"）
+      if (role === "agent") {
+        const label = m.senderLabel ? `[${m.senderLabel}] ` : "";
+        let text = "";
+        if (typeof m.content === "string") {
+          text = m.content;
+        } else if (Array.isArray(m.content)) {
+          text = m.content
+            .filter((item) => item.type === "text" && item.text)
+            .map((item) => item.text!)
+            .join(" ");
+        }
+        if (text.trim()) {
+          const preview = label + text.replace(/[#*`_~[\]]/g, "").trim();
+          return preview.length > 24 ? preview.slice(0, 24) + "…" : preview;
+        }
+        if (label) {
+          return `${label}A2A 消息`;
+        }
+        continue;
+      }
+
+      // 工具调用结果（role="toolResult"）
+      if (role === "toolresult") {
+        const toolName = m.toolName ?? "tool";
+        return `🔧 ${toolName}`;
+      }
+
+      // assistant / Agent 消息
+      if (role === "assistant") {
+        // 优先提取 text 内容
         let text = "";
         if (typeof m.content === "string") {
           text = m.content;
@@ -567,6 +683,22 @@ export class TopologyBar extends LitElement {
           const clean = text.replace(/[#*`_~[\]]/g, "").trim();
           return clean.length > 24 ? clean.slice(0, 24) + "…" : clean;
         }
+
+        // 没有 text 内容时，检查是否有 thinking 内容
+        if (Array.isArray(m.content)) {
+          const thinkingItem = m.content.find((item) => item.type === "thinking" && item.thinking);
+          if (thinkingItem) {
+            return "💭 思考中…";
+          }
+
+          // 检查是否有 tool_call 内容
+          const toolCallItem = m.content.find((item) => item.type === "tool_call");
+          if (toolCallItem) {
+            const toolName = toolCallItem.name ?? "tool";
+            return `🔧 调用 ${toolName}`;
+          }
+        }
+        continue;
       }
     }
     return "";
@@ -594,27 +726,30 @@ export class TopologyBar extends LitElement {
       <div class="bar" role="toolbar" aria-label="Agent 拓扑状态">
         <!-- 主 Agent 节点 -->
         <div class="root-node">
-          <div class="root-icon">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <circle cx="12" cy="12" r="3"></circle>
-              <path d="M12 1v4"></path>
-              <path d="M12 19v4"></path>
-              <path d="M1 12h4"></path>
-              <path d="M19 12h4"></path>
-              <path d="M4.22 4.22l2.83 2.83"></path>
-              <path d="M16.95 16.95l2.83 2.83"></path>
-              <path d="M4.22 19.78l2.83-2.83"></path>
-              <path d="M16.95 7.05l2.83-2.83"></path>
-            </svg>
+          <div class="root-icon-wrap">
+            <div class="root-icon">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M12 1v4"></path>
+                <path d="M12 19v4"></path>
+                <path d="M1 12h4"></path>
+                <path d="M19 12h4"></path>
+                <path d="M4.22 4.22l2.83 2.83"></path>
+                <path d="M16.95 16.95l2.83 2.83"></path>
+                <path d="M4.22 19.78l2.83-2.83"></path>
+                <path d="M16.95 7.05l2.83-2.83"></path>
+              </svg>
+            </div>
+            ${this.rootRunning ? html`<span class="status-indicator running"></span>` : nothing}
           </div>
           <div class="root-label">
             <span class="root-name">${this.rootAgentName || this.rootAgentId}</span>
@@ -705,7 +840,11 @@ export class TopologyBar extends LitElement {
                 <div class="card-text">
                   <span class="card-name">${agentName}</span>
                   ${preview
-                    ? html`<span class="card-preview">${preview}</span>`
+                    ? isRunning
+                      ? html`<span class="card-preview-scroll"
+                          ><span class="card-preview running">${preview}</span></span
+                        >`
+                      : html`<span class="card-preview">${preview}</span>`
                     : html`<span class="card-preview empty">等待响应</span>`}
                 </div>
               </div>
