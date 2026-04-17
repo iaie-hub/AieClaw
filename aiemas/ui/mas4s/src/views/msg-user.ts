@@ -184,7 +184,21 @@ export class MsgUser extends LitElement {
               `
             : nothing}
         </div>
-        <div class="message-avatar">👤</div>
+        <div class="message-avatar">
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="8" r="4"></circle>
+            <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"></path>
+          </svg>
+        </div>
       </div>
     `;
   }

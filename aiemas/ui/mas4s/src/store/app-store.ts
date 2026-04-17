@@ -1,6 +1,7 @@
 import type { ReactiveController, ReactiveControllerHost } from "lit";
 import type { ApprovalRequest, ApprovalResolved } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
+import type { LayoutMode } from "../types/layout-types.js";
 import type { MasSession, MasParticipant } from "../types/session-types.js";
 import type { SkillStatusReport } from "../types/skills-types.js";
 import { extractAgentNameFromKey } from "../utils/session-utils.js";
@@ -106,6 +107,9 @@ export class AppStore {
 
   // ── 视图模式（sessionUuid → "single" | "multi"） ──
   viewModeBySession: Map<string, "single" | "multi"> = new Map();
+
+  // ── 布局模式缓存（sessionUuid → LayoutMode） ──
+  layoutModeBySession: Map<string, LayoutMode> = new Map();
 
   // ── Secondary_Panel 活跃 Tab（sessionUuid → agentId） ──
   activeSubAgentTab: Map<string, string> = new Map();
@@ -592,6 +596,19 @@ export class AppStore {
   /** 获取会话的视图模式，默认 "single" */
   getViewMode(sessionUuid: string): "single" | "multi" {
     return this.viewModeBySession.get(sessionUuid) ?? "single";
+  }
+
+  // ── 布局模式操作 ─────────────────────────────────
+
+  /** 设置会话的布局模式 */
+  setLayoutMode(sessionUuid: string, mode: LayoutMode): void {
+    this.layoutModeBySession.set(sessionUuid, mode);
+    this.notify();
+  }
+
+  /** 获取会话的布局模式，默认 "single" */
+  getLayoutMode(sessionUuid: string): LayoutMode {
+    return this.layoutModeBySession.get(sessionUuid) ?? "single";
   }
 
   // ── Sub_Agent Tab 操作 ────────────────────────────

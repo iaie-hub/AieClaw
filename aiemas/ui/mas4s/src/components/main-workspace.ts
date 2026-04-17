@@ -1,17 +1,20 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { AppStore } from "../store/app-store.js";
 import type { ApprovalRequest, ApprovalResolved } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
+import type { LayoutMode } from "../types/layout-types.js";
 import type { MasSession } from "../types/session-types.js";
+import { computeGridLayout, resolveEffectiveLayout } from "../utils/layout-utils.js";
 import { extractAgentNameFromKey } from "../utils/session-utils.js";
 import "./main-header.js";
 import "./topology-bar.js";
-import "./sub-agent-drawer.js";
-import "../views/chat-view.js";
+import "./agent-panel.js";
+import "./global-input-bar.js";
 import "../views/agents-view.js";
 
 /**
- * 主工作区：组合 main-header + topology-bar + chat-view + sub-agent-drawer。
+ * 主工作区：组合 main-header + topology-bar + agent-panel + global-input-bar。
  *
  * 布局结构（multi-view-ui-v2 方案 §二）：
  * - 100dvh Flex 视口分区
@@ -62,13 +65,27 @@ export class MainWorkspace extends LitElement {
   @property({ attribute: false })
   activeAgents: Set<string> = new Set();
 
-  // ── SOP state (passed through to chat-view → message-list) ────────────────
+  // ── SOP state (passed through to agent-panel → message-list) ────────────────
   @property({ attribute: false }) sopSteps: unknown[] = [];
   @property({ attribute: false }) sopLabel = "";
   @property({ attribute: false }) activeProgress: unknown = null;
   @property({ attribute: false }) progressLogs: unknown[] = [];
   @property({ type: Number }) currentStepIndex = -1;
   @property({ type: Number }) sopCompletedAt: number | undefined = undefined;
+
+  /** 当前布局模式（含响应式降级后的实际值） */
+  @state() private _layoutMode: LayoutMode = "single";
+  /** 布局选择面板是否展开 */
+  @state() private _layoutPanelOpen = false;
+  /** 用户原始布局选择（响应式恢复用） */
+  @state() private _userLayoutChoice: LayoutMode = "single";
+  /** 小屏时禁用布局切换按钮 */
+  @state() private _layoutDisabled = false;
+
+  /** ResizeObserver 实例 */
+  private _resizeObserver: ResizeObserver | null = null;
+  /** Resize debounce 定时器 */
+  private _resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** 当前展开抽屉的子 Agent ID */
   @state() private _drawerAgentId = "";
@@ -82,7 +99,8 @@ export class MainWorkspace extends LitElement {
   private _idleTimer: ReturnType<typeof setTimeout> | null = null;
   /** 上一次的未读集合快照，用于检测新消息 */
   private _prevUnreadSnapshot = new Set<string>();
-
+  /** 全局输入框当前目标："root" 或子 Agent ID */
+  @state() private _activeInputTarget = "root";
   static styles = css`
     :host {
       display: flex;
@@ -124,6 +142,7 @@ export class MainWorkspace extends LitElement {
       flex: 1;
       min-height: 0;
       overflow: hidden;
+      position: relative;
     }
 
     .primary-chat {
@@ -162,11 +181,11 @@ export class MainWorkspace extends LitElement {
       pointer-events: auto;
     }
 
-    .drawer-overlay.open > sub-agent-drawer {
+    .drawer-overlay.open > agent-panel {
       transform: translateX(0);
     }
 
-    .drawer-overlay > sub-agent-drawer {
+    .drawer-overlay > agent-panel {
       transform: translateX(100%);
       transition: transform 0.25s ease;
     }
@@ -183,6 +202,57 @@ export class MainWorkspace extends LitElement {
       }
     }
 
+    /* ── 布局选择面板 ── */
+    .layout-panel-backdrop {
+      position: absolute;
+      inset: 0;
+      z-index: 50;
+    }
+
+    .layout-panel {
+      position: absolute;
+      top: 56px;
+      right: 16px;
+      z-index: 51;
+      display: flex;
+      gap: 6px;
+      padding: 8px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.78);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(226, 232, 240, 0.7);
+      box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.08),
+        0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+
+    .layout-panel-item {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: transparent;
+      cursor: pointer;
+      color: #64748b;
+      transition: all 0.18s ease;
+    }
+
+    .layout-panel-item:hover {
+      background: rgba(241, 245, 249, 0.9);
+      border-color: #e2e8f0;
+      color: #475569;
+    }
+
+    .layout-panel-item.active {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      color: #2563eb;
+    }
+
     .placeholder {
       flex: 1;
       display: flex;
@@ -190,6 +260,83 @@ export class MainWorkspace extends LitElement {
       justify-content: center;
       color: #94a3b8;
       font-size: 16px;
+    }
+
+    /* ── 多窗口网格布局 ── */
+    .multi-grid {
+      display: grid;
+      flex: 1;
+      min-height: 0;
+      max-height: 100%;
+      overflow: hidden;
+      gap: 1px;
+      background: #e2e8f0;
+    }
+
+    .grid-slot {
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background: #ffffff;
+      position: relative;
+      cursor: pointer;
+    }
+    .grid-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #94a3b8;
+      font-size: 14px;
+      background: #f8fafc;
+    }
+
+    /* Task 8.2: 多窗口模式下高亮动画 */
+    .grid-slot.highlight {
+      animation: slotHighlight 0.6s ease-out;
+    }
+
+    @keyframes slotHighlight {
+      0% {
+        box-shadow: inset 0 0 0 2px #3b82f6;
+      }
+      100% {
+        box-shadow: inset 0 0 0 2px transparent;
+      }
+    }
+
+    /* Left_Main: 右侧子 Agent 垂直堆叠区域 */
+    .left-main-right {
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      min-height: 0;
+      height: 100%;
+      gap: 1px;
+      background: #e2e8f0;
+    }
+
+    .left-main-right > .grid-slot {
+      flex: 1 1 0;
+      min-height: 0;
+    }
+
+    /* Top_Bottom: 下方子 Agent 水平排列区域 */
+    .top-bottom-lower {
+      display: flex;
+      flex-direction: row;
+      overflow-x: auto;
+      overflow-y: hidden;
+      min-width: 0;
+      min-height: 0;
+      height: 100%;
+      gap: 1px;
+      background: #e2e8f0;
+    }
+
+    .top-bottom-lower > .grid-slot {
+      flex: 1 0 0;
+      min-width: 250px;
+      min-height: 0;
     }
 
     /* Toast 提示（移动端） */
@@ -223,6 +370,36 @@ export class MainWorkspace extends LitElement {
     }
   `;
 
+  // ── 生命周期：ResizeObserver 响应式适配 ─────────────────────────────────
+
+  override connectedCallback(): void {
+    super.connectedCallback();
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+    this._resizeObserver = new ResizeObserver((entries) => {
+      if (this._resizeDebounceTimer) {
+        clearTimeout(this._resizeDebounceTimer);
+      }
+      this._resizeDebounceTimer = setTimeout(() => {
+        this._resizeDebounceTimer = null;
+        const entry = entries[entries.length - 1];
+        const width = entry?.contentRect.width ?? this.offsetWidth;
+        if (width < 768) {
+          this._layoutDisabled = true;
+          this._layoutMode = "single";
+          this.viewMode = "single";
+        } else {
+          this._layoutDisabled = false;
+          const effective = resolveEffectiveLayout(this._userLayoutChoice, width);
+          this._layoutMode = effective;
+          this.viewMode = effective === "single" ? "single" : "multi";
+        }
+      }, 150);
+    });
+    this._resizeObserver.observe(this);
+  }
+
   // ── 事件驱动：子 Agent 新消息自动展示逻辑 ──────────────────────────────────
 
   override updated(changed: Map<string, unknown>): void {
@@ -230,10 +407,38 @@ export class MainWorkspace extends LitElement {
     if (changed.has("unreadAgents")) {
       this._handleNewMessages();
     }
+
+    // Task 11.2: 会话切换时从 AppStore 恢复布局模式
+    if (changed.has("session")) {
+      const sessionUuid = this.session?.sessionUuid;
+      if (sessionUuid) {
+        const stored = AppStore.instance.getLayoutMode(sessionUuid);
+        this._userLayoutChoice = stored;
+        // 应用响应式降级
+        const width = this.offsetWidth || window.innerWidth;
+        if (width < 768) {
+          this._layoutMode = "single";
+          this._layoutDisabled = true;
+        } else {
+          const effective = resolveEffectiveLayout(stored, width);
+          this._layoutMode = effective;
+          this._layoutDisabled = false;
+        }
+        this.viewMode = this._layoutMode === "single" ? "single" : "multi";
+      }
+    }
   }
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
+      this._resizeObserver = null;
+    }
+    if (this._resizeDebounceTimer) {
+      clearTimeout(this._resizeDebounceTimer);
+      this._resizeDebounceTimer = null;
+    }
     if (this._idleTimer) {
       clearTimeout(this._idleTimer);
       this._idleTimer = null;
@@ -324,9 +529,371 @@ export class MainWorkspace extends LitElement {
     this._openDrawer(this._toastAgent);
   }
 
+  // ── 布局面板操作 ─────────────────────────────────────────────────────────
+
+  private _onLayoutToggle = () => {
+    this._layoutPanelOpen = !this._layoutPanelOpen;
+  };
+
+  private _onLayoutChange(e: CustomEvent<{ mode: LayoutMode }>): void {
+    const mode = e.detail.mode;
+    this._userLayoutChoice = mode;
+    this._layoutMode = mode;
+    this._layoutPanelOpen = false;
+    this._activeInputTarget = "root";
+
+    // Task 5.3: layoutMode ↔ viewMode sync
+    if (mode !== "single") {
+      this.viewMode = "multi";
+      // Task 8.1: 切换到多窗口模式时关闭抽屉覆盖层
+      this._closeDrawer();
+    } else {
+      this.viewMode = "single";
+      // Task 8.3: 切换回 single 时，抽屉行为由 render() 条件渲染自动恢复
+    }
+
+    // Task 11.2: 持久化布局模式到 AppStore
+    const sessionUuid = this.session?.sessionUuid;
+    if (sessionUuid) {
+      AppStore.instance.setLayoutMode(sessionUuid, mode);
+    }
+
+    // Task 9.2: ResizeObserver 会在下一帧通过 resolveEffectiveLayout 应用响应式降级
+    // 此处直接设置用户选择，让 ResizeObserver 异步纠正
+  }
+
+  private _onClickOutsidePanel = (e: Event) => {
+    // 使用 composedPath 确保 Shadow DOM 边界内的点击检测正确
+    const path = e.composedPath();
+    const panel = this.shadowRoot?.querySelector(".layout-panel");
+    if (panel && !path.includes(panel)) {
+      this._layoutPanelOpen = false;
+    }
+  };
+
+  // ── 布局面板渲染 ─────────────────────────────────────────────────────────
+
+  private _renderLayoutPanel() {
+    if (!this._layoutPanelOpen) {
+      return nothing;
+    }
+
+    const modes: { mode: LayoutMode; label: string }[] = [
+      { mode: "single", label: "单窗口" },
+      { mode: "grid-2x2", label: "网格" },
+      { mode: "three-column", label: "全列" },
+      { mode: "left-main", label: "左主右副" },
+      { mode: "top-bottom", label: "上主下副" },
+    ];
+
+    return html`
+      <div class="layout-panel-backdrop" @click=${this._onClickOutsidePanel}></div>
+      <div class="layout-panel">
+        ${modes.map(
+          ({ mode, label }) => html`
+            <div
+              class="layout-panel-item ${this._layoutMode === mode ? "active" : ""}"
+              title=${label}
+              @click=${() =>
+                this._onLayoutChange(new CustomEvent("layout-change", { detail: { mode } }))}
+            >
+              ${this._renderLayoutIcon(mode)}
+            </div>
+          `,
+        )}
+      </div>
+    `;
+  }
+
+  private _renderLayoutIcon(mode: LayoutMode) {
+    switch (mode) {
+      case "single":
+        return html`<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect
+            x="2"
+            y="2"
+            width="16"
+            height="16"
+            rx="2"
+            stroke="currentColor"
+            stroke-width="1.5"
+            fill="none"
+          />
+        </svg>`;
+      case "grid-2x2":
+        return html`<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect
+            x="2"
+            y="2"
+            width="7"
+            height="7"
+            rx="1"
+            stroke="currentColor"
+            stroke-width="1.5"
+            fill="none"
+          />
+          <rect
+            x="11"
+            y="2"
+            width="7"
+            height="7"
+            rx="1"
+            stroke="currentColor"
+            stroke-width="1.5"
+            fill="none"
+          />
+          <rect
+            x="2"
+            y="11"
+            width="7"
+            height="7"
+            rx="1"
+            stroke="currentColor"
+            stroke-width="1.5"
+            fill="none"
+          />
+          <rect
+            x="11"
+            y="11"
+            width="7"
+            height="7"
+            rx="1"
+            stroke="currentColor"
+            stroke-width="1.5"
+            fill="none"
+          />
+        </svg>`;
+      case "three-column":
+        return html`<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect
+            x="1"
+            y="2"
+            width="5"
+            height="16"
+            rx="1"
+            stroke="currentColor"
+            stroke-width="1.5"
+            fill="none"
+          />
+          <rect
+            x="7.5"
+            y="2"
+            width="5"
+            height="16"
+            rx="1"
+            stroke="currentColor"
+            stroke-width="1.5"
+            fill="none"
+          />
+          <rect
+            x="14"
+            y="2"
+            width="5"
+            height="16"
+            rx="1"
+            stroke="currentColor"
+            stroke-width="1.5"
+            fill="none"
+          />
+        </svg>`;
+      case "left-main":
+        return html`<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect
+            x="2"
+            y="2"
+            width="10"
+            height="16"
+            rx="1"
+            stroke="currentColor"
+            stroke-width="1.5"
+            fill="none"
+          />
+          <rect
+            x="13.5"
+            y="2"
+            width="4.5"
+            height="16"
+            rx="1"
+            stroke="currentColor"
+            stroke-width="1.5"
+            fill="none"
+          />
+        </svg>`;
+      case "top-bottom":
+        return html`<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect
+            x="2"
+            y="2"
+            width="16"
+            height="7"
+            rx="1"
+            stroke="currentColor"
+            stroke-width="1.5"
+            fill="none"
+          />
+          <rect
+            x="2"
+            y="11"
+            width="16"
+            height="7"
+            rx="1"
+            stroke="currentColor"
+            stroke-width="1.5"
+            fill="none"
+          />
+        </svg>`;
+    }
+    return nothing;
+  }
+
+  // ── 多窗口布局渲染 ─────────────────────────────────────────────────────────
+
+  private _renderChatViewSlot(isInitiator: boolean) {
+    const isSelected = this._activeInputTarget === "root";
+    return html`
+      <div
+        class="grid-slot"
+        style="display:flex;flex-direction:column;"
+        @click=${() => {
+          this._activeInputTarget = "root";
+        }}
+      >
+        <agent-panel
+          variant="root"
+          .selected=${isSelected}
+          .agentId=${this.session ? (this.session.key.split(":")[1] ?? "") : ""}
+          .agents=${this.agents}
+          .messages=${this.messages}
+          .session=${this.session}
+          .isInitiator=${isInitiator}
+          .pendingApprovals=${this.pendingApprovals}
+          .resolvedApprovals=${this.resolvedApprovals}
+          .hasSummary=${this.hasSummary}
+          .truncated=${this.truncated}
+          .hasMoreHistory=${this.hasMoreHistory}
+          .isChatting=${this.isChatting}
+          .showToolMessages=${this.showToolMessages}
+          .sopSteps=${this.sopSteps}
+          .sopLabel=${this.sopLabel}
+          .activeProgress=${this.activeProgress}
+          .progressLogs=${this.progressLogs}
+          .currentStepIndex=${this.currentStepIndex}
+          .sopCompletedAt=${this.sopCompletedAt}
+          @resolve=${this._onResolve}
+          @load-more-history=${this._onLoadMoreHistory}
+          @abort-chat=${this._onAbortChat}
+        ></agent-panel>
+      </div>
+    `;
+  }
+
+  private _renderSubAgentSlot(agentId: string, isInitiator: boolean) {
+    const messages = this.subAgentMessages.get(agentId) ?? [];
+    const isActive = this.activeAgents.has(agentId);
+    const isSelected = this._activeInputTarget === agentId;
+    return html`
+      <div
+        class="grid-slot"
+        @click=${() => {
+          this._activeInputTarget = agentId;
+        }}
+      >
+        <agent-panel
+          variant="sub"
+          .selected=${isSelected}
+          .agentId=${agentId}
+          .hideClose=${true}
+          .agents=${this.agents}
+          .messages=${messages}
+          .unreadCount=${0}
+          .showToolMessages=${this.showToolMessages}
+          .pendingApprovals=${this.pendingApprovals}
+          .resolvedApprovals=${this.resolvedApprovals}
+          .isInitiator=${isInitiator}
+          .isActive=${isActive}
+          @drawer-send-message=${this._onDrawerSendMessage}
+        ></agent-panel>
+      </div>
+    `;
+  }
+
+  private _renderPlaceholderSlot() {
+    return html`<div class="grid-slot grid-placeholder">暂无 Agent</div>`;
+  }
+
+  private _renderMultiWindowLayout(
+    rootAgentId: string,
+    effectiveSubAgents: string[],
+    isInitiator: boolean,
+  ) {
+    const gridResult = computeGridLayout(this._layoutMode, rootAgentId, effectiveSubAgents);
+
+    // Left_Main: special two-column layout with right side vertical scroll
+    if (this._layoutMode === "left-main") {
+      const subSlots = gridResult.slots.filter((s) => s.type === "sub");
+      const hasPlaceholder = gridResult.slots.some((s) => s.type === "placeholder");
+      return html`
+        <div
+          class="multi-grid"
+          style="grid-template-columns:${gridResult.gridTemplateColumns};grid-template-rows:${gridResult.gridTemplateRows};"
+        >
+          ${this._renderChatViewSlot(isInitiator)}
+          <div class="left-main-right">
+            ${subSlots.length > 0
+              ? subSlots.map((s) => this._renderSubAgentSlot(s.agentId, isInitiator))
+              : nothing}
+            ${hasPlaceholder || subSlots.length === 0 ? this._renderPlaceholderSlot() : nothing}
+          </div>
+        </div>
+      `;
+    }
+
+    // Top_Bottom: special two-row layout with bottom horizontal scroll
+    if (this._layoutMode === "top-bottom") {
+      const subSlots = gridResult.slots.filter((s) => s.type === "sub");
+      const hasPlaceholder = gridResult.slots.some((s) => s.type === "placeholder");
+      return html`
+        <div
+          class="multi-grid"
+          style="grid-template-columns:${gridResult.gridTemplateColumns};grid-template-rows:${gridResult.gridTemplateRows};"
+        >
+          ${this._renderChatViewSlot(isInitiator)}
+          <div class="top-bottom-lower">
+            ${subSlots.length > 0
+              ? subSlots.map((s) => this._renderSubAgentSlot(s.agentId, isInitiator))
+              : nothing}
+            ${hasPlaceholder || subSlots.length === 0 ? this._renderPlaceholderSlot() : nothing}
+          </div>
+        </div>
+      `;
+    }
+
+    // Grid_2x2 and Three_Column: standard CSS Grid
+    return html`
+      <div
+        class="multi-grid"
+        style="grid-template-columns:${gridResult.gridTemplateColumns};grid-template-rows:${gridResult.gridTemplateRows};"
+      >
+        ${gridResult.slots.map((slot) => {
+          if (slot.type === "root") {
+            return this._renderChatViewSlot(isInitiator);
+          }
+          if (slot.type === "sub") {
+            return this._renderSubAgentSlot(slot.agentId, isInitiator);
+          }
+          return this._renderPlaceholderSlot();
+        })}
+      </div>
+    `;
+  }
+
   // ── 抽屉操作 ──────────────────────────────────────────────────────────────
 
   private _openDrawer(agentId: string): void {
+    // Task 8.1: 多窗口模式下禁止抽屉覆盖层展开
+    if (this._layoutMode !== "single") {
+      return;
+    }
     this._drawerAgentId = agentId;
     this._drawerOpen = true;
     // 通知父组件切换 tab（用于标记已读等）
@@ -349,16 +916,57 @@ export class MainWorkspace extends LitElement {
     }, 300);
   }
 
+  /**
+   * Task 8.2: 多窗口模式下高亮并滚动到对应 Agent 窗口
+   */
+  private _highlightAgentWindow(agentId: string): void {
+    const slots = this.shadowRoot?.querySelectorAll(".grid-slot");
+    if (!slots) {
+      return;
+    }
+
+    for (const slot of slots) {
+      const panel = slot.querySelector("agent-panel") as
+        | (HTMLElement & { agentId?: string })
+        | null;
+      if (panel && panel.agentId === agentId) {
+        slot.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+        slot.classList.add("highlight");
+        setTimeout(() => slot.classList.remove("highlight"), 600);
+        break;
+      }
+    }
+
+    // 通知父组件切换 tab（用于标记已读等）
+    this.dispatchEvent(
+      new CustomEvent("tab-change", {
+        detail: { agentId },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
   private _onAgentExpand = (e: CustomEvent<{ agentId: string }>) => {
+    // 多窗口模式下高亮/滚动到对应窗口，并切换输入目标
+    if (this._layoutMode !== "single") {
+      this._activeInputTarget = e.detail.agentId;
+      this._highlightAgentWindow(e.detail.agentId);
+      return;
+    }
+    // 单窗口模式：打开抽屉并切换输入目标
     this._openDrawer(e.detail.agentId);
+    this._activeInputTarget = e.detail.agentId;
   };
 
   private _onAgentCollapse = () => {
     this._closeDrawer();
+    this._activeInputTarget = "root";
   };
 
   private _onDrawerClose = () => {
     this._closeDrawer();
+    this._activeInputTarget = "root";
   };
 
   private _onAutoOpenModeChange = (
@@ -394,6 +1002,17 @@ export class MainWorkspace extends LitElement {
 
   // ── 其他事件转发 ──────────────────────────────────────────────────────────
 
+  private _onSendMessage = (e: CustomEvent) => {
+    e.stopPropagation();
+    this.dispatchEvent(
+      new CustomEvent("send-message", {
+        detail: e.detail,
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  };
+
   private _onInviteClick = () => {
     this.dispatchEvent(
       new CustomEvent("invite-open", { detail: { session: this.session }, bubbles: true }),
@@ -401,17 +1020,18 @@ export class MainWorkspace extends LitElement {
   };
 
   private _onSummaryClick = (e: CustomEvent) => {
-    const chatView = this.shadowRoot?.querySelector("chat-view") as
+    const panel = this.shadowRoot?.querySelector("agent-panel") as
       | (HTMLElement & { _onSummaryClick?: (e: CustomEvent) => void })
       | null;
-    if (chatView) {
-      chatView.dispatchEvent(
+    if (panel) {
+      panel.dispatchEvent(
         new CustomEvent("summary-click", { detail: e.detail, bubbles: true, composed: false }),
       );
     }
   };
 
   private _onResolve = (e: CustomEvent) => {
+    e.stopPropagation();
     this.dispatchEvent(
       new CustomEvent("resolve-approval", { detail: e.detail, bubbles: true, composed: true }),
     );
@@ -501,67 +1121,114 @@ export class MainWorkspace extends LitElement {
                         .unreadAgents=${this.unreadAgents}
                         .expandedAgent=${this._drawerAgentId}
                         .rootRunning=${this.isChatting}
+                        .layoutMode=${this._layoutMode}
+                        .layoutDisabled=${this._layoutDisabled}
                         @agent-expand=${this._onAgentExpand}
                         @agent-collapse=${this._onAgentCollapse}
+                        @layout-toggle=${this._onLayoutToggle}
                       ></topology-bar>
                     `
                   : nothing}
 
-                <!-- chat-workspace: 主聊天区 -->
-                <div class="chat-workspace">
-                  <section
-                    class="primary-chat"
-                    @focusin=${this._onPrimaryChatFocusIn}
-                    @focusout=${this._onPrimaryChatFocusOut}
-                  >
-                    <chat-view
-                      .messages=${this.messages}
-                      .session=${this.session}
-                      .isInitiator=${isInitiator}
-                      .pendingApprovals=${this.pendingApprovals}
-                      .resolvedApprovals=${this.resolvedApprovals}
-                      .hasSummary=${this.hasSummary}
-                      .truncated=${this.truncated}
-                      .hasMoreHistory=${this.hasMoreHistory}
-                      .isChatting=${this.isChatting}
-                      .showToolMessages=${this.showToolMessages}
-                      .sopSteps=${this.sopSteps}
-                      .sopLabel=${this.sopLabel}
-                      .activeProgress=${this.activeProgress}
-                      .progressLogs=${this.progressLogs}
-                      .currentStepIndex=${this.currentStepIndex}
-                      .sopCompletedAt=${this.sopCompletedAt}
-                      @resolve=${this._onResolve}
-                      @load-more-history=${this._onLoadMoreHistory}
-                      @abort-chat=${this._onAbortChat}
-                    ></chat-view>
-                  </section>
-                </div>
+                <!-- 布局选择面板 -->
+                ${this._renderLayoutPanel()}
+                ${this._layoutMode === "single"
+                  ? html`
+                      <!-- chat-workspace: 主聊天区（单窗口模式） -->
+                      <div class="chat-workspace" style="position: relative;">
+                        <section
+                          class="primary-chat"
+                          @focusin=${this._onPrimaryChatFocusIn}
+                          @focusout=${this._onPrimaryChatFocusOut}
+                        >
+                          <agent-panel
+                            variant="root"
+                            .agentId=${rootAgentId}
+                            .agents=${this.agents}
+                            .messages=${this.messages}
+                            .session=${this.session}
+                            .isInitiator=${isInitiator}
+                            .pendingApprovals=${this.pendingApprovals}
+                            .resolvedApprovals=${this.resolvedApprovals}
+                            .hasSummary=${this.hasSummary}
+                            .truncated=${this.truncated}
+                            .hasMoreHistory=${this.hasMoreHistory}
+                            .isChatting=${this.isChatting}
+                            .showToolMessages=${this.showToolMessages}
+                            .sopSteps=${this.sopSteps}
+                            .sopLabel=${this.sopLabel}
+                            .activeProgress=${this.activeProgress}
+                            .progressLogs=${this.progressLogs}
+                            .currentStepIndex=${this.currentStepIndex}
+                            .sopCompletedAt=${this.sopCompletedAt}
+                            @resolve=${this._onResolve}
+                            @load-more-history=${this._onLoadMoreHistory}
+                            @abort-chat=${this._onAbortChat}
+                          ></agent-panel>
+                        </section>
 
-                <!-- 抽屉遮罩（点击关闭） -->
-                ${this._drawerOpen
-                  ? html`<div class="drawer-scrim" @click=${this._onDrawerClose}></div>`
-                  : nothing}
+                        <!-- 抽屉遮罩（点击关闭） -->
+                        ${this._drawerOpen
+                          ? html`<div class="drawer-scrim" @click=${this._onDrawerClose}></div>`
+                          : nothing}
 
-                <!-- 子 Agent 抽屉覆盖层（与拓扑条顶部对齐） -->
-                <div class="drawer-overlay ${this._drawerOpen ? "open" : ""}">
-                  <sub-agent-drawer
-                    .activeAgentId=${this._drawerAgentId}
-                    .isOpen=${this._drawerOpen}
-                    .agents=${this.agents}
-                    .messages=${drawerMessages}
-                    .unreadCount=${0}
-                    .showToolMessages=${this.showToolMessages}
-                    .pendingApprovals=${this.pendingApprovals}
-                    .resolvedApprovals=${this.resolvedApprovals}
-                    .isInitiator=${isInitiator}
-                    .isActive=${drawerIsActive}
-                    .autoOpenMode=${this._autoOpenMode}
-                    @drawer-close=${this._onDrawerClose}
-                    @drawer-send-message=${this._onDrawerSendMessage}
-                    @auto-open-mode-change=${this._onAutoOpenModeChange}
-                  ></sub-agent-drawer>
-                </div>
+                        <!-- 子 Agent 抽屉覆盖层（从右侧滑出） -->
+                        <div class="drawer-overlay ${this._drawerOpen ? "open" : ""}">
+                          ${this._drawerAgentId
+                            ? html`<agent-panel
+                                variant="sub"
+                                .agentId=${this._drawerAgentId}
+                                .agents=${this.agents}
+                                .messages=${drawerMessages}
+                                .unreadCount=${0}
+                                .showToolMessages=${this.showToolMessages}
+                                .pendingApprovals=${this.pendingApprovals}
+                                .resolvedApprovals=${this.resolvedApprovals}
+                                .isInitiator=${isInitiator}
+                                .isActive=${drawerIsActive}
+                                .autoOpenMode=${this._autoOpenMode}
+                                @panel-close=${this._onDrawerClose}
+                                @drawer-send-message=${this._onDrawerSendMessage}
+                                @auto-open-mode-change=${this._onAutoOpenModeChange}
+                              ></agent-panel>`
+                            : nothing}
+                        </div>
+                      </div>
+
+                      <!-- 全局输入框（单窗口模式，目标跟随当前选中 Agent） -->
+                      <global-input-bar
+                        .activeTarget=${this._activeInputTarget}
+                        .session=${this.session}
+                        .isChatting=${this.isChatting}
+                        .agents=${this.agents}
+                        .rootAgentName=${rootAgentName}
+                        @send-message=${this._onSendMessage}
+                        @drawer-send-message=${this._onDrawerSendMessage}
+                        @abort-chat=${this._onAbortChat}
+                      ></global-input-bar>
+                    `
+                  : html`
+                      <!-- chat-workspace: 多窗口布局模式 -->
+                      <div class="chat-workspace">
+                        ${this._renderMultiWindowLayout(
+                          rootAgentId,
+                          effectiveSubAgents,
+                          isInitiator ?? false,
+                        )}
+                      </div>
+
+                      <!-- 全局输入框（多窗口模式，点击窗口切换目标） -->
+                      <global-input-bar
+                        .activeTarget=${this._activeInputTarget}
+                        .session=${this.session}
+                        .isChatting=${this.isChatting}
+                        .agents=${this.agents}
+                        .rootAgentName=${rootAgentName}
+                        @send-message=${this._onSendMessage}
+                        @drawer-send-message=${this._onDrawerSendMessage}
+                        @abort-chat=${this._onAbortChat}
+                      ></global-input-bar>
+                    `}
               </div>
             </div>
 

@@ -1,6 +1,7 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import type { ChatMessage } from "../types/chat-types.js";
+import type { LayoutMode } from "../types/layout-types.js";
 
 /**
  * topology-bar — 拓扑状态条（控制台风格）。
@@ -25,6 +26,8 @@ export class TopologyBar extends LitElement {
   @property({ type: String }) expandedAgent = "";
   /** 根 Agent 是否正在对话中（streaming） */
   @property({ type: Boolean }) rootRunning = false;
+  @property({ type: String }) layoutMode: LayoutMode = "single";
+  @property({ type: Boolean }) layoutDisabled = false;
 
   static styles = css`
     :host {
@@ -76,8 +79,8 @@ export class TopologyBar extends LitElement {
       display: flex;
       align-items: center;
       gap: 0;
-      padding: 10px 20px;
-      min-height: 52px;
+      padding: 6px 16px;
+      min-height: 44px;
       overflow-x: auto;
       overflow-y: hidden;
       scrollbar-width: none;
@@ -90,10 +93,10 @@ export class TopologyBar extends LitElement {
     .root-node {
       display: inline-flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       flex-shrink: 0;
-      padding: 6px 14px 6px 8px;
-      border-radius: 12px;
+      padding: 4px 10px 4px 6px;
+      border-radius: 10px;
       background: rgba(255, 255, 255, 0.7);
       backdrop-filter: blur(8px);
       -webkit-backdrop-filter: blur(8px);
@@ -108,9 +111,9 @@ export class TopologyBar extends LitElement {
 
     .root-icon {
       position: relative;
-      width: 28px;
-      height: 28px;
-      border-radius: 8px;
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
       background: #eff6ff;
       display: flex;
       align-items: center;
@@ -121,8 +124,8 @@ export class TopologyBar extends LitElement {
 
     .root-icon-wrap {
       position: relative;
-      width: 28px;
-      height: 28px;
+      width: 22px;
+      height: 22px;
       flex-shrink: 0;
     }
 
@@ -150,7 +153,7 @@ export class TopologyBar extends LitElement {
     }
 
     .root-name {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 700;
       color: #1e293b;
       letter-spacing: -0.01em;
@@ -159,7 +162,7 @@ export class TopologyBar extends LitElement {
     }
 
     .root-role {
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 600;
       color: #94a3b8;
       letter-spacing: 0.04em;
@@ -250,9 +253,9 @@ export class TopologyBar extends LitElement {
     .child-card {
       display: inline-flex;
       align-items: center;
-      gap: 10px;
-      padding: 7px 14px 7px 9px;
-      border-radius: 12px;
+      gap: 8px;
+      padding: 4px 10px 4px 6px;
+      border-radius: 10px;
       border: 1px solid rgba(226, 232, 240, 0.6);
       background: rgba(255, 255, 255, 0.75);
       backdrop-filter: blur(6px);
@@ -332,15 +335,15 @@ export class TopologyBar extends LitElement {
     /* ── 卡片图标区 ── */
     .card-icon-wrap {
       position: relative;
-      width: 30px;
-      height: 30px;
+      width: 22px;
+      height: 22px;
       flex-shrink: 0;
     }
 
     .card-icon {
-      width: 30px;
-      height: 30px;
-      border-radius: 9px;
+      width: 22px;
+      height: 22px;
+      border-radius: 7px;
       background: linear-gradient(135deg, #f1f5f9 0%, #e8edf5 100%);
       display: flex;
       align-items: center;
@@ -422,7 +425,7 @@ export class TopologyBar extends LitElement {
     }
 
     .card-name {
-      font-size: 12.5px;
+      font-size: 12px;
       font-weight: 650;
       color: #1e293b;
       overflow: hidden;
@@ -516,6 +519,50 @@ export class TopologyBar extends LitElement {
       border-radius: 2px 2px 0 0;
       background: #2563eb;
       opacity: 0.7;
+    }
+
+    /* ── 布局切换按钮 ── */
+    .layout-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+      background: rgba(255, 255, 255, 0.7);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      cursor: pointer;
+      flex-shrink: 0;
+      margin-left: auto;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      color: #64748b;
+      outline: none;
+    }
+
+    .layout-btn:hover {
+      background: rgba(255, 255, 255, 0.95);
+      border-color: #cbd5e1;
+      color: #475569;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    }
+
+    .layout-btn:focus-visible {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+    }
+
+    .layout-btn.active {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      color: #2563eb;
+    }
+
+    .layout-btn.disabled {
+      opacity: 0.4;
+      pointer-events: none;
+      cursor: default;
     }
 
     /* ── 响应式 ── */
@@ -714,6 +761,10 @@ export class TopologyBar extends LitElement {
     }
   }
 
+  private _onLayoutToggle() {
+    this.dispatchEvent(new CustomEvent("layout-toggle", { bubbles: true, composed: true }));
+  }
+
   render() {
     if (this.subAgents.length === 0) {
       return nothing;
@@ -850,6 +901,44 @@ export class TopologyBar extends LitElement {
               </div>
             `;
           })}
+        </div>
+
+        <!-- 布局切换按钮 -->
+        <div
+          class="layout-btn ${this.layoutMode !== "single" ? "active" : ""} ${this.layoutDisabled
+            ? "disabled"
+            : ""}"
+          role="button"
+          tabindex=${this.layoutDisabled ? "-1" : "0"}
+          aria-label="布局切换"
+          aria-disabled=${this.layoutDisabled ? "true" : "false"}
+          @click=${() => {
+            if (!this.layoutDisabled) {
+              this._onLayoutToggle();
+            }
+          }}
+          @keydown=${(e: KeyboardEvent) => {
+            if (!this.layoutDisabled && (e.key === "Enter" || e.key === " ")) {
+              e.preventDefault();
+              this._onLayoutToggle();
+            }
+          }}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+            <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+            <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+            <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+          </svg>
         </div>
       </div>
     `;
