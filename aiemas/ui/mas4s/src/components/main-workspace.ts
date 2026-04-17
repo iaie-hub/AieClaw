@@ -65,6 +65,10 @@ export class MainWorkspace extends LitElement {
   @property({ attribute: false })
   activeAgents: Set<string> = new Set();
 
+  /** 已完成执行的 Sub_Agent 集合（run 结束，等待查看） */
+  @property({ attribute: false })
+  completedAgents: Set<string> = new Set();
+
   // ── SOP state (passed through to agent-panel → message-list) ────────────────
   @property({ attribute: false }) sopSteps: unknown[] = [];
   @property({ attribute: false }) sopLabel = "";
@@ -1119,6 +1123,7 @@ export class MainWorkspace extends LitElement {
                         .rootAgentName=${rootAgentName}
                         .activeAgents=${this.activeAgents}
                         .unreadAgents=${this.unreadAgents}
+                        .completedAgents=${this.completedAgents}
                         .expandedAgent=${this._drawerAgentId}
                         .rootRunning=${this.isChatting}
                         .layoutMode=${this._layoutMode}

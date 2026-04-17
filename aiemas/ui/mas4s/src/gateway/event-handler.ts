@@ -326,9 +326,10 @@ function handleChatEvent(store: AppStore, payload: unknown): void {
     _thinkingByRun.delete(runId);
     store.setIsChatting(sessionUuid, false);
 
-    // 子 Agent run 结束，清除活跃状态
+    // 子 Agent run 结束，清除活跃状态，标记为已完成
     if (!isRootAgent) {
       store.clearAgentActive(sessionUuid, agentId);
+      store.markAgentCompleted(sessionUuid, agentId);
     }
 
     // ── 碎片修复：Root_Agent run 结束后用 History_Range_API 替换 streaming 碎片 ──

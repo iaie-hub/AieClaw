@@ -1,6 +1,5 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { extractAgentNameFromKey } from "../../../../src/utils/session-utils.js";
 import type { SessionRunStatus } from "../lib/types.js";
 import { AppStoreController } from "../store/app-store.js";
 import type { ApprovalRequest } from "../types/approval-types.js";
@@ -1111,9 +1110,6 @@ export class MainHeader extends LitElement {
   render() {
     const isInitiator = this.session?.masType === "initiated";
     const isArchived = this.session?.archivedAt != null;
-    const agentName =
-      this.session?.currentAgentId ||
-      (this.session ? extractAgentNameFromKey(this.session.key) : "default");
 
     return html`
       <!-- Left: session identity -->
@@ -1139,10 +1135,6 @@ export class MainHeader extends LitElement {
                 </div>
                 <div class="session-text">
                   <span class="session-title">${this.title}</span>
-                  <span class="session-agent">
-                    <span class="agent-dot"></span>
-                    ${agentName}
-                  </span>
                 </div>
               </div>
 

@@ -120,6 +120,9 @@ export class AppStore {
   // ── Sub_Agent 活跃状态（sessionUuid → Set<agentId>，正在 streaming 的子 Agent） ──
   activeAgentsBySession: Map<string, Set<string>> = new Map();
 
+  // ── Sub_Agent 已完成状态（sessionUuid → Set<agentId>，run 结束但用户未查看的子 Agent） ──
+  completedAgentsBySession: Map<string, Set<string>> = new Map();
+
   // ── 历史消息元数据（sessionUuid → { truncated, hasSummary, page, totalPages, sessionStats }） ──
   historyMetaBySession: Map<
     string,
@@ -645,6 +648,13 @@ export class AppStore {
 
   /** 标记 Sub_Agent 为活跃（正在 streaming） */
   markAgentActive(sessionUuid: string, agentId: string): void {
+    // 重新开始 streaming 时，清除已完成状态
+    const completedSet = this.completedAgentsBySession.get(sessionUuid);
+    if (completedSet?.has(agentId)) {
+      completedSet.delete(agentId);
+      this.completedAgentsBySession.set(sessionUuid, new Set(completedSet));
+    }
+
     let activeSet = this.activeAgentsBySession.get(sessionUuid);
     if (!activeSet) {
       activeSet = new Set();
@@ -663,6 +673,29 @@ export class AppStore {
     if (activeSet?.has(agentId)) {
       activeSet.delete(agentId);
       this.activeAgentsBySession.set(sessionUuid, new Set(activeSet));
+      this.notify();
+    }
+  }
+
+  /** 标记 Sub_Agent 为已完成（run 结束，等待用户查看） */
+  markAgentCompleted(sessionUuid: string, agentId: string): void {
+    let completedSet = this.completedAgentsBySession.get(sessionUuid);
+    if (!completedSet) {
+      completedSet = new Set();
+    }
+    if (!completedSet.has(agentId)) {
+      completedSet.add(agentId);
+      this.completedAgentsBySession.set(sessionUuid, new Set(completedSet));
+      this.notify();
+    }
+  }
+
+  /** 清除 Sub_Agent 的已完成状态（用户已查看或重新开始 streaming） */
+  clearAgentCompleted(sessionUuid: string, agentId: string): void {
+    const completedSet = this.completedAgentsBySession.get(sessionUuid);
+    if (completedSet?.has(agentId)) {
+      completedSet.delete(agentId);
+      this.completedAgentsBySession.set(sessionUuid, new Set(completedSet));
       this.notify();
     }
   }

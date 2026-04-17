@@ -177,6 +177,9 @@ export function renderMain(
               .activeAgents=${store.activeSessionUuid
                 ? (store.activeAgentsBySession.get(store.activeSessionUuid) ?? new Set())
                 : new Set()}
+              .completedAgents=${store.activeSessionUuid
+                ? (store.completedAgentsBySession.get(store.activeSessionUuid) ?? new Set())
+                : new Set()}
               @send-message=${h.onSendMessage}
               @abort-chat=${h.onAbortChat}
               @resolve-approval=${h.onResolveApproval}

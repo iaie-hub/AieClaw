@@ -23,6 +23,7 @@ export class TopologyBar extends LitElement {
   @property({ type: String }) rootAgentName = "";
   @property({ attribute: false }) activeAgents: Set<string> = new Set();
   @property({ attribute: false }) unreadAgents: Set<string> = new Set();
+  @property({ attribute: false }) completedAgents: Set<string> = new Set();
   @property({ type: String }) expandedAgent = "";
   /** 根 Agent 是否正在对话中（streaming） */
   @property({ type: Boolean }) rootRunning = false;
@@ -387,9 +388,14 @@ export class TopologyBar extends LitElement {
     }
 
     .status-indicator.unread {
-      background: #3b82f6;
-      box-shadow: 0 0 6px rgba(59, 130, 246, 0.4);
-      animation: unreadPing 2.5s ease-in-out infinite;
+      background: #6366f1;
+      box-shadow: 0 0 6px rgba(99, 102, 241, 0.4);
+      animation: unreadPing 3s ease-in-out infinite;
+    }
+
+    .status-indicator.completed {
+      background: #f59e0b;
+      box-shadow: 0 0 6px rgba(245, 158, 11, 0.35);
     }
 
     @keyframes statusBreath {
@@ -407,12 +413,14 @@ export class TopologyBar extends LitElement {
     @keyframes unreadPing {
       0%,
       100% {
-        box-shadow: 0 0 4px rgba(59, 130, 246, 0.3);
+        box-shadow: 0 0 4px rgba(99, 102, 241, 0.3);
+        transform: scale(1);
       }
       50% {
         box-shadow:
-          0 0 8px rgba(59, 130, 246, 0.5),
-          0 0 16px rgba(59, 130, 246, 0.15);
+          0 0 8px rgba(99, 102, 241, 0.5),
+          0 0 12px rgba(99, 102, 241, 0.15);
+        transform: scale(1.05);
       }
     }
 
@@ -771,6 +779,7 @@ export class TopologyBar extends LitElement {
     }
 
     const runningCount = this.subAgents.filter((id) => this.activeAgents.has(id)).length;
+    const completedCount = this.subAgents.filter((id) => this.completedAgents.has(id)).length;
 
     return html`
       <div class="bar-bg"></div>
@@ -833,6 +842,8 @@ export class TopologyBar extends LitElement {
           </svg>
           ${this.subAgents.length}${runningCount > 0
             ? html` · <span style="color:#22c55e">${runningCount} 运行中</span>`
+            : ""}${completedCount > 0
+            ? html` · <span style="color:#f59e0b">${completedCount} 已完成</span>`
             : ""}
         </span>
 
@@ -842,6 +853,7 @@ export class TopologyBar extends LitElement {
             const agent = this.agents.find((a) => a.id === agentId);
             const agentName = agent?.name || agentId;
             const isRunning = this.activeAgents.has(agentId);
+            const isCompleted = this.completedAgents.has(agentId);
             const isUnread = this.unreadAgents.has(agentId);
             const isActive = this.expandedAgent === agentId;
             const preview = this._getLatestPreview(agentId);
@@ -854,9 +866,9 @@ export class TopologyBar extends LitElement {
                 role="button"
                 tabindex="0"
                 aria-pressed=${isActive ? "true" : "false"}
-                aria-label="${agentName}${isRunning ? "，运行中" : ""}${isUnread
-                  ? "，有未读消息"
-                  : ""}"
+                aria-label="${agentName}${isRunning ? "，运行中" : ""}${isCompleted
+                  ? "，已完成"
+                  : ""}${isUnread ? "，有未读消息" : ""}"
                 @keydown=${(e: KeyboardEvent) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
@@ -884,9 +896,11 @@ export class TopologyBar extends LitElement {
                   </div>
                   ${isRunning
                     ? html`<span class="status-indicator running"></span>`
-                    : isUnread
-                      ? html`<span class="status-indicator unread"></span>`
-                      : nothing}
+                    : isCompleted
+                      ? html`<span class="status-indicator completed"></span>`
+                      : isUnread
+                        ? html`<span class="status-indicator unread"></span>`
+                        : nothing}
                 </div>
                 <div class="card-text">
                   <span class="card-name">${agentName}</span>
