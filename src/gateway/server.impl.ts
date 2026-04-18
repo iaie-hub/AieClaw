@@ -641,6 +641,15 @@ export async function startGatewayServer(
 
     const mas4sIntegration = await initMas4sIntegration(log, cfgAtStart);
     setMas4sIntegrationRef(mas4sIntegration);
+
+    // 方案 4+6：gateway 启动时阻塞式预热 agent 缓存
+    // 在接受用户请求前完成预热，消除预热与请求的 event loop 竞争
+    try {
+      const warmupMod = await import("./agent-perf-warmup.js");
+      await warmupMod.warmupAgentCaches(cfgAtStart);
+    } catch {
+      // 预热失败不影响 gateway 启动
+    }
     const canvasHostServerPort = (canvasHostServer as CanvasHostServer | null)?.port;
 
     // Wrap broadcast to apply mas4s filterBroadcast if available
@@ -821,6 +830,15 @@ export async function startGatewayServer(
       log,
     });
     runtimeState.heartbeatRunner = activated.heartbeatRunner;
+
+    // Pre-warm the model catalog cache in the background so that the first
+    // chat.history request (which resolves thinkingLevel via the catalog)
+    // does not block for 20-30 s while provider plugins discover models.
+    if (!minimalTestGateway) {
+      void loadGatewayModelCatalog().catch((err) =>
+        log.warn(`model catalog pre-warm failed: ${String(err)}`),
+      );
+    }
 
     runtimeState.configReloader = startManagedGatewayConfigReloader({
       minimalTestGateway,

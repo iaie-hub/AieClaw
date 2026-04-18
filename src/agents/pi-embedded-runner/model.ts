@@ -144,6 +144,23 @@ function applyResolvedTransportFallback(params: {
   };
 }
 
+// ── 方案 5：normalizeResolvedModel 进程级缓存 ──────────────────────────────
+// key 为 provider + model.id，缓存 plugin normalize/compat/transport hook 的结果。
+// 这些 hook 只依赖 provider 和 model 结构，不依赖 secret 值或 agentDir。
+const NORMALIZED_MODEL_CACHE_KEY = Symbol.for("openclaw.normalizedModelCache");
+
+type NormalizedModelCache = Map<string, Model<Api>>;
+
+function getNormalizedModelCache(): NormalizedModelCache {
+  const g = globalThis as typeof globalThis & {
+    [NORMALIZED_MODEL_CACHE_KEY]?: NormalizedModelCache;
+  };
+  if (!g[NORMALIZED_MODEL_CACHE_KEY]) {
+    g[NORMALIZED_MODEL_CACHE_KEY] = new Map();
+  }
+  return g[NORMALIZED_MODEL_CACHE_KEY];
+}
+
 function normalizeResolvedModel(params: {
   provider: string;
   model: Model<Api>;
@@ -151,6 +168,14 @@ function normalizeResolvedModel(params: {
   agentDir?: string;
   runtimeHooks?: ProviderRuntimeHooks;
 }): Model<Api> {
+  // 方案 5：进程级缓存，key 为 provider + model.id
+  const cacheKey = `${params.provider}\0${params.model.id}`;
+  const cache = getNormalizedModelCache();
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const normalizedInputModel = {
     ...params.model,
     input: resolveProviderModelInput({
@@ -202,7 +227,7 @@ function normalizeResolvedModel(params: {
       runtimeHooks,
       model: compatNormalized ?? pluginNormalized ?? normalizedInputModel,
     });
-  return canonicalizeLegacyResolvedModel({
+  const result = canonicalizeLegacyResolvedModel({
     provider: params.provider,
     model: normalizeResolvedProviderModel({
       provider: params.provider,
@@ -210,6 +235,8 @@ function normalizeResolvedModel(params: {
         fallbackTransportNormalized ?? compatNormalized ?? pluginNormalized ?? normalizedInputModel,
     }),
   });
+  cache.set(cacheKey, result);
+  return result;
 }
 
 function resolveProviderTransport(params: {
@@ -391,8 +418,8 @@ function resolveExplicitModelWithRegistry(params: {
     modelId,
   });
   if (inlineMatch?.api) {
-    return {
-      kind: "resolved",
+    const result = {
+      kind: "resolved" as const,
       model: normalizeResolvedModel({
         provider,
         cfg,
@@ -401,27 +428,30 @@ function resolveExplicitModelWithRegistry(params: {
         runtimeHooks,
       }),
     };
+    return result;
   }
   const model = modelRegistry.find(provider, modelId) as Model<Api> | null;
 
   if (model) {
-    return {
-      kind: "resolved",
+    const overridden = applyConfiguredProviderOverrides({
+      provider,
+      discoveredModel: model,
+      providerConfig,
+      modelId,
+      cfg,
+      runtimeHooks,
+    });
+    const result = {
+      kind: "resolved" as const,
       model: normalizeResolvedModel({
         provider,
         cfg,
         agentDir,
-        model: applyConfiguredProviderOverrides({
-          provider,
-          discoveredModel: model,
-          providerConfig,
-          modelId,
-          cfg,
-          runtimeHooks,
-        }),
+        model: overridden,
         runtimeHooks,
       }),
     };
+    return result;
   }
 
   const providers = cfg?.models?.providers ?? {};
@@ -769,7 +799,7 @@ export async function resolveModelAsync(
         providerConfig,
       },
     });
-    return resolveModelWithRegistry({
+    const result = resolveModelWithRegistry({
       provider: normalizedRef.provider,
       modelId: normalizedRef.model,
       modelRegistry,
@@ -777,6 +807,7 @@ export async function resolveModelAsync(
       agentDir: resolvedAgentDir,
       runtimeHooks,
     });
+    return result;
   };
   let model =
     explicitModel?.kind === "resolved" &&
@@ -790,9 +821,6 @@ export async function resolveModelAsync(
       ? explicitModel.model
       : await resolveDynamicAttempt();
   if (!model && !explicitModel && options?.retryTransientProviderRuntimeMiss) {
-    // Startup can race the first provider-runtime snapshot load on a fresh
-    // gateway boot. Retry once with a cleared hook cache before surfacing a
-    // user-visible "Unknown model" that disappears on the next message.
     model = await resolveDynamicAttempt({ clearHookCache: true });
   }
   if (model) {

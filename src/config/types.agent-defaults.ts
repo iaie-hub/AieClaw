@@ -342,6 +342,11 @@ export type AgentDefaultsConfig = {
   };
   /** Max concurrent agent runs across all conversations. Default: 1 (sequential). */
   maxConcurrent?: number;
+  /** Nested lane defaults (sessions_send cross-session messaging). */
+  nested?: {
+    /** Max concurrent nested agent runs (global lane: "nested"). Default: 8. */
+    maxConcurrent?: number;
+  };
   /** Sub-agent defaults (spawned via sessions_spawn). */
   subagents?: {
     /** Default allowlist of target agent ids for sessions_spawn. Use "*" to allow any. */

@@ -280,13 +280,107 @@ export function resolvePiCredentialsForDiscovery(agentDir: string): PiCredential
 }
 
 // Compatibility helpers for pi-coding-agent 0.50+ (discover* helpers removed).
+
+// ── 方案 2：进程级 AuthStorage + ModelRegistry 缓存 ──────────────────────────
+// key 为 agentDir，用 mtime 做失效检测，无 TTL。
+// auth-profiles.json 可被外部修改（用户执行 openclaw auth），mtime 变化即失效。
+const AUTH_DISCOVERY_CACHE_KEY = Symbol.for("openclaw.authDiscoveryCache");
+
+type AuthDiscoveryCacheEntry = {
+  authStorage: PiAuthStorage;
+  modelRegistry: PiModelRegistry;
+  authProfilesMtimeMs: number | null;
+  modelsJsonMtimeMs: number | null;
+};
+
+type AuthDiscoveryCache = Map<string, AuthDiscoveryCacheEntry>;
+
+function getAuthDiscoveryCache(): AuthDiscoveryCache {
+  const g = globalThis as typeof globalThis & {
+    [AUTH_DISCOVERY_CACHE_KEY]?: AuthDiscoveryCache;
+  };
+  if (!g[AUTH_DISCOVERY_CACHE_KEY]) {
+    g[AUTH_DISCOVERY_CACHE_KEY] = new Map();
+  }
+  return g[AUTH_DISCOVERY_CACHE_KEY];
+}
+
+function getFileMtimeMsSync(filepath: string): number | null {
+  try {
+    return fs.statSync(filepath).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+export function resetAuthDiscoveryCacheForTest(): void {
+  getAuthDiscoveryCache().clear();
+}
+
 export function discoverAuthStorage(agentDir: string): PiAuthStorage {
+  const cache = getAuthDiscoveryCache();
+  const cached = cache.get(agentDir);
+
+  if (cached) {
+    // 纯 mtime 检查，无 TTL：文件未变则直接返回缓存
+    const currentAuthMtime = getFileMtimeMsSync(path.join(agentDir, "auth-profiles.json"));
+    if (currentAuthMtime === cached.authProfilesMtimeMs) {
+      return cached.authStorage;
+    }
+  }
+
+  // 缓存未命中或 mtime 已变化，执行原始逻辑
   const credentials = resolvePiCredentialsForDiscovery(agentDir);
   const authPath = path.join(agentDir, "auth.json");
   scrubLegacyStaticAuthJsonEntriesForDiscovery(authPath);
-  return createAuthStorage(PiAuthStorageClass, authPath, credentials);
+  const authStorage = createAuthStorage(PiAuthStorageClass, authPath, credentials);
+
+  // 同时预建 modelRegistry 并写入缓存
+  const authProfilesMtimeMs = getFileMtimeMsSync(path.join(agentDir, "auth-profiles.json"));
+  const modelsJsonMtimeMs = getFileMtimeMsSync(path.join(agentDir, "models.json"));
+  const modelRegistry = createOpenClawModelRegistry(
+    authStorage,
+    path.join(agentDir, "models.json"),
+    agentDir,
+  );
+
+  cache.set(agentDir, { authStorage, modelRegistry, authProfilesMtimeMs, modelsJsonMtimeMs });
+  return authStorage;
 }
 
 export function discoverModels(authStorage: PiAuthStorage, agentDir: string): PiModelRegistry {
-  return createOpenClawModelRegistry(authStorage, path.join(agentDir, "models.json"), agentDir);
+  const cache = getAuthDiscoveryCache();
+  const cached = cache.get(agentDir);
+
+  if (cached && cached.authStorage === authStorage) {
+    // 纯 mtime 检查
+    const currentModelsMtime = getFileMtimeMsSync(path.join(agentDir, "models.json"));
+    if (currentModelsMtime === cached.modelsJsonMtimeMs) {
+      return cached.modelRegistry;
+    }
+  }
+
+  // 缓存未命中或 mtime 已变化，重建 registry
+  const modelRegistry = createOpenClawModelRegistry(
+    authStorage,
+    path.join(agentDir, "models.json"),
+    agentDir,
+  );
+
+  // 更新缓存条目中的 modelRegistry 和 modelsJsonMtimeMs
+  const existing = cache.get(agentDir);
+  const modelsJsonMtimeMs = getFileMtimeMsSync(path.join(agentDir, "models.json"));
+  if (existing && existing.authStorage === authStorage) {
+    existing.modelRegistry = modelRegistry;
+    existing.modelsJsonMtimeMs = modelsJsonMtimeMs;
+  } else {
+    cache.set(agentDir, {
+      authStorage,
+      modelRegistry,
+      authProfilesMtimeMs: getFileMtimeMsSync(path.join(agentDir, "auth-profiles.json")),
+      modelsJsonMtimeMs,
+    });
+  }
+
+  return modelRegistry;
 }

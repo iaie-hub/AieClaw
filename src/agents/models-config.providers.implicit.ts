@@ -26,6 +26,69 @@ import { findNormalizedProviderValue } from "./provider-id.js";
 
 const log = createSubsystemLogger("agents/model-providers");
 
+// ── 方案 1：进程级 provider discovery 缓存 ──────────────────────────────────
+// key 为 config+env 的 fingerprint，与 agentDir 无关。
+// 不使用 TTL：discovery 结果完全由 config+env 决定，fingerprint 变化即失效。
+const PROVIDER_DISCOVERY_CACHE_KEY = Symbol.for("openclaw.providerDiscoveryCache");
+
+type ProviderDiscoveryCacheEntry = {
+  fingerprint: string;
+  providers: Record<string, ProviderConfig>;
+};
+
+type ProviderDiscoveryCache = {
+  entry: ProviderDiscoveryCacheEntry | null;
+  pending: Promise<Record<string, ProviderConfig>> | null;
+};
+
+function getProviderDiscoveryCache(): ProviderDiscoveryCache {
+  const g = globalThis as typeof globalThis & {
+    [PROVIDER_DISCOVERY_CACHE_KEY]?: ProviderDiscoveryCache;
+  };
+  if (!g[PROVIDER_DISCOVERY_CACHE_KEY]) {
+    g[PROVIDER_DISCOVERY_CACHE_KEY] = { entry: null, pending: null };
+  }
+  return g[PROVIDER_DISCOVERY_CACHE_KEY];
+}
+
+function buildProviderDiscoveryFingerprint(
+  config: OpenClawConfig | undefined,
+  env: NodeJS.ProcessEnv,
+): string {
+  // 只包含影响 provider discovery 结构的因素。
+  // 排除 apiKey/secret 值——不同 agentDir 的 secret resolution 可能不同，
+  // 但不影响 provider 列表和模型目录的结构。
+  const envShape = {
+    OPENCLAW_LIVE_TEST: env.OPENCLAW_LIVE_TEST,
+    OPENCLAW_LIVE_GATEWAY: env.OPENCLAW_LIVE_GATEWAY,
+    LIVE: env.LIVE,
+    OPENCLAW_LIVE_PROVIDERS: env.OPENCLAW_LIVE_PROVIDERS,
+    OPENCLAW_TEST_ONLY_PROVIDER_PLUGIN_IDS: env.OPENCLAW_TEST_ONLY_PROVIDER_PLUGIN_IDS,
+  };
+  // 提取 provider 结构（baseUrl、api、models id 列表），忽略 apiKey 等 secret 字段
+  const providerStructure = config?.models?.providers
+    ? Object.fromEntries(
+        Object.entries(config.models.providers).map(([key, p]) => [
+          key,
+          {
+            baseUrl: p?.baseUrl,
+            api: p?.api,
+            models: Array.isArray(p?.models)
+              ? p.models.map((m: { id?: string }) => m?.id)
+              : undefined,
+          },
+        ]),
+      )
+    : undefined;
+  return JSON.stringify({ providerStructure, envShape });
+}
+
+export function resetProviderDiscoveryCacheForTest(): void {
+  const cache = getProviderDiscoveryCache();
+  cache.entry = null;
+  cache.pending = null;
+}
+
 const PROVIDER_IMPLICIT_MERGERS: Partial<
   Record<
     string,
@@ -204,7 +267,14 @@ async function resolvePluginImplicitProviders(
   const byOrder = groupPluginDiscoveryProvidersByOrder(providers);
   const discovered: Record<string, ProviderConfig> = {};
   const catalogConfig = buildPluginCatalogConfig(ctx);
-  for (const provider of byOrder[order]) {
+  const pluginsForOrder = byOrder[order];
+
+  if (pluginsForOrder.length === 0) {
+    return undefined;
+  }
+
+  // 方案 3：并行执行同一 order 内所有 provider 的 catalog 发现
+  const catalogTasks = pluginsForOrder.map((provider) => {
     const resolveCatalogProviderApiKey = (providerId?: string) => {
       const resolvedProviderId = providerId?.trim() || provider.id;
       const resolved = ctx.resolveProviderApiKey(resolvedProviderId);
@@ -243,7 +313,7 @@ async function resolvePluginImplicitProviders(
       };
     };
 
-    const result = await runProviderCatalogWithTimeout({
+    return runProviderCatalogWithTimeout({
       provider,
       config: catalogConfig,
       agentDir: ctx.agentDir,
@@ -253,14 +323,20 @@ async function resolvePluginImplicitProviders(
       resolveProviderAuth: (providerId, options) =>
         ctx.resolveProviderAuth(providerId?.trim() || provider.id, options),
       timeoutMs: resolveLiveProviderCatalogTimeoutMs(ctx.env),
+    }).then((result) => {
+      return { provider, result };
     });
-    if (!result) {
+  });
+
+  // 等待所有并行 catalog 任务完成，按原始顺序处理结果（保持确定性）
+  const results = await Promise.allSettled(catalogTasks);
+
+  for (const settled of results) {
+    if (settled.status !== "fulfilled" || !settled.value.result) {
       continue;
     }
-    const normalizedResult = normalizePluginDiscoveryResult({
-      provider,
-      result,
-    });
+    const { provider, result } = settled.value;
+    const normalizedResult = normalizePluginDiscoveryResult({ provider, result });
     for (const [providerId, implicitProvider] of Object.entries(normalizedResult)) {
       discovered[providerId] = mergeImplicitProviderConfig({
         providerId,
@@ -279,6 +355,7 @@ async function resolvePluginImplicitProviders(
       });
     }
   }
+
   return Object.keys(discovered).length > 0 ? discovered : undefined;
 }
 
@@ -339,39 +416,73 @@ async function runProviderCatalogWithTimeout(
 export async function resolveImplicitProviders(
   params: ImplicitProviderParams,
 ): Promise<NonNullable<OpenClawConfig["models"]>["providers"]> {
-  const providers: Record<string, ProviderConfig> = {};
   const env = params.env ?? process.env;
-  let authStore: ReturnType<typeof ensureAuthProfileStore> | undefined;
-  const getAuthStore = () =>
-    (authStore ??= ensureAuthProfileStore(params.agentDir, {
-      allowKeychainPrompt: false,
-    }));
-  const context: ImplicitProviderContext = {
-    ...params,
-    get authStore() {
-      return getAuthStore();
-    },
-    env,
-    resolveProviderApiKey: createProviderApiKeyResolver(env, getAuthStore, params.config),
-    resolveProviderAuth: createProviderAuthResolver(env, getAuthStore, params.config),
-  };
-  const discoveryProviders = await resolvePluginDiscoveryProviders({
-    config: params.config,
-    workspaceDir: params.workspaceDir,
-    env,
-    onlyPluginIds: resolveProviderDiscoveryFilter({
+
+  // 方案 1：进程级缓存，纯 fingerprint 匹配，无 TTL
+  const cache = getProviderDiscoveryCache();
+  const fingerprint = buildProviderDiscoveryFingerprint(params.config, env);
+
+  if (cache.entry && cache.entry.fingerprint === fingerprint) {
+    return cache.entry.providers;
+  }
+
+  // 如果有正在进行的 discovery，等待它完成后再检查缓存
+  if (cache.pending) {
+    try {
+      await cache.pending;
+    } catch {
+      // pending 失败了，继续执行新的 discovery
+    }
+    // pending 完成后缓存可能已被填充，再检查一次
+    if (cache.entry && cache.entry.fingerprint === fingerprint) {
+      return cache.entry.providers;
+    }
+  }
+
+  const pending = (async () => {
+    const providers: Record<string, ProviderConfig> = {};
+    let authStore: ReturnType<typeof ensureAuthProfileStore> | undefined;
+    const getAuthStore = () =>
+      (authStore ??= ensureAuthProfileStore(params.agentDir, {
+        allowKeychainPrompt: false,
+      }));
+    const context: ImplicitProviderContext = {
+      ...params,
+      get authStore() {
+        return getAuthStore();
+      },
+      env,
+      resolveProviderApiKey: createProviderApiKeyResolver(env, getAuthStore, params.config),
+      resolveProviderAuth: createProviderAuthResolver(env, getAuthStore, params.config),
+    };
+    const discoveryProviders = await resolvePluginDiscoveryProviders({
       config: params.config,
       workspaceDir: params.workspaceDir,
       env,
-    }),
-  });
+      onlyPluginIds: resolveProviderDiscoveryFilter({
+        config: params.config,
+        workspaceDir: params.workspaceDir,
+        env,
+      }),
+    });
 
-  for (const order of PLUGIN_DISCOVERY_ORDERS) {
-    mergeImplicitProviderSet(
-      providers,
-      await resolvePluginImplicitProviders(context, discoveryProviders, order),
-    );
+    for (const order of PLUGIN_DISCOVERY_ORDERS) {
+      mergeImplicitProviderSet(
+        providers,
+        await resolvePluginImplicitProviders(context, discoveryProviders, order),
+      );
+    }
+
+    cache.entry = { fingerprint, providers };
+    return providers;
+  })();
+
+  cache.pending = pending;
+  try {
+    return await pending;
+  } finally {
+    if (cache.pending === pending) {
+      cache.pending = null;
+    }
   }
-
-  return providers;
 }
