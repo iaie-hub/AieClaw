@@ -1,20 +1,58 @@
-import type { OpenClawConfig } from "../config/config.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { ensureAuthProfileStore } from "./auth-profiles/store.js";
 import {
   normalizeProviderSpecificConfig,
   resolveProviderConfigApiKeyResolver,
 } from "./models-config.providers.policy.js";
-import type { ProviderConfig, SecretDefaults } from "./models-config.providers.secrets.js";
+import type { ProviderConfig, SecretDefaults } from "./models-config.providers.secret-helpers.js";
 import {
   normalizeConfiguredProviderApiKey,
   normalizeHeaderValues,
   normalizeResolvedEnvApiKey,
   resolveApiKeyFromProfiles,
   resolveMissingProviderApiKey,
-} from "./models-config.providers.secrets.js";
+} from "./models-config.providers.secret-helpers.js";
 import { enforceSourceManagedProviderSecrets } from "./models-config.providers.source-managed.js";
 
 type ModelsConfig = NonNullable<OpenClawConfig["models"]>;
+
+// ── 方案 5b：normalizeProviders 进程级缓存 ──────────────────────────────────
+// key 为 agentDir + providers 结构 fingerprint。
+// normalizeProviders 的结果依赖 agentDir（auth profile）和 providers 配置。
+// 在同一 gateway 进程内，相同 agentDir + 相同 providers 结构 → 相同结果。
+const NORMALIZE_PROVIDERS_CACHE_KEY = Symbol.for("openclaw.normalizeProvidersCache");
+
+type NormalizeProvidersCacheEntry = {
+  result: ModelsConfig["providers"];
+};
+
+type NormalizeProvidersCache = Map<string, NormalizeProvidersCacheEntry>;
+
+function getNormalizeProvidersCache(): NormalizeProvidersCache {
+  const g = globalThis as typeof globalThis & {
+    [NORMALIZE_PROVIDERS_CACHE_KEY]?: NormalizeProvidersCache;
+  };
+  if (!g[NORMALIZE_PROVIDERS_CACHE_KEY]) {
+    g[NORMALIZE_PROVIDERS_CACHE_KEY] = new Map();
+  }
+  return g[NORMALIZE_PROVIDERS_CACHE_KEY];
+}
+
+function buildNormalizeProvidersCacheKey(
+  agentDir: string,
+  providers: ModelsConfig["providers"],
+): string {
+  // 只用 provider key + baseUrl + models[].id 做 fingerprint，排除 apiKey 等 secret 字段
+  const structure = providers
+    ? Object.entries(providers)
+        .map(
+          ([key, p]) =>
+            `${key}:${p?.baseUrl ?? ""}:${p?.api ?? ""}:${Array.isArray(p?.models) ? p.models.map((m: { id?: string }) => m?.id ?? "").join(",") : ""}`,
+        )
+        .join("|")
+    : "";
+  return `${agentDir}\0${structure}`;
+}
 
 export function normalizeProviders(params: {
   providers: ModelsConfig["providers"];
@@ -29,12 +67,23 @@ export function normalizeProviders(params: {
   if (!providers) {
     return providers;
   }
+
+  // 方案 5b：进程级缓存
+  const npCache = getNormalizeProvidersCache();
+  const npCacheKey = buildNormalizeProvidersCacheKey(params.agentDir, providers);
+  const npCached = npCache.get(npCacheKey);
+  if (npCached) {
+    return npCached.result;
+  }
+
   const env = params.env ?? process.env;
   let authStore: ReturnType<typeof ensureAuthProfileStore> | undefined;
   const resolveProfileApiKey = (providerKey: string) => {
-    authStore ??= ensureAuthProfileStore(params.agentDir, {
-      allowKeychainPrompt: false,
-    });
+    if (!authStore) {
+      authStore = ensureAuthProfileStore(params.agentDir, {
+        allowKeychainPrompt: false,
+      });
+    }
     return resolveApiKeyFromProfiles({
       provider: providerKey,
       store: authStore,
@@ -138,10 +187,12 @@ export function normalizeProviders(params: {
   }
 
   const normalizedProviders = mutated ? next : providers;
-  return enforceSourceManagedProviderSecrets({
+  const result = enforceSourceManagedProviderSecrets({
     providers: normalizedProviders,
     sourceProviders: params.sourceProviders,
     sourceSecretDefaults: params.sourceSecretDefaults,
     secretRefManagedProviders: params.secretRefManagedProviders,
   });
+  npCache.set(npCacheKey, { result });
+  return result;
 }

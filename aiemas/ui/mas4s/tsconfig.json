@@ -1,9 +1,9 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2023",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
@@ -12,11 +12,13 @@
     "useDefineForClassFields": false,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": false,
+    "allowJs": true,
     "skipLibCheck": true,
     "outDir": "dist",
-    "rootDir": ".",
+    "rootDir": "../../../",
     "paths": {
-      "@vendor/*": ["../../../../vendor/*"]
+      "@core/*": ["./src/*"],
+      "@vendor/*": ["./vendor/*"]
     }
   },
   "include": ["src/**/*.ts", "vite.config.ts"],

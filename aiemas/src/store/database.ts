@@ -70,20 +70,21 @@ export function ensureMas4sSchema(db: DatabaseSync): void {
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS session_ownership (
-      sessionKey TEXT PRIMARY KEY,
+      sessionUuid TEXT PRIMARY KEY,
       userId TEXT NOT NULL REFERENCES users(userId),
       tenantId TEXT NOT NULL REFERENCES tenants(tenantId),
-      createdAt INTEGER NOT NULL
+      createdAt INTEGER NOT NULL,
+      archivedAt INTEGER
     );
   `);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS session_memberships (
-      sessionKey TEXT NOT NULL,
+      sessionUuid TEXT NOT NULL,
       userId TEXT NOT NULL REFERENCES users(userId),
       role TEXT NOT NULL CHECK(role IN ('owner', 'participant')),
       joinedAt INTEGER NOT NULL,
-      PRIMARY KEY (sessionKey, userId)
+      PRIMARY KEY (sessionUuid, userId)
     );
   `);
 
@@ -102,31 +103,104 @@ export function ensureMas4sSchema(db: DatabaseSync): void {
     );
   `);
 
-  // Idempotent migration: add lastLoginAt/lastOfflineAt columns to user_presence if they don't exist
-  const presenceCols = db.prepare("PRAGMA table_info(user_presence)").all() as Array<{
-    name: string;
-  }>;
-  if (!presenceCols.some((c) => c.name === "lastLoginAt")) {
-    db.exec("ALTER TABLE user_presence ADD COLUMN lastLoginAt INTEGER");
-  }
-  if (!presenceCols.some((c) => c.name === "lastOfflineAt")) {
-    db.exec("ALTER TABLE user_presence ADD COLUMN lastOfflineAt INTEGER");
-  }
-
-  // Idempotent migration: add archivedAt column to session_ownership if it doesn't exist
-  const cols = db.prepare("PRAGMA table_info(session_ownership)").all() as Array<{ name: string }>;
-  if (!cols.some((c) => c.name === "archivedAt")) {
-    db.exec("ALTER TABLE session_ownership ADD COLUMN archivedAt INTEGER");
-  }
-
   db.exec(`
-    CREATE TABLE IF NOT EXISTS session_labels (
-      sessionKey   TEXT    PRIMARY KEY,
-      label        TEXT    NULL,
-      displayName  TEXT    NULL,
-      updatedAt    INTEGER NOT NULL
+    CREATE TABLE IF NOT EXISTS session_run_state (
+      sessionUuid TEXT PRIMARY KEY,
+      runId       TEXT,
+      sopState    TEXT,
+      isChatting  INTEGER NOT NULL DEFAULT 0,
+      updatedAt   INTEGER NOT NULL
     );
   `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_topologies (
+      rootAgentId TEXT PRIMARY KEY,
+      topology    TEXT NOT NULL,
+      updatedAt   INTEGER NOT NULL
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS aiemas_sessions (
+      sessionUuid       TEXT PRIMARY KEY,
+      sessionKey        TEXT NOT NULL UNIQUE,
+      sessionId         TEXT NOT NULL,
+      agentId           TEXT NOT NULL,
+      label             TEXT,
+      currentAgentId    TEXT,
+      userId            TEXT NOT NULL,
+      tenantId          TEXT NOT NULL,
+      descendantSessions TEXT NOT NULL,
+      createdAt         INTEGER NOT NULL,
+      updatedAt         INTEGER NOT NULL
+    );
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_aiemas_sessions_agentId
+    ON aiemas_sessions(agentId);
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_aiemas_sessions_userId
+    ON aiemas_sessions(userId);
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_aiemas_sessions_tenantId
+    ON aiemas_sessions(tenantId);
+  `);
+
+  // ── Migration: add new columns if upgrading from old schema ──
+  try {
+    db.exec("ALTER TABLE aiemas_sessions ADD COLUMN currentAgentId TEXT;");
+  } catch {
+    // Already exists
+  }
+  try {
+    db.exec("ALTER TABLE aiemas_sessions ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0;");
+  } catch {
+    // Already exists
+  }
+
+  // Drop legacy session_labels table if it still exists
+  db.exec("DROP TABLE IF EXISTS session_labels;");
+
+  // Migration: if old schema had sessionKey as PK,
+  // recreate the table with sessionUuid as PK.
+  const pkCol = (
+    db.prepare("PRAGMA table_info(aiemas_sessions)").all() as Array<{
+      name: string;
+      pk: number;
+    }>
+  ).find((c) => c.pk === 1);
+  if (pkCol && pkCol.name === "sessionKey") {
+    db.exec(`
+      CREATE TABLE aiemas_sessions_new (
+        sessionUuid       TEXT PRIMARY KEY,
+        sessionKey        TEXT NOT NULL UNIQUE,
+        sessionId         TEXT NOT NULL,
+        agentId           TEXT NOT NULL,
+        label             TEXT,
+        currentAgentId    TEXT,
+        userId            TEXT NOT NULL,
+        tenantId          TEXT NOT NULL,
+        descendantSessions TEXT NOT NULL,
+        createdAt         INTEGER NOT NULL,
+        updatedAt         INTEGER NOT NULL DEFAULT 0
+      );
+      INSERT INTO aiemas_sessions_new
+        (sessionUuid, sessionKey, sessionId, agentId, label, currentAgentId, userId, tenantId, descendantSessions, createdAt, updatedAt)
+      SELECT sessionUuid, sessionKey, sessionId, agentId, label, currentAgentId, userId, tenantId, descendantSessions, createdAt, updatedAt
+      FROM aiemas_sessions;
+      DROP TABLE aiemas_sessions;
+      ALTER TABLE aiemas_sessions_new RENAME TO aiemas_sessions;
+      CREATE INDEX IF NOT EXISTS idx_aiemas_sessions_agentId ON aiemas_sessions(agentId);
+      CREATE INDEX IF NOT EXISTS idx_aiemas_sessions_userId ON aiemas_sessions(userId);
+      CREATE INDEX IF NOT EXISTS idx_aiemas_sessions_tenantId ON aiemas_sessions(tenantId);
+    `);
+  }
 }
 
 /**
@@ -150,41 +224,44 @@ export function initMessageDatabase(dbPath: string = DEFAULT_MESSAGE_DB_PATH): D
  * Create the session_messages table and indexes if they don't exist.
  * Also creates session_msg_statistic which maintains per-session aggregate
  * counters (earliest/latest timestamp, total message count, latest seq).
- * Both tables are always updated in the same transaction to stay in sync.
  */
 export function ensureMessageSchema(db: DatabaseSync): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS session_messages (
       id          TEXT    PRIMARY KEY,
+      sessionUuid TEXT    NOT NULL,
       sessionKey  TEXT    NOT NULL,
       sessionId   TEXT    NOT NULL,
       userId      TEXT    NULL,
       tenantId    TEXT    NULL,
       role        TEXT    NOT NULL
-                  CHECK(role IN ('user','assistant','tool','approval','system')),
+                  CHECK(role IN ('user','assistant','tool','approval','system','progress','summary','agent')),
       content     TEXT    NOT NULL,
       timestamp   INTEGER NOT NULL,
       seq         INTEGER NOT NULL DEFAULT 0,
       archivedDate TEXT   NULL,
       toolCallId  TEXT    NULL,
-      toolName    TEXT    NULL
+      toolName    TEXT    NULL,
+      parentSessionUuid TEXT NULL,
+      sourceAgentId TEXT  NULL
     );
   `);
 
-  // Idempotent migration: add toolCallId and toolName columns if they don't exist
-  const msgCols = db.prepare("PRAGMA table_info(session_messages)").all() as Array<{
-    name: string;
-  }>;
-  if (!msgCols.some((c) => c.name === "toolCallId")) {
-    db.exec("ALTER TABLE session_messages ADD COLUMN toolCallId TEXT");
-  }
-  if (!msgCols.some((c) => c.name === "toolName")) {
-    db.exec("ALTER TABLE session_messages ADD COLUMN toolName TEXT");
+  // Migration: add parentSessionUuid if it doesn't exist (node:sqlite best-effort)
+  try {
+    db.exec("ALTER TABLE session_messages ADD COLUMN parentSessionUuid TEXT NULL;");
+  } catch {
+    // Already exists
   }
 
   db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_session_messages_key_ts
-    ON session_messages(sessionKey, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_session_messages_uuid_ts
+    ON session_messages(sessionUuid, timestamp);
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_session_messages_parent_uuid
+    ON session_messages(parentSessionUuid);
   `);
 
   db.exec(`
@@ -197,65 +274,41 @@ export function ensureMessageSchema(db: DatabaseSync): void {
     ON session_messages(sessionId, seq);
   `);
 
-  // session_msg_statistic: one row per (sessionKey, sessionId), updated atomically with
-  // every session_messages INSERT inside persistBatch's transaction.
-  const statCols = db.prepare("PRAGMA table_info(session_msg_statistic)").all() as Array<{
-    name: string;
-  }>;
-  if (statCols.length > 0 && !statCols.some((c) => c.name === "sessionId")) {
-    db.exec("DROP TABLE session_msg_statistic");
-  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS session_msg_statistic (
+      sessionUuid   TEXT    PRIMARY KEY,
       sessionKey    TEXT    NOT NULL,
       sessionId     TEXT    NOT NULL,
       firstMsgAt    INTEGER NOT NULL,
       lastMsgAt     INTEGER NOT NULL,
       msgCount      INTEGER NOT NULL DEFAULT 0,
       lastSeq       INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (sessionKey, sessionId)
+      parentSessionUuid TEXT NULL
     );
   `);
 
-  // session_summaries: one row per (sessionKey, sessionId), upserted on each summary generation.
-  // Stored in mas4s.message.db (alongside messages) for performance isolation from mas4s.db.
-  const summaryCols = db.prepare("PRAGMA table_info(session_summaries)").all() as Array<{
-    name: string;
-  }>;
-  if (summaryCols.length > 0 && !summaryCols.some((c) => c.name === "sessionId")) {
-    db.exec("ALTER TABLE session_summaries RENAME TO session_summaries_old");
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS session_summaries (
-        sessionKey   TEXT    NOT NULL,
-        sessionId    TEXT    NOT NULL,
-        textSummary  TEXT    NULL,
-        toolSummary  TEXT    NULL,
-        generatedAt  INTEGER NOT NULL,
-        generatedBy  TEXT    NOT NULL,
-        PRIMARY KEY (sessionKey, sessionId)
-      );
-    `);
-    // Backfill: use sessionId from the latest message of that sessionKey
-    db.exec(`
-      INSERT INTO session_summaries (sessionKey, sessionId, textSummary, toolSummary, generatedAt, generatedBy)
-      SELECT old.sessionKey, COALESCE(
-        (SELECT sessionId FROM session_messages WHERE sessionKey = old.sessionKey ORDER BY timestamp DESC LIMIT 1),
-        old.sessionKey
-      ), old.textSummary, old.toolSummary, old.generatedAt, old.generatedBy
-      FROM session_summaries_old old
-    `);
-    db.exec("DROP TABLE session_summaries_old");
-  } else {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS session_summaries (
-        sessionKey   TEXT    NOT NULL,
-        sessionId    TEXT    NOT NULL,
-        textSummary  TEXT    NULL,
-        toolSummary  TEXT    NULL,
-        generatedAt  INTEGER NOT NULL,
-        generatedBy  TEXT    NOT NULL,
-        PRIMARY KEY (sessionKey, sessionId)
-      );
-    `);
+  try {
+    db.exec("ALTER TABLE session_msg_statistic ADD COLUMN parentSessionUuid TEXT NULL;");
+  } catch {
+    // Already exists
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS session_summaries (
+      sessionUuid  TEXT    PRIMARY KEY,
+      sessionKey   TEXT    NOT NULL,
+      sessionId    TEXT    NOT NULL,
+      textSummary  TEXT    NULL,
+      toolSummary  TEXT    NULL,
+      generatedAt  INTEGER NOT NULL,
+      generatedBy  TEXT    NOT NULL,
+      parentSessionUuid TEXT NULL
+    );
+  `);
+
+  try {
+    db.exec("ALTER TABLE session_summaries ADD COLUMN parentSessionUuid TEXT NULL;");
+  } catch {
+    // Already exists
   }
 }

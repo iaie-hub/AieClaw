@@ -39,11 +39,10 @@ export class MsgToolResult extends LitElement {
       display: flex;
       align-items: center;
       justify-content: center;
-      color: #fff;
+      color: #94a3b8;
       margin: 0 16px 0 0;
       flex-shrink: 0;
-      box-shadow: 0 4px 14px rgba(71, 85, 105, 0.3);
-      background: linear-gradient(135deg, #64748b 0%, #334155 100%);
+      background: #f1f5f9;
     }
 
     .avatar-icon {
@@ -53,7 +52,8 @@ export class MsgToolResult extends LitElement {
     }
 
     .message-content {
-      max-width: 65%;
+      width: 100%;
+      max-width: calc(100% - 80px);
       display: flex;
       flex-direction: column;
     }
@@ -90,9 +90,31 @@ export class MsgToolResult extends LitElement {
       border-top-left-radius: 4px;
       font-size: 13px;
       line-height: 1.5;
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
       color: #334155;
+      position: relative;
+    }
+
+    .copy-btn {
+      position: absolute;
+      right: 8px;
+      top: 8px;
+      opacity: 0;
+      transition: all 0.2s;
+      z-index: 5;
+    }
+
+    .copy-full-btn {
+      position: absolute;
+      right: -32px;
+      bottom: 0;
+      opacity: 0;
+      transition: all 0.2s;
+      z-index: 5;
+    }
+
+    .message-row:hover .copy-btn,
+    .message-row:hover .copy-full-btn {
+      opacity: 1;
     }
 
     .tool-cards {
@@ -113,7 +135,19 @@ export class MsgToolResult extends LitElement {
         `;
       }
       if (item.type === "text") {
-        return html`<div class="message-bubble">${markdownMath(item.text ?? "")}</div>`;
+        const text = (item.text ?? "").trim();
+        const toolTitle = `ToolResult: ${this.message.toolName || "Tool"}`;
+        return html`
+          <div class="message-bubble">
+            ${markdownMath(text)}
+            <copy-button class="copy-btn" .value=${text} title="仅复制内容"></copy-button>
+            <copy-button
+              class="copy-full-btn"
+              .value=${`${toolTitle}\n${text}`}
+              title="复制标题和内容"
+            ></copy-button>
+          </div>
+        `;
       }
       return nothing;
     })}`;

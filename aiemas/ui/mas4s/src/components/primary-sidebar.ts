@@ -164,13 +164,11 @@ export class PrimarySidebar extends LitElement {
       min-width: 80px;
       height: 100vh;
       background: #ffffff;
-      border-right: 1px solid #e8edf5;
+      border-right: 1px solid #e2e8f0;
       padding-top: 20px;
       flex-shrink: 0;
       z-index: 10;
-      box-shadow: 2px 0 12px rgba(59, 130, 246, 0.06);
       box-sizing: border-box;
-      /* 防止浏览器覆盖字体大小 */
       -webkit-text-size-adjust: 100%;
       text-size-adjust: 100%;
     }
@@ -178,16 +176,15 @@ export class PrimarySidebar extends LitElement {
     .logo {
       width: 46px;
       height: 46px;
-      background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+      background: #eff6ff;
       border-radius: 14px;
       margin-bottom: 24px;
       display: flex;
       align-items: center;
       justify-content: center;
-      color: white;
+      color: #2563eb;
       font-weight: 900;
-      font-size: 13px;
-      box-shadow: 0 6px 18px rgba(99, 102, 241, 0.4);
+      font-size: 16px;
       letter-spacing: 1px;
       flex-shrink: 0;
     }
@@ -247,19 +244,17 @@ export class PrimarySidebar extends LitElement {
 
     /* 激活态 */
     .nav-item.active {
-      color: #3b82f6;
+      color: #2563eb;
     }
 
     .nav-item.active .nav-label {
-      color: #3b82f6;
+      color: #2563eb;
       font-weight: 700;
     }
 
     .nav-item.active .nav-icon-wrapper {
-      background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
-      color: white;
-      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
-      transform: scale(1.05);
+      background: #eff6ff;
+      color: #2563eb;
     }
 
     /* 悬停态 */
@@ -272,9 +267,8 @@ export class PrimarySidebar extends LitElement {
     }
 
     .nav-item:hover:not(.active) .nav-icon-wrapper {
-      background: #eff6ff;
-      color: #3b82f6;
-      transform: translateY(-2px);
+      background: #f8fafc;
+      color: #475569;
     }
 
     /* 左侧激活指示条 */
@@ -286,7 +280,7 @@ export class PrimarySidebar extends LitElement {
       transform: translateY(-50%);
       width: 3px;
       height: 28px;
-      background: linear-gradient(180deg, #3b82f6, #6366f1);
+      background: #2563eb;
       border-radius: 0 4px 4px 0;
     }
 

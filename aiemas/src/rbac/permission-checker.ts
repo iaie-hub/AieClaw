@@ -48,6 +48,19 @@ export const GLOBAL_ROLE_PERMISSIONS: Record<string, Set<GlobalRole>> = {
   "session.history.range": new Set(["admin", "member", "viewer"]),
   "session.label.get": new Set(["admin", "member", "viewer"]),
   "session.label.list": new Set(["admin", "member", "viewer"]),
+  "session.agent.update": new Set(["admin", "member"]),
+  "session.run.state": new Set(["admin", "member", "viewer"]),
+  "aiemas.agents.preDelete": new Set(["admin", "member"]),
+  "aiemas.agents.export": new Set(["admin", "member"]),
+  "aiemas.agents.import": new Set(["admin"]),
+  "aiemas.files.download": new Set(["admin", "member"]),
+  "aiemas.file.upload": new Set(["admin", "member"]),
+  "aiemas.fs.list": new Set(["admin", "member", "viewer"]),
+  "aiemas.agents.topology.list": new Set(["admin", "member", "viewer"]),
+  "aiemas.agents.topology.save": new Set(["admin", "member"]),
+  "aiemas.sessions.create": new Set(["admin", "member"]),
+  "aiemas.sessions.delete": new Set(["admin", "member"]),
+  "aiemas.sessions.list": new Set(["admin", "member", "viewer"]),
 };
 
 /**
@@ -206,6 +219,8 @@ export const SESSION_ROLE_PERMISSIONS: Record<string, Set<SessionRole>> = {
   "session.summary.generate": new Set(["owner", "participant"]),
   "session.summary.get": new Set(["owner", "participant"]),
   "session.history.range": new Set(["owner", "participant"]),
+  "session.agent.update": new Set(["owner"]),
+  "session.run.state": new Set(["owner", "participant"]),
 };
 
 /**
@@ -248,8 +263,9 @@ export function checkPermission(
   }
 
   // Step 4: session-level role check (only when sessionContext is provided)
+  // Admin override: admins bypass session-level restrictions (consistent with checkSessionAccess)
   const sessionAllowed = SESSION_ROLE_PERMISSIONS[method];
-  if (sessionAllowed !== undefined && sessionContext !== undefined) {
+  if (sessionAllowed !== undefined && sessionContext !== undefined && role !== "admin") {
     const { sessionRole } = sessionContext;
     if (sessionRole === undefined || !sessionAllowed.has(sessionRole)) {
       const reason = `Session role '${sessionRole ?? "none"}' is not permitted to call '${method}' on session '${sessionContext.sessionKey}'`;

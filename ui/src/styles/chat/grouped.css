@@ -32,12 +32,6 @@
   align-items: flex-end;
 }
 
-@media (max-width: 600px) {
-  .chat-group-messages {
-    max-width: 82%;
-  }
-}
-
 .chat-group.user .chat-group-footer {
   justify-content: flex-end;
 }
@@ -203,7 +197,7 @@ img.chat-avatar {
 }
 
 .chat-bubble.has-copy {
-  padding-right: 36px;
+  padding-right: 70px;
 }
 
 .chat-bubble-actions {
@@ -485,47 +479,24 @@ img.chat-avatar {
   background: #dc2626;
 }
 
-/* ── Exec approval decision messages ── */
-.chat-group.approval {
-  flex-direction: row-reverse;
-  justify-content: flex-start;
+@media (max-width: 768px) {
+  .chat-group {
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .chat-group-messages {
+    max-width: 82%;
+  }
 }
 
-.chat-group.approval .chat-group-messages {
-  align-items: flex-end;
-}
+@media (max-width: 400px) {
+  .chat-group-messages {
+    max-width: 100%;
+  }
 
-.chat-group.approval .chat-group-footer {
-  justify-content: flex-end;
-}
-
-.chat-bubble--approval {
-  background: transparent;
-  border: 1px dashed var(--border);
-  font-size: 0.85em;
-  opacity: 0.8;
-}
-
-.chat-bubble--approval:hover {
-  background: transparent;
-}
-
-.chat-approval-decision {
-  color: var(--fg);
-  font-style: italic;
-  font-family: var(--font-mono, monospace);
-}
-
-.chat-approval-status {
-  margin-top: 4px;
-  font-size: 0.9em;
-  color: var(--muted);
-}
-
-.chat-approval-status.allow {
-  color: var(--ok, #22c55e);
-}
-
-.chat-approval-status.deny {
-  color: var(--danger, #ef4444);
+  .chat-avatar,
+  img.chat-avatar {
+    display: none;
+  }
 }

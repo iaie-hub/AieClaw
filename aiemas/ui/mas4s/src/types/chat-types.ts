@@ -11,7 +11,7 @@ export interface ChatMessage extends NormalizedMessage {
    *   "pending"   — 审批挂起消息（role="approval"）
    *   undefined   — 普通 user/assistant 消息
    */
-  subType?: "colleague" | "pending";
+  subType?: "colleague" | "pending" | "execution-followup";
 }
 
 export type { MessageContentItem };

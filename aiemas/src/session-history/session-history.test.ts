@@ -25,8 +25,11 @@ function makeDb(): { db: DatabaseSync; cleanup: () => void } {
 function makeMsg(
   overrides: Partial<StoredMessage> & { sessionKey: string; sessionId: string },
 ): StoredMessage {
+  const { sessionKey } = overrides;
+  const sessionUuid = overrides.sessionUuid ?? sessionKey;
   return {
     id: crypto.randomUUID(),
+    sessionUuid,
     userId: null,
     tenantId: null,
     role: "user",
@@ -34,6 +37,10 @@ function makeMsg(
     timestamp: Date.now(),
     seq: 1,
     archivedDate: null,
+    toolCallId: null,
+    toolName: null,
+    parentSessionUuid: null,
+    sourceAgentId: null,
     ...overrides,
   };
 }
@@ -231,7 +238,7 @@ describe("SessionTranscriptStore unit tests", () => {
 
   it("recordSenderContext: userId and tenantId are associated with sessionKey and used in handleUpdate", () => {
     // Record sender context for a session
-    store.recordSenderContext("sk-sender", {
+    store.recordSenderContext("sk-sender", "sk-sender", "sid-sender", {
       userId: "user-123",
       tenantId: "tenant-456",
     });
@@ -371,10 +378,11 @@ describe("queryHistoryRange unit tests", () => {
   function insertMsg(msg: StoredMessage): void {
     db.prepare(
       `INSERT INTO session_messages
-         (id, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, sessionUuid, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate, parentSessionUuid)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       msg.id,
+      msg.sessionUuid,
       msg.sessionKey,
       msg.sessionId,
       msg.userId,
@@ -384,6 +392,7 @@ describe("queryHistoryRange unit tests", () => {
       msg.timestamp,
       msg.seq,
       msg.archivedDate,
+      msg.parentSessionUuid,
     );
   }
 
@@ -397,6 +406,7 @@ describe("queryHistoryRange unit tests", () => {
     insertMsg(after);
 
     const result = queryHistoryRange(db, {
+      sessionUuid: "sk",
       sessionKey: "sk",
       from: BASE_TS,
       to: BASE_TS + 1000,
@@ -414,6 +424,7 @@ describe("queryHistoryRange unit tests", () => {
     insertMsg(msgB);
 
     const result = queryHistoryRange(db, {
+      sessionUuid: "sk",
       sessionKey: "sk",
       sessionId: "sid-a",
       from: BASE_TS - 1000,
@@ -424,16 +435,17 @@ describe("queryHistoryRange unit tests", () => {
     expect(result.messages[0].sessionId).toBe("sid-a");
   });
 
-  it("limit truncation: messages.length <= limit, truncated set correctly", () => {
+  it("pageSize truncation: messages.length <= pageSize, truncated set correctly", () => {
     for (let i = 0; i < 5; i++) {
       insertMsg(makeMsg({ sessionKey: "sk-lim", sessionId: "sid", timestamp: BASE_TS + i }));
     }
 
     const result = queryHistoryRange(db, {
+      sessionUuid: "sk-lim",
       sessionKey: "sk-lim",
       from: BASE_TS - 1,
       to: BASE_TS + 10,
-      limit: 3,
+      pageSize: 3,
     });
 
     expect(result.messages.length).toBe(3);
@@ -450,6 +462,7 @@ describe("queryHistoryRange unit tests", () => {
     );
 
     const result = queryHistoryRange(db, {
+      sessionUuid: "sk-sum",
       sessionKey: "sk-sum",
       from: BASE_TS - 1,
       to: BASE_TS + 10,
@@ -459,6 +472,7 @@ describe("queryHistoryRange unit tests", () => {
 
     // Without summary message
     const result2 = queryHistoryRange(db, {
+      sessionUuid: "sk-sum",
       sessionKey: "sk-sum",
       sessionId: "sid",
       from: BASE_TS - 1,
@@ -480,6 +494,7 @@ describe("queryHistoryRange unit tests", () => {
     const bufMsg: StoredMessage = { ...dbMsg, content: "buffer-version" };
 
     const result = queryHistoryRange(db, {
+      sessionUuid: "sk-dup",
       sessionKey: "sk-dup",
       from: BASE_TS - 1,
       to: BASE_TS + 1,
@@ -499,6 +514,7 @@ describe("queryHistoryRange unit tests", () => {
     insertMsg(msg);
 
     const result = queryHistoryRange(db, {
+      sessionUuid: "sk-sl",
       sessionKey: "sk-sl",
       from: BASE_TS - 1,
       to: BASE_TS + 1,
@@ -519,6 +535,7 @@ describe("queryHistoryRange unit tests", () => {
     insertMsg(msg);
 
     const result = queryHistoryRange(db, {
+      sessionUuid: "sk-sl-null",
       sessionKey: "sk-sl-null",
       from: BASE_TS - 1,
       to: BASE_TS + 1,
@@ -533,11 +550,11 @@ describe("queryHistoryRange unit tests", () => {
 
 describe("PBT P-1: Message order invariant", () => {
   /**
-   * queryHistoryRange results are strictly timestamp DESC.
+   * queryHistoryRange results are strictly timestamp ASC (oldest first).
    *
    * **Validates: Requirements 3.2**
    */
-  it("queryHistoryRange results are strictly timestamp DESC", () => {
+  it("queryHistoryRange results are strictly timestamp ASC", () => {
     fc.assert(
       fc.property(
         fc.array(
@@ -563,11 +580,12 @@ describe("PBT P-1: Message order invariant", () => {
               localDb
                 .prepare(
                   `INSERT INTO session_messages
-                     (id, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                     (id, sessionUuid, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate, parentSessionUuid)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 )
                 .run(
                   msg.id,
+                  msg.sessionUuid,
                   msg.sessionKey,
                   msg.sessionId,
                   msg.userId,
@@ -577,10 +595,12 @@ describe("PBT P-1: Message order invariant", () => {
                   msg.timestamp,
                   msg.seq,
                   msg.archivedDate,
+                  msg.parentSessionUuid,
                 );
             }
 
             const result = queryHistoryRange(localDb, {
+              sessionUuid: sessionKey,
               sessionKey,
               from: 0,
               to: 99_999_999,
@@ -588,7 +608,7 @@ describe("PBT P-1: Message order invariant", () => {
 
             const msgs = result.messages;
             for (let i = 0; i < msgs.length - 1; i++) {
-              expect(msgs[i].timestamp).toBeGreaterThanOrEqual(msgs[i + 1].timestamp);
+              expect(msgs[i].timestamp).toBeLessThanOrEqual(msgs[i + 1].timestamp);
             }
           } finally {
             localCleanup();
@@ -623,11 +643,12 @@ describe("PBT P-2: Archive date monotonicity", () => {
           localDb
             .prepare(
               `INSERT INTO session_messages
-                   (id, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                   (id, sessionUuid, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate, parentSessionUuid)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .run(
               oldMsg.id,
+              oldMsg.sessionUuid,
               oldMsg.sessionKey,
               oldMsg.sessionId,
               oldMsg.userId,
@@ -637,6 +658,7 @@ describe("PBT P-2: Archive date monotonicity", () => {
               oldMsg.timestamp,
               oldMsg.seq,
               oldMsg.archivedDate,
+              oldMsg.parentSessionUuid,
             );
 
           // Use a new store to flush a today message (triggers archive)
@@ -707,11 +729,12 @@ describe("PBT P-3: Cross-reset isolation", () => {
               localDb
                 .prepare(
                   `INSERT INTO session_messages
-                     (id, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                     (id, sessionUuid, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate, parentSessionUuid)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 )
                 .run(
                   msg.id,
+                  msg.sessionUuid,
                   msg.sessionKey,
                   msg.sessionId,
                   msg.userId,
@@ -721,10 +744,12 @@ describe("PBT P-3: Cross-reset isolation", () => {
                   msg.timestamp,
                   msg.seq,
                   msg.archivedDate,
+                  msg.parentSessionUuid,
                 );
             }
 
             const result = queryHistoryRange(localDb, {
+              sessionUuid: sessionKey,
               sessionKey,
               sessionId: targetSid,
               from: 0,
@@ -769,11 +794,12 @@ describe("PBT P-4: Time range boundary correctness", () => {
               localDb
                 .prepare(
                   `INSERT INTO session_messages
-                     (id, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                     (id, sessionUuid, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate, parentSessionUuid)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 )
                 .run(
                   msg.id,
+                  msg.sessionUuid,
                   msg.sessionKey,
                   msg.sessionId,
                   msg.userId,
@@ -783,10 +809,16 @@ describe("PBT P-4: Time range boundary correctness", () => {
                   msg.timestamp,
                   msg.seq,
                   msg.archivedDate,
+                  msg.parentSessionUuid,
                 );
             }
 
-            const result = queryHistoryRange(localDb, { sessionKey, from, to });
+            const result = queryHistoryRange(localDb, {
+              sessionUuid: sessionKey,
+              sessionKey,
+              from,
+              to,
+            });
 
             for (const msg of result.messages) {
               expect(msg.timestamp).toBeGreaterThanOrEqual(from);
@@ -827,11 +859,12 @@ describe("PBT P-5: truncated semantic correctness", () => {
               localDb
                 .prepare(
                   `INSERT INTO session_messages
-                     (id, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                     (id, sessionUuid, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate, parentSessionUuid)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 )
                 .run(
                   msg.id,
+                  msg.sessionUuid,
                   msg.sessionKey,
                   msg.sessionId,
                   msg.userId,
@@ -841,14 +874,16 @@ describe("PBT P-5: truncated semantic correctness", () => {
                   msg.timestamp,
                   msg.seq,
                   msg.archivedDate,
+                  msg.parentSessionUuid,
                 );
             }
 
             const result = queryHistoryRange(localDb, {
+              sessionUuid: sessionKey,
               sessionKey,
               from: BASE - 1,
               to: BASE + msgCount + 1,
-              limit,
+              pageSize: limit,
             });
 
             expect(result.truncated).toBe(result.total > result.messages.length);
@@ -887,6 +922,7 @@ describe("PBT P-6: Buffer message visibility", () => {
             );
 
             const result = queryHistoryRange(localDb, {
+              sessionUuid: sessionKey,
               sessionKey,
               from,
               to,

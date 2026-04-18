@@ -55,7 +55,7 @@ export class MsgApprovalCard extends LitElement {
     .content {
       flex: 1;
       min-width: 0;
-      max-width: 80%;
+      max-width: 90%;
     }
 
     .sender-line {
@@ -79,12 +79,11 @@ export class MsgApprovalCard extends LitElement {
 
     /* ── 卡片主体 ── */
     .approval-card {
-      border: 1px solid #fecdd3;
-      border-radius: 12px;
+      border-left: 4px solid var(--ai-color-danger, #f97316);
+      border-radius: 14px;
       overflow: hidden;
       font-size: 13px;
-      background: #fff;
-      box-shadow: 0 4px 15px rgba(225, 29, 72, 0.08);
+      background: #fff7ed;
     }
 
     .card-header {
@@ -141,6 +140,7 @@ export class MsgApprovalCard extends LitElement {
       font-family: "SF Mono", "Fira Code", monospace;
       font-size: 13px;
       line-height: 1.5;
+      white-space: pre-wrap;
       word-break: break-all;
       margin-bottom: 12px;
     }
@@ -162,9 +162,8 @@ export class MsgApprovalCard extends LitElement {
     .meta-value {
       color: #334155;
       font-family: "SF Mono", "Fira Code", monospace;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      white-space: pre-wrap;
+      word-break: break-all;
     }
 
     .ask-block {

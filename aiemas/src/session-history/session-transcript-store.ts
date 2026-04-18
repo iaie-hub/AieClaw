@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { onSessionTranscriptUpdate } from "../../../src/sessions/transcript-events.js";
 import type { SessionTranscriptUpdate } from "../../../src/sessions/transcript-events.js";
+import { extractUuidFromKey } from "../utils/session-utils.js";
 import { upsertSummary } from "./session-summary-store.js";
 
 const debugLog = (...args: unknown[]) => {
@@ -19,17 +20,20 @@ export interface SenderContext {
 
 export interface StoredMessage {
   id: string;
+  sessionUuid: string;
   sessionKey: string;
   sessionId: string;
   userId: string | null;
   tenantId: string | null;
-  role: "user" | "assistant" | "tool" | "approval" | "system";
+  role: "user" | "assistant" | "tool" | "approval" | "system" | "progress" | "summary" | "agent";
   content: string;
   timestamp: number;
   seq: number;
   archivedDate: string | null;
   toolCallId: string | null;
   toolName: string | null;
+  parentSessionUuid: string | null;
+  sourceAgentId: string | null;
 }
 
 export interface SessionTranscriptStoreOptions {
@@ -53,12 +57,14 @@ export interface SessionTranscriptStoreOptions {
  */
 interface SessionState {
   sender: SenderContext;
+  sessionUuid: string;
   sessionKey: string;
   sessionId: string;
   lastSeq: number;
   firstMsgAt: number;
   lastMsgAt: number;
   msgCount: number;
+  parentSessionUuid: string | null;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -143,7 +149,9 @@ function extractContent(raw: unknown): string {
 }
 
 /** Normalise raw role strings to the allowed set. */
-function normaliseRole(raw: unknown): "user" | "assistant" | "tool" | "approval" | "system" {
+function normaliseRole(
+  raw: unknown,
+): "user" | "assistant" | "tool" | "approval" | "system" | "progress" | "agent" {
   if (raw === "human" || raw === "user") {
     return "user";
   }
@@ -159,9 +167,29 @@ function normaliseRole(raw: unknown): "user" | "assistant" | "tool" | "approval"
   if (raw === "system") {
     return "system";
   }
+  if (raw === "progress") {
+    return "progress";
+  }
+  if (raw === "agent") {
+    return "agent";
+  }
   // Unknown roles fall back to "user" to satisfy the DB CHECK constraint.
   return "user";
 }
+
+// ── Helpers (A2A agent mark) ─────────────────────────────────────────────────
+
+/** Pending agent mark: tracks that the next user message for a sessionKey is from an agent. */
+interface PendingAgentMark {
+  sourceAgentId: string;
+  sourceSessionKey: string;
+  /** First 100 chars of the message for fingerprint matching */
+  messageFingerprint: string;
+  markedAt: number;
+}
+
+/** TTL for pending agent marks in milliseconds (30 seconds). */
+const AGENT_MARK_TTL_MS = 30_000;
 
 // ── Helpers (tool event) ─────────────────────────────────────────────────────
 
@@ -213,15 +241,21 @@ function formatToolResult(value: unknown): string {
 }
 
 /** Return a default (empty) SessionState for a session not yet seen. */
-function defaultSessionState(sessionKey: string, sessionId: string): SessionState {
+function defaultSessionState(
+  sessionUuid: string,
+  sessionKey: string,
+  sessionId: string,
+): SessionState {
   return {
     sender: { userId: null, tenantId: null },
+    sessionUuid,
     sessionKey,
     sessionId,
     lastSeq: 0,
     firstMsgAt: 0,
     lastMsgAt: 0,
     msgCount: 0,
+    parentSessionUuid: null,
   };
 }
 
@@ -234,7 +268,7 @@ export class SessionTranscriptStore {
 
   /**
    * Central per-session state store.
-   * Keyed by sessionId (effectively unique per reset instance).
+   * Keyed by sessionUuid.
    * Loaded from session_msg_statistic on construction.
    */
   private readonly sessionStates = new Map<string, SessionState>();
@@ -262,6 +296,14 @@ export class SessionTranscriptStore {
    */
   private readonly storedRunIds = new Set<string>();
 
+  /**
+   * Pending agent marks keyed by sessionKey.
+   * Each entry is a FIFO queue of marks. When aiemas_sessions_send is about to
+   * dispatch a message, it pushes a mark here. handleUpdate consumes the mark
+   * by matching the message content fingerprint, converting role from "user" to "agent".
+   */
+  private readonly pendingAgentMarks = new Map<string, PendingAgentMark[]>();
+
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private unsubscribe: (() => void) | null = null;
 
@@ -286,30 +328,35 @@ export class SessionTranscriptStore {
     try {
       const rows = this.db
         .prepare(
-          "SELECT sessionKey, sessionId, firstMsgAt, lastMsgAt, msgCount, lastSeq FROM session_msg_statistic",
+          "SELECT sessionUuid, sessionKey, sessionId, firstMsgAt, lastMsgAt, msgCount, lastSeq, parentSessionUuid FROM session_msg_statistic",
         )
         .all() as Array<{
+        sessionUuid: string;
         sessionKey: string;
         sessionId: string;
         firstMsgAt: number;
         lastMsgAt: number;
         msgCount: number;
         lastSeq: number;
+        parentSessionUuid: string | null;
       }>;
       for (const row of rows) {
-        this.sessionStates.set(row.sessionId, {
+        this.sessionStates.set(row.sessionUuid, {
           sender: { userId: null, tenantId: null },
+          sessionUuid: row.sessionUuid,
           sessionKey: row.sessionKey,
           sessionId: row.sessionId,
           lastSeq: row.lastSeq,
           firstMsgAt: row.firstMsgAt,
           lastMsgAt: row.lastMsgAt,
           msgCount: row.msgCount,
+          parentSessionUuid: row.parentSessionUuid,
         });
         // Track the "latest" sessionId per sessionKey by picking the one with the highest sequence/timestamp.
         // This is a heuristic for startup; subsequent updates will keep this map current.
+        const uuid = row.sessionUuid;
         const current = this.activeSessionIds.get(row.sessionKey);
-        if (!current || row.lastMsgAt > (this.sessionStates.get(current)?.lastMsgAt ?? 0)) {
+        if (!current || row.lastMsgAt > (this.sessionStates.get(uuid)?.lastMsgAt ?? 0)) {
           this.activeSessionIds.set(row.sessionKey, row.sessionId);
         }
       }
@@ -321,11 +368,24 @@ export class SessionTranscriptStore {
   // ── getOrInitState (private) ───────────────────────────────────────────────
 
   /** Return the SessionState for a key pair, creating a default entry if absent. */
-  private getOrInitState(sessionKey: string, sessionId: string): SessionState {
-    let state = this.sessionStates.get(sessionId);
+  private getOrInitState(
+    sessionUuid: string,
+    sessionKey: string,
+    sessionId: string,
+    parentSessionUuid?: string | null,
+  ): SessionState {
+    let state = this.sessionStates.get(sessionUuid);
     if (!state) {
-      state = defaultSessionState(sessionKey, sessionId);
-      this.sessionStates.set(sessionId, state);
+      state = defaultSessionState(sessionUuid, sessionKey, sessionId);
+      if (parentSessionUuid !== undefined) {
+        state.parentSessionUuid = parentSessionUuid;
+      }
+      this.sessionStates.set(sessionUuid, state);
+    } else if (parentSessionUuid !== undefined && parentSessionUuid !== null) {
+      // Update parentSessionUuid if it was previously null but now known
+      if (state.parentSessionUuid === null) {
+        state.parentSessionUuid = parentSessionUuid;
+      }
     }
     // Update active mapping whenever we touch a session
     this.activeSessionIds.set(sessionKey, sessionId);
@@ -335,8 +395,41 @@ export class SessionTranscriptStore {
   // ── recordSenderContext ────────────────────────────────────────────────────
 
   /** Called by the chat.send extraHandler to associate a session with a user. */
-  recordSenderContext(sessionKey: string, sessionId: string, ctx: SenderContext): void {
-    this.getOrInitState(sessionKey, sessionId).sender = ctx;
+  recordSenderContext(
+    sessionUuid: string,
+    sessionKey: string,
+    sessionId: string,
+    ctx: SenderContext,
+  ): void {
+    this.getOrInitState(sessionUuid, sessionKey, sessionId).sender = ctx;
+  }
+
+  // ── markNextMessageAsAgent ─────────────────────────────────────────────────
+
+  /**
+   * Mark the next user message arriving at `targetSessionKey` as agent-sourced.
+   * Called by aiemas_sessions_send before dispatching callSessionsSend.
+   *
+   * Uses a FIFO queue per sessionKey to support async concurrent sends.
+   * Each mark includes a message fingerprint (first 100 chars) for content
+   * matching, preventing misattribution when user messages interleave.
+   * Marks expire after AGENT_MARK_TTL_MS (30s).
+   */
+  markNextMessageAsAgent(
+    targetSessionKey: string,
+    source: { sourceAgentId: string; sourceSessionKey: string; message: string },
+  ): void {
+    const queue = this.pendingAgentMarks.get(targetSessionKey) ?? [];
+    queue.push({
+      sourceAgentId: source.sourceAgentId,
+      sourceSessionKey: source.sourceSessionKey,
+      messageFingerprint: source.message.slice(0, 100),
+      markedAt: Date.now(),
+    });
+    this.pendingAgentMarks.set(targetSessionKey, queue);
+    debugLog(
+      `[mas4s:transcript-store] markNextMessageAsAgent sessionKey=${targetSessionKey} sourceAgentId=${source.sourceAgentId} queueLen=${queue.length}`,
+    );
   }
 
   // ── start ──────────────────────────────────────────────────────────────────
@@ -379,7 +472,7 @@ export class SessionTranscriptStore {
   ): StoredMessage[] {
     return this.buffer.filter(
       (m) =>
-        m.sessionKey === sessionKey &&
+        (m.sessionKey === sessionKey || m.sessionUuid === sessionKey) &&
         (from === undefined || m.timestamp >= from) &&
         (to === undefined || m.timestamp <= to) &&
         (sessionId === undefined || m.sessionId === sessionId),
@@ -464,6 +557,29 @@ export class SessionTranscriptStore {
     });
   }
 
+  // ── recordProgressEvent ───────────────────────────────────────────────────
+
+  /**
+   * Persist an SOP/skill progress event to session_messages.
+   * Content format: `[sop:state] {...}` or `[skill:progress] {...}`
+   * so normalizeMessage can reconstruct the SOP pipeline on history replay.
+   */
+  recordProgressEvent(params: {
+    sessionKey: string;
+    type: "sop:state" | "skill:progress";
+    payload: unknown;
+    timestamp: number;
+  }): void {
+    const { sessionKey, type, payload, timestamp } = params;
+    const content = `[${type}] ${JSON.stringify(payload)}`;
+    this.pushToBuffer({
+      sessionKey,
+      role: "progress",
+      content,
+      timestamp,
+    });
+  }
+
   // ── persistSummary ────────────────────────────────────────────────────────
 
   /**
@@ -472,6 +588,7 @@ export class SessionTranscriptStore {
    * Written immediately (not buffered) so it is available for query right away.
    */
   persistSummary(params: {
+    sessionUuid: string;
     sessionKey: string;
     sessionId: string;
     textSummary: string | null;
@@ -479,9 +596,14 @@ export class SessionTranscriptStore {
     generatedAt: number;
     generatedBy: string;
   }): void {
-    upsertSummary(this.db, params);
+    const state = this.sessionStates.get(params.sessionUuid);
+    const summaryParams = {
+      ...params,
+      parentSessionUuid: state?.parentSessionUuid ?? null,
+    };
+    upsertSummary(this.db, summaryParams);
     debugLog(
-      `[mas4s:transcript-store] persisted summary for sessionKey=${params.sessionKey} sessionId=${params.sessionId}`,
+      `[mas4s:transcript-store] persisted summary for sessionUuid=${params.sessionUuid} sessionKey=${params.sessionKey} sessionId=${params.sessionId}`,
     );
   }
 
@@ -525,16 +647,24 @@ export class SessionTranscriptStore {
     timestamp: number;
     toolCallId?: string | null;
     toolName?: string | null;
+    parentSessionKey?: string;
+    sourceAgentId?: string | null;
   }): void {
     const { sessionKey, role, content, timestamp, toolCallId, toolName } = params;
     let { sessionId } = params;
+
+    const { extractUuidFromKey } = require("../utils/session-utils.js");
+    const sessionUuid = extractUuidFromKey(sessionKey);
+    const parentSessionUuid = params.parentSessionKey
+      ? extractUuidFromKey(params.parentSessionKey)
+      : null;
 
     // Resolve sessionId if missing via the active mapping
     if (!sessionId) {
       sessionId = this.activeSessionIds.get(sessionKey) ?? sessionKey;
     }
 
-    const state = this.getOrInitState(sessionKey, sessionId);
+    const state = this.getOrInitState(sessionUuid, sessionKey, sessionId, parentSessionUuid);
     const seq = state.lastSeq + 1;
     // Eagerly advance lastSeq so subsequent pushes in the same flush cycle get
     // monotonically increasing seq values without waiting for a DB round-trip.
@@ -542,6 +672,7 @@ export class SessionTranscriptStore {
 
     this.buffer.push({
       id: crypto.randomUUID(),
+      sessionUuid,
       sessionKey,
       sessionId,
       userId: state.sender.userId,
@@ -553,6 +684,8 @@ export class SessionTranscriptStore {
       archivedDate: null,
       toolCallId: toolCallId ?? null,
       toolName: toolName ?? null,
+      parentSessionUuid: state.parentSessionUuid,
+      sourceAgentId: params.sourceAgentId ?? null,
     });
 
     if (this.buffer.length >= this.maxBufferSize) {
@@ -569,9 +702,13 @@ export class SessionTranscriptStore {
         return;
       }
 
+      const sessionKey = update.sessionKey ?? "";
+      if (!sessionKey) {
+        return;
+      }
+
       const msg = update.message as Record<string, unknown>;
       const rawRole = msg["role"];
-      const sessionKey = update.sessionKey ?? "";
 
       debugLog(
         `[mas4s:transcript-store] incoming role=${String(rawRole)} sessionKey=${sessionKey} hasCallId=${!!msg["toolCallId"] || !!msg["tool_call_id"]} msg=${JSON.stringify(msg)}`,
@@ -587,9 +724,10 @@ export class SessionTranscriptStore {
           ? msg["sessionId"]
           : (update.sessionKey ?? "");
 
-      if (!sessionKey) {
-        return;
-      }
+      const sessionUuid = extractUuidFromKey(sessionKey);
+      const parentSessionUuid = update.parentSessionKey
+        ? extractUuidFromKey(update.parentSessionKey)
+        : null;
 
       const role = normaliseRole(rawRole);
       // Skip gateway-injected inbound metadata messages (second transcript event
@@ -599,17 +737,54 @@ export class SessionTranscriptStore {
         return;
       }
 
-      const state = this.getOrInitState(sessionKey, sessionId);
+      // ── A2A agent mark detection ──────────────────────────────────────────
+      // If this is a "user" message and there is a pending agent mark for this
+      // sessionKey, check if the message content matches the fingerprint.
+      // If so, convert role to "agent" and extract sourceAgentId.
+      let finalRole: StoredMessage["role"] = role;
+      let sourceAgentId: string | null = null;
+
+      if (finalRole === "user") {
+        const queue = this.pendingAgentMarks.get(sessionKey);
+        if (queue && queue.length > 0) {
+          // Purge expired marks (older than AGENT_MARK_TTL_MS)
+          const now = Date.now();
+          while (queue.length > 0 && now - queue[0].markedAt > AGENT_MARK_TTL_MS) {
+            queue.shift();
+          }
+          if (queue.length > 0) {
+            // Content fingerprint match: sessions_send wraps the message with a
+            // timestamp prefix like "[Tue 2026-04-14 21:14 GMT+8] original message",
+            // so we use includes() for fuzzy matching.
+            const idx = queue.findIndex((mark) => content.includes(mark.messageFingerprint));
+            if (idx >= 0) {
+              const mark = queue.splice(idx, 1)[0];
+              finalRole = "agent";
+              sourceAgentId = mark.sourceAgentId;
+              debugLog(
+                `[mas4s:transcript-store] A2A mark matched: sessionKey=${sessionKey} sourceAgentId=${sourceAgentId} fingerprint="${mark.messageFingerprint.slice(0, 30)}..."`,
+              );
+            }
+          }
+          // Clean up empty queue
+          if (queue.length === 0) {
+            this.pendingAgentMarks.delete(sessionKey);
+          }
+        }
+      }
+
+      const state = this.getOrInitState(sessionUuid, sessionKey, sessionId, parentSessionUuid);
       const seq = state.lastSeq + 1;
       state.lastSeq = seq;
 
       const stored: StoredMessage = {
         id: crypto.randomUUID(),
+        sessionUuid,
         sessionKey,
         sessionId,
         userId: state.sender.userId,
         tenantId: state.sender.tenantId,
-        role,
+        role: finalRole,
         content,
         timestamp,
         seq,
@@ -617,6 +792,8 @@ export class SessionTranscriptStore {
         toolCallId:
           (msg["toolCallId"] as string | null) ?? (msg["tool_call_id"] as string | null) ?? null,
         toolName: (msg["toolName"] as string | null) ?? (msg["tool_name"] as string | null) ?? null,
+        parentSessionUuid: state.parentSessionUuid,
+        sourceAgentId,
       };
 
       debugLog(
@@ -733,57 +910,60 @@ export class SessionTranscriptStore {
 
   private persistBatch(msgs: StoredMessage[]): void {
     debugLog(`[mas4s:transcript-store] persistBatch: persisting ${msgs.length} messages`);
-    // Group by sessionKey for archive checks and statistic updates.
-    const byKey = new Map<string, StoredMessage[]>();
+    // Group by sessionUuid for archive checks and statistic updates.
+    const byUuid = new Map<string, StoredMessage[]>();
     for (const m of msgs) {
-      let group = byKey.get(m.sessionKey);
+      let group = byUuid.get(m.sessionUuid);
       if (!group) {
         group = [];
-        byKey.set(m.sessionKey, group);
+        byUuid.set(m.sessionUuid, group);
       }
       group.push(m);
     }
 
     const insertStmt = this.db.prepare(
       `INSERT INTO session_messages
-         (id, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate, toolCallId, toolName)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, sessionUuid, sessionKey, sessionId, userId, tenantId, role, content, timestamp, seq, archivedDate, toolCallId, toolName, parentSessionUuid, sourceAgentId)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
     // Upsert statistic row: on first insert create the row; on subsequent inserts
     // update lastMsgAt/msgCount/lastSeq and narrow firstMsgAt if a back-dated
     // message arrives (e.g. from a replay).
     const upsertStatStmt = this.db.prepare(
-      `INSERT INTO session_msg_statistic (sessionKey, sessionId, firstMsgAt, lastMsgAt, msgCount, lastSeq)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(sessionKey, sessionId) DO UPDATE SET
+      `INSERT INTO session_msg_statistic (sessionUuid, sessionKey, sessionId, firstMsgAt, lastMsgAt, msgCount, lastSeq, parentSessionUuid)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(sessionUuid) DO UPDATE SET
+         sessionKey = excluded.sessionKey,
+         sessionId  = excluded.sessionId,
          firstMsgAt = MIN(firstMsgAt, excluded.firstMsgAt),
          lastMsgAt  = MAX(lastMsgAt,  excluded.lastMsgAt),
          msgCount   = msgCount + excluded.msgCount,
-         lastSeq    = MAX(lastSeq,    excluded.lastSeq)`,
+         lastSeq    = MAX(lastSeq,    excluded.lastSeq),
+         parentSessionUuid = COALESCE(parentSessionUuid, excluded.parentSessionUuid)`,
     );
 
     // Single transaction: archive checks + batch INSERT + statistic upsert.
     this.db.exec("BEGIN");
     try {
-      for (const [sessionKey, group] of byKey) {
+      for (const [sessionUuid, group] of byUuid) {
         // Find the earliest timestamp in this batch for the archive check.
         const minTs = group.reduce(
           (min, m) => (m.timestamp < min ? m.timestamp : min),
           group[0].timestamp,
         );
         const newMsgDate = toDateStr(minTs);
-        const archiveDate = this.checkArchiveDate(sessionKey, newMsgDate);
+        const archiveDate = this.checkArchiveDate(sessionUuid, newMsgDate);
 
         if (archiveDate !== null) {
           const updateStmt = this.db.prepare(
             `UPDATE session_messages
                SET archivedDate = ?
-             WHERE sessionKey = ? AND archivedDate IS NULL`,
+             WHERE sessionUuid = ? AND archivedDate IS NULL`,
           );
-          const result = updateStmt.run(archiveDate, sessionKey) as { changes: number };
+          const result = updateStmt.run(archiveDate, sessionUuid) as { changes: number };
           console.info(
-            `[mas4s:transcript-store] archived sessionKey=${sessionKey} date=${archiveDate} rows=${result.changes}`,
+            `[mas4s:transcript-store] archived sessionUuid=${sessionUuid} date=${archiveDate} rows=${result.changes}`,
           );
         }
       }
@@ -791,6 +971,7 @@ export class SessionTranscriptStore {
       for (const m of msgs) {
         insertStmt.run(
           m.id,
+          m.sessionUuid,
           m.sessionKey,
           m.sessionId,
           m.userId,
@@ -802,39 +983,36 @@ export class SessionTranscriptStore {
           m.archivedDate,
           m.toolCallId,
           m.toolName,
+          m.parentSessionUuid,
+          m.sourceAgentId,
         );
       }
 
-      // Group by sessionId for stats updates to match composite PK.
-      const bySessionId = new Map<string, StoredMessage[]>();
-      for (const m of msgs) {
-        let group = bySessionId.get(m.sessionId);
-        if (!group) {
-          group = [];
-          bySessionId.set(m.sessionId, group);
-        }
-        group.push(m);
-      }
-
-      // Upsert session_msg_statistic once per sessionId.
-      for (const [sessionId, group] of bySessionId) {
-        const sessionKey = group[0].sessionKey;
+      // Upsert session_msg_statistic once per sessionUuid.
+      for (const [sessionUuid, group] of byUuid) {
+        const m = group[group.length - 1];
         const batchMinTs = group.reduce(
-          (min, m) => (m.timestamp < min ? m.timestamp : min),
+          (min, msg) => (msg.timestamp < min ? msg.timestamp : min),
           group[0].timestamp,
         );
         const batchMaxTs = group.reduce(
-          (max, m) => (m.timestamp > max ? m.timestamp : max),
+          (max, msg) => (msg.timestamp > max ? msg.timestamp : max),
           group[0].timestamp,
         );
-        const batchMaxSeq = group.reduce((max, m) => (m.seq > max ? m.seq : max), group[0].seq);
+        const batchMaxSeq = group.reduce(
+          (max, msg) => (msg.seq > max ? msg.seq : max),
+          group[0].seq,
+        );
+
         upsertStatStmt.run(
-          sessionKey,
-          sessionId,
+          sessionUuid,
+          m.sessionKey,
+          m.sessionId,
           batchMinTs,
           batchMaxTs,
           group.length,
           batchMaxSeq,
+          m.parentSessionUuid,
         );
       }
 
@@ -843,8 +1021,8 @@ export class SessionTranscriptStore {
       this.db.exec("ROLLBACK");
       // On rollback, restore lastSeq in memory to the pre-batch value so the
       // next flush doesn't produce a gap in seq numbers.
-      for (const [sessionKey, group] of byKey) {
-        const state = this.sessionStates.get(sessionKey);
+      for (const [sessionUuid, group] of byUuid) {
+        const state = this.sessionStates.get(sessionUuid);
         if (state) {
           state.lastSeq -= group.length;
         }
@@ -854,7 +1032,7 @@ export class SessionTranscriptStore {
 
     // Commit succeeded: update in-memory statistic counters to mirror the DB.
     for (const m of msgs) {
-      const state = this.getOrInitState(m.sessionKey, m.sessionId);
+      const state = this.getOrInitState(m.sessionUuid, m.sessionKey, m.sessionId);
       state.firstMsgAt =
         state.firstMsgAt === 0 ? m.timestamp : Math.min(state.firstMsgAt, m.timestamp);
       state.lastMsgAt = Math.max(state.lastMsgAt, m.timestamp);
@@ -874,8 +1052,8 @@ export class SessionTranscriptStore {
    * DB read on the hot path; falls back to a DB query for sessions loaded from
    * a previous run whose lastMsgAt may reflect archived messages.
    */
-  private checkArchiveDate(sessionKey: string, newMsgDate: string): string | null {
-    const state = this.sessionStates.get(sessionKey);
+  private checkArchiveDate(sessionUuid: string, newMsgDate: string): string | null {
+    const state = this.sessionStates.get(sessionUuid);
     const candidateTs = state?.lastMsgAt ?? 0;
 
     if (candidateTs > 0) {
@@ -891,9 +1069,9 @@ export class SessionTranscriptStore {
       .prepare(
         `SELECT MAX(timestamp) AS maxTs
            FROM session_messages
-          WHERE sessionKey = ? AND archivedDate IS NULL`,
+          WHERE sessionUuid = ? AND archivedDate IS NULL`,
       )
-      .get(sessionKey) as { maxTs: number | null } | undefined;
+      .get(sessionUuid) as { maxTs: number | null } | undefined;
 
     if (!row || row.maxTs == null) {
       return null;

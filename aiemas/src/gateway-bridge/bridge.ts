@@ -8,6 +8,12 @@ import {
 import type { TenantService } from "../index.js";
 import type { SessionMember } from "../models.js";
 import type { SessionTranscriptStore } from "../session-history/session-transcript-store.js";
+import { createAiemasSessionsStore } from "../store/aiemas-sessions-store.js";
+import {
+  extractUuidFromKey,
+  extractAgentNameFromKey,
+  constructKeyFromUuid,
+} from "../utils/session-utils.js";
 import type { MasAuthContext } from "./context.js";
 import { NULL_MAS_AUTH } from "./context.js";
 import * as sessionManager from "./session-manager.js";
@@ -82,8 +88,9 @@ export class GatewayAuthBridge {
     let sessionContext: { sessionKey: string; sessionRole?: "owner" | "participant" } | undefined;
 
     if (sessionKey) {
-      // Look up the caller's session role
-      const sessionRole = this._getSessionRole(sessionKey, masAuth.userId);
+      // Look up the caller's session role by UUID
+      const uuid = extractUuidFromKey(sessionKey);
+      const sessionRole = this.getSessionRole(uuid, masAuth.userId);
       sessionContext = { sessionKey, sessionRole: sessionRole ?? undefined };
     }
 
@@ -118,29 +125,32 @@ export class GatewayAuthBridge {
 
   /**
    * Filter sessions.list response to only include sessions the user has membership for.
-   * Compat mode: return original list unchanged.
+   * Dynamic: routes session record to the currently assigned agent.
    */
   filterSessionsForUser(sessions: unknown[], masAuth: MasAuthContext): unknown[] {
     if (masAuth.userId === null) {
       return sessions;
     }
 
-    const memberSessionKeys = new Set(sessionManager.listSessionsForUser(this.db, masAuth.userId));
+    const memberUuids = new Set(sessionManager.listSessionsForUser(this.db, masAuth.userId));
+    const seenUuids = new Set<string>();
+    const result: unknown[] = [];
 
-    return sessions
-      .filter((session) => {
-        if (typeof session === "object" && session !== null) {
-          const s = session as Record<string, unknown>;
-          const key = s["key"] ?? s["sessionKey"];
-          if (typeof key === "string") {
-            return memberSessionKeys.has(key);
+    for (const session of sessions) {
+      if (typeof session === "object" && session !== null) {
+        const s = session as Record<string, unknown>;
+        const key = (s["key"] ?? s["sessionKey"]) as string | undefined;
+        if (typeof key === "string") {
+          const uuid = extractUuidFromKey(key);
+          if (memberUuids.has(uuid) && !seenUuids.has(uuid)) {
+            seenUuids.add(uuid);
+            result.push(enrichSessionRow(this.db, s, masAuth.userId));
           }
         }
-        return false;
-      })
-      .map((session) =>
-        enrichSessionRow(this.db, session as Record<string, unknown>, masAuth.userId!),
-      );
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -152,6 +162,11 @@ export class GatewayAuthBridge {
     masAuth: MasAuthContext,
   ): { allowed: true } | { allowed: false; code: string; message: string } {
     if (masAuth.userId === null) {
+      return { allowed: true };
+    }
+
+    // Admin override: admins can access any session
+    if (masAuth.masRole === "admin") {
       return { allowed: true };
     }
 
@@ -310,7 +325,23 @@ export class GatewayAuthBridge {
       `[bridge.filterBroadcastTargets] event=${event} sessionKey=${sessionKey ?? "(none)"} connectedUsers=${_connectedUsers.size} payloadKeys=${Object.keys(payloadObj ?? {}).join(",")}`,
     );
 
+    // 审批事件始终打印诊断日志（不受 DEBUG_EVENTS 开关控制）
+    if (event === "exec.approval.requested" || event === "exec.approval.resolved") {
+      const uuid = sessionKey ? extractUuidFromKey(sessionKey) : "(no-key)";
+      const connUserIds = [..._connectedUsers.entries()].map(
+        ([connId, ctx]) => `${connId.slice(0, 8)}→${ctx.userId ?? "null"}`,
+      );
+      console.log(
+        `[bridge.filterBroadcastTargets:approval] event=${event} sessionKey=${sessionKey} uuid=${uuid} connectedUsers=[${connUserIds.join(", ")}]`,
+      );
+    }
+
     if (!sessionKey) {
+      if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
+        console.log(
+          `[aiemas:bridge] filterBroadcastTargets event=${event} → MISSING sessionKey, broadcasting to ALL`,
+        );
+      }
       return null;
     }
 
@@ -329,6 +360,9 @@ export class GatewayAuthBridge {
     let targetUserIds: string[];
     if (event === "exec.approval.requested") {
       targetUserIds = sessionManager.getSessionOwnerUserIds(this.db, sessionKey);
+      console.log(
+        `[bridge.filterBroadcastTargets:approval] ownerUserIds=[${targetUserIds.join(",")}] sessionKey=${sessionKey}`,
+      );
     } else {
       // chat, agent, and other session events: all members
       targetUserIds = sessionManager.getSessionMemberUserIds(this.db, sessionKey);
@@ -476,7 +510,8 @@ export class GatewayAuthBridge {
       }
     } else {
       // Archived: only Session_Owner can generate (persist)
-      const role = this._getSessionRole(sessionKey, callerUserId);
+      const uuid = extractUuidFromKey(sessionKey);
+      const role = this.getSessionRole(uuid, callerUserId);
       if (role !== "owner") {
         return {
           ok: false,
@@ -500,7 +535,9 @@ export class GatewayAuthBridge {
         // For archived sessions, sessionId must be resolved from the gateway session entry
         // because sessions.reset generates a new sessionId while keeping the same sessionKey.
         const sessionId = this._resolveSessionId(sessionKey);
+        const sessionUuid = extractUuidFromKey(sessionKey);
         this.transcriptStore?.persistSummary({
+          sessionUuid,
           sessionKey,
           sessionId,
           textSummary: llmResult.textSummary,
@@ -519,7 +556,9 @@ export class GatewayAuthBridge {
 
       // Not archived: return without persisting
       const sessionId = this._resolveSessionId(sessionKey);
+      const sessionUuid = extractUuidFromKey(sessionKey);
       this.transcriptStore?.persistSummary({
+        sessionUuid,
         sessionKey,
         sessionId,
         textSummary: llmResult.textSummary,
@@ -645,10 +684,10 @@ export class GatewayAuthBridge {
   }
 
   /** Get the caller's role in a session, or null if not a member */
-  private _getSessionRole(sessionKey: string, userId: string): "owner" | "participant" | null {
+  public getSessionRole(uuid: string, userId: string): "owner" | "participant" | null {
     const row = this.db
-      .prepare("SELECT role FROM session_memberships WHERE sessionKey = ? AND userId = ?")
-      .get(sessionKey, userId) as { role: string } | undefined;
+      .prepare("SELECT role FROM session_memberships WHERE sessionUuid = ? AND userId = ?")
+      .get(uuid, userId) as { role: string } | undefined;
     if (!row) {
       return null;
     }
@@ -684,31 +723,35 @@ function enrichSessionRow(
   userId: string,
 ): Record<string, unknown> {
   const sessionKey = (session["key"] ?? session["sessionKey"]) as string;
-  const ownership = db
-    .prepare("SELECT archivedAt FROM session_ownership WHERE sessionKey = ?")
-    .get(sessionKey) as { archivedAt: number | null } | undefined;
-  const membership = db
-    .prepare("SELECT role FROM session_memberships WHERE sessionKey = ? AND userId = ?")
-    .get(sessionKey, userId) as { role: string } | undefined;
+  const uuid = extractUuidFromKey(sessionKey);
 
-  // Resolve displayName: always prefer persisted label in session_labels
-  // (survives session resets because sessionKey is stable) over the gateway
-  // value, which may be stale or derived from the sender name after a reset.
-  const gatewayDisplayName = session["displayName"] as string | null | undefined;
-  const persisted = db
-    .prepare("SELECT label, displayName FROM session_labels WHERE sessionKey = ?")
-    .get(sessionKey) as { label: string | null; displayName: string | null } | undefined;
-  const resolvedDisplayName =
-    persisted?.displayName ??
-    persisted?.label ??
-    gatewayDisplayName ??
+  const ownership = db
+    .prepare("SELECT archivedAt FROM session_ownership WHERE sessionUuid = ?")
+    .get(uuid) as { archivedAt: number | null } | undefined;
+  const membership = db
+    .prepare("SELECT role FROM session_memberships WHERE sessionUuid = ? AND userId = ?")
+    .get(uuid, userId) as { role: string } | undefined;
+
+  // Resolve and route: use currentAgentId from aiemas_sessions to construct the live sessionKey
+  const store = createAiemasSessionsStore(db);
+  const labelEntry = store.getSessionLabel(uuid);
+  const currentAgentId = labelEntry?.currentAgentId ?? extractAgentNameFromKey(sessionKey);
+  const liveKey = constructKeyFromUuid(currentAgentId, uuid);
+
+  const resolvedLabel =
+    labelEntry?.label ??
     (session["label"] as string | null | undefined) ??
+    (session["displayName"] as string | null | undefined) ??
     null;
 
   return {
     ...session,
-    displayName: resolvedDisplayName,
+    key: liveKey,
+    sessionKey: liveKey,
+    displayName: resolvedLabel,
     archivedAt: ownership?.archivedAt ?? null,
     masRole: membership?.role ?? null,
+    currentAgentId,
+    sessionUuid: uuid,
   };
 }

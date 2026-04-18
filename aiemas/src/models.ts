@@ -47,3 +47,14 @@ export interface SessionMember {
   role: SessionRole;
   joinedAt: number;
 }
+
+/** 拓扑图中的一条有向边 */
+export interface TopologyEdge {
+  from: string;
+  to: string;
+}
+
+/** 一棵完整的拓扑树文档 */
+export interface TopologyTree {
+  edges: TopologyEdge[];
+}

@@ -36,4 +36,6 @@ export type GatewaySessionRow = {
   modelProvider?: string;
   contextTokens?: number;
   masRole?: "owner" | "participant";
+  currentAgentId?: string;
+  sessionUuid?: string;
 };

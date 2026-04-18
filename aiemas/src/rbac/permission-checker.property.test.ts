@@ -188,11 +188,13 @@ describe("Property 10: 全局与会话级权限矩阵一致性", () => {
   });
 
   /**
-   * Session-level: sessionRole NOT in SESSION_ROLE_PERMISSIONS[method] → denied.
+   * Session-level: sessionRole NOT in SESSION_ROLE_PERMISSIONS[method] → denied (non-admin).
+   * Admin bypasses session-level checks, so use member/viewer only.
    * Validates: Requirements 6.5, 6.6
    */
-  it("sessionRole NOT in session matrix → denied", () => {
+  it("sessionRole NOT in session matrix → denied (non-admin)", () => {
     const allSessionRoles: SessionRole[] = ["owner", "participant"];
+    const nonAdminRoles: GlobalRole[] = ["member", "viewer"];
 
     fc.assert(
       fc.property(
@@ -208,7 +210,8 @@ describe("Property 10: 全局与会话级权限矩阵一致性", () => {
             return;
           } // all roles allowed, skip
 
-          const globalRole = [...globalAllowed][0] as GlobalRole | undefined;
+          // Pick a non-admin global role that passes the global check
+          const globalRole = nonAdminRoles.find((r) => globalAllowed.has(r));
           if (!globalRole) {
             return;
           }
@@ -229,10 +232,13 @@ describe("Property 10: 全局与会话级权限矩阵一致性", () => {
   });
 
   /**
-   * Session-level: undefined sessionRole with session-restricted method → denied.
+   * Session-level: undefined sessionRole with session-restricted method → denied (non-admin).
+   * Admin bypasses session-level checks, so use member/viewer only.
    * Validates: Requirements 6.5, 6.6
    */
-  it("undefined sessionRole on session-restricted method → denied", () => {
+  it("undefined sessionRole on session-restricted method → denied (non-admin)", () => {
+    const nonAdminRoles: GlobalRole[] = ["member", "viewer"];
+
     fc.assert(
       fc.property(
         arbUserId,
@@ -240,7 +246,8 @@ describe("Property 10: 全局与会话级权限矩阵一致性", () => {
         fc.constantFrom(...SESSION_RESTRICTED_METHODS),
         (userId, sessionKey, method) => {
           const globalAllowed = GLOBAL_ROLE_PERMISSIONS[method];
-          const globalRole = [...globalAllowed][0] as GlobalRole | undefined;
+          // Pick a non-admin global role that passes the global check
+          const globalRole = nonAdminRoles.find((r) => globalAllowed.has(r));
           if (!globalRole) {
             return;
           }
@@ -253,6 +260,28 @@ describe("Property 10: 全局与会话级权限矩阵一致性", () => {
           if (!result.allowed) {
             expect(result.code).toBe("PERMISSION_DENIED");
           }
+        },
+      ),
+    );
+  });
+
+  /**
+   * Session-level: admin bypasses session-level restrictions regardless of sessionRole.
+   * Validates: Admin override for session-level permissions.
+   */
+  it("admin bypasses session-level restrictions even with undefined sessionRole", () => {
+    fc.assert(
+      fc.property(
+        arbUserId,
+        arbSessionKey,
+        fc.constantFrom(...SESSION_RESTRICTED_METHODS),
+        (userId, sessionKey, method) => {
+          // Admin with undefined sessionRole should still be allowed
+          const result = checkPermission(userId, "admin", method, {
+            sessionKey,
+            sessionRole: undefined,
+          });
+          expect(result.allowed).toBe(true);
         },
       ),
     );

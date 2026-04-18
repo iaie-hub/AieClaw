@@ -1,4 +1,5 @@
 import { getClient, resetClient } from "../gateway/client.js";
+import { restoreSessionRunState } from "../gateway/run-state-recovery.js";
 import { fetchSessions } from "../gateway/session-manager.js";
 import type { AppStore, CurrentUser } from "../store/app-store.js";
 
@@ -12,6 +13,8 @@ export interface AuthStateCallback {
   setAuthState(state: MasAuthState): void;
   setConnected(connected: boolean): void;
   setConnectError(error: string): void;
+  /** 首次连接（非重连）加载完会话列表后回调，用于自动选中第一个会话 */
+  onSessionsLoaded?(): void;
 }
 
 /**
@@ -106,16 +109,52 @@ export class AuthController {
       token,
       onHello: () => {
         console.debug("[mas4s:auth] doConnect ← onHello: connected=true");
+        const isReconnect = this._everConnected;
         this._wasConnected = true;
+        this._everConnected = true;
         this.cb.setConnected(true);
+        // Subscribe to session tool events so Secondary_Panel can display
+        // sub-agent tool calls and results in real-time.
+        void getClient()
+          .request("sessions.subscribe", {})
+          .then(() => {
+            console.debug("[mas4s:auth] doConnect ← sessions.subscribe ok");
+          })
+          .catch((err) => {
+            console.warn("[mas4s:auth] doConnect ← sessions.subscribe failed:", err);
+          });
         // 连接成功后立即拉取历史会话，恢复 gateway 重启前的会话列表
         void fetchSessions(getClient())
           .then((sessions) => {
             this.store.setSessions(sessions);
             console.debug("[mas4s:auth] doConnect ← sessions loaded: count=%d", sessions.length);
+            if (isReconnect) {
+              // On reconnect, restore SOP run state for the currently active session
+              const activeKey = this.store.activeSessionKey;
+              const activeUuid = this.store.activeSessionUuid;
+              if (activeKey && activeUuid) {
+                void restoreSessionRunState(getClient(), this.store, activeKey, activeUuid);
+              }
+            } else {
+              // 首次连接：自动选中第一个会话并加载历史
+              this.cb.onSessionsLoaded?.();
+            }
           })
           .catch((err) => {
             console.warn("[mas4s:auth] doConnect ← fetchSessions failed:", err);
+          });
+        // 同时拉取可用 Agent 列表
+        void getClient()
+          .request<{ agents: { id: string; name?: string; description?: string }[] }>(
+            "agents.list",
+            {},
+          )
+          .then((res) => {
+            this.store.setAgents(res.agents || []);
+            console.debug("[mas4s:auth] doConnect ← agents loaded: count=%d", res.agents?.length);
+          })
+          .catch((err) => {
+            console.warn("[mas4s:auth] doConnect ← agents.list failed:", err);
           });
       },
       onClose: (info) => {
@@ -162,6 +201,9 @@ export class AuthController {
 
   // onHello 触发前需要跟踪"是否曾经连接成功"，用于 onClose 判断
   private _wasConnected = false;
+  // Tracks whether we have ever successfully connected in this session.
+  // Unlike _wasConnected, this is never reset on close — used to detect reconnects.
+  private _everConnected = false;
   // Set during logout to suppress stale connectError from the async close event
   private _loggingOut = false;
 
@@ -185,6 +227,8 @@ export class AuthController {
     this.store.setSessions([]);
     // Flag to suppress the stale connectError from the async close event
     this._loggingOut = true;
+    // Reset _everConnected so the next login is treated as a fresh connection
+    this._everConnected = false;
     // Close the WebSocket immediately. The server-side onClientDisconnected
     // handler will mark the user offline, so a separate user.logout request
     // is unnecessary and avoids the race window where the still-alive

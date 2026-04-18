@@ -76,21 +76,28 @@
 
 ### 4. Agent 与 插件管理 (Agents & Skills)
 
-| 方法                | 说明                | 处理程序           |
-| :------------------ | :------------------ | :----------------- |
-| `agents.list`       | 列出可用 Agent      | `agents.ts`        |
-| `agents.create`     | 创建 Agent          | `agents.ts`        |
-| `agents.update`     | 更新 Agent 配置     | `agents.ts`        |
-| `agents.delete`     | 删除 Agent          | `agents.ts`        |
-| `agents.files.list` | 列出 Agent 关联文件 | `agents.ts`        |
-| `agents.files.get`  | 读取 Agent 文件内容 | `agents.ts`        |
-| `agents.files.set`  | 写入 Agent 文件内容 | `agents.ts`        |
-| `tools.catalog`     | 内容工具包目录      | `tools-catalog.ts` |
-| `tools.effective`   | 当前生效工具        | `tools-catalog.ts` |
-| `skills.status`     | 插件状态            | `skills.ts`        |
-| `skills.bins`       | 插件二进制文件      | `skills.ts`        |
-| `skills.install`    | 安装插件            | `skills.ts`        |
-| `skills.update`     | 更新插件            | `skills.ts`        |
+| 方法                          | 说明                               | 处理程序           |
+| :---------------------------- | :--------------------------------- | :----------------- |
+| `agents.list`                 | 列出可用 Agent                     | `agents.ts`        |
+| `agents.create`               | 创建 Agent                         | `agents.ts`        |
+| `agents.update`               | 更新 Agent 配置                    | `agents.ts`        |
+| `agents.delete`               | 删除 Agent                         | `agents.ts`        |
+| `agents.files.list`           | 列出 Agent 关联文件                | `agents.ts`        |
+| `agents.files.get`            | 读取 Agent 文件内容                | `agents.ts`        |
+| `agents.files.set`            | 写入 Agent 文件内容                | `agents.ts`        |
+| `aiemas.agents.preDelete`     | [MAS] 删除前检查关联会话           | `aiemas`           |
+| `aiemas.agents.export`        | [MAS] 导出 Agent 工作区为 zip      | `aiemas`           |
+| `aiemas.agents.import`        | [MAS] 导入 Agent 压缩包            | `aiemas`           |
+| `aiemas.files.download`       | [MAS] 下载服务端文件（base64）     | `aiemas`           |
+| `aiemas.file.upload`          | [MAS] 上传文件到临时目录（base64） | `aiemas`           |
+| `aiemas.agents.topology.list` | [MAS] 查询智能体拓扑关系           | `aiemas`           |
+| `aiemas.agents.topology.save` | [MAS] 保存智能体拓扑关系           | `aiemas`           |
+| `tools.catalog`               | 内容工具包目录                     | `tools-catalog.ts` |
+| `tools.effective`             | 当前生效工具                       | `tools-catalog.ts` |
+| `skills.status`               | 插件状态                           | `skills.ts`        |
+| `skills.bins`                 | 插件二进制文件                     | `skills.ts`        |
+| `skills.install`              | 安装插件                           | `skills.ts`        |
+| `skills.update`               | 更新插件                           | `skills.ts`        |
 
 ### 5. 系统、配置与治理 (System & Config)
 
@@ -99,6 +106,7 @@
 | `health`          | 健康检查               | `health.ts`   |
 | `status`          | 获取 Gateway 综合状态  | `health.ts`   |
 | `system.status`   | [MAS] MAS 系统运行状态 | `aiemas`      |
+| `aiemas.fs.list`  | [MAS] 列出目录直接子项 | `aiemas`      |
 | `usage.status`    | 配额使用统计           | `health.ts`   |
 | `usage.cost`      | 消耗统计               | `health.ts`   |
 | `config.get`      | 获取配置项             | `config.ts`   |
@@ -165,6 +173,7 @@
 | `session.archived`        | 会话归档通知                 |
 | `session.unarchived`      | 会话取消归档通知             |
 | `session.summary.updated` | 会话摘要完成更新             |
+| `topology.changed`        | Agent 拓扑关系变更通知       |
 
 ### 4. 审批、安全与自动化
 
@@ -211,6 +220,182 @@
 }
 ```
 
+### 3. 删除前检查 (aiemas.agents.preDelete)
+
+请求：
+
+```json
+{
+  "type": "req",
+  "id": "10",
+  "method": "aiemas.agents.preDelete",
+  "params": { "agentId": "agent-abc123" }
+}
+```
+
+成功响应（可安全删除）：
+
+```json
+{
+  "type": "res",
+  "id": "10",
+  "ok": true,
+  "payload": { "ok": true }
+}
+```
+
+失败响应（存在关联会话）：
+
+```json
+{
+  "type": "res",
+  "id": "10",
+  "ok": false,
+  "error": { "code": "AGENT_IN_USE", "message": "该智能体仍有 2 个关联会话，无法删除" }
+}
+```
+
+### 4. 列出工作区目录 (aiemas.fs.list)
+
+请求：
+
+```json
+{
+  "type": "req",
+  "id": "11",
+  "method": "aiemas.fs.list",
+  "params": { "dirPath": "/home/user/.openclaw/agents/agent-abc123" }
+}
+```
+
+响应：
+
+```json
+{
+  "type": "res",
+  "id": "11",
+  "ok": true,
+  "payload": {
+    "entries": [
+      { "name": "agent.json", "type": "file", "size": 1024 },
+      { "name": "skills", "type": "directory", "size": 0 }
+    ]
+  }
+}
+```
+
+### 5. 导出智能体 (aiemas.agents.export)
+
+请求：
+
+```json
+{
+  "type": "req",
+  "id": "12",
+  "method": "aiemas.agents.export",
+  "params": {
+    "agentId": "agent-abc123",
+    "workspace": "/home/user/.openclaw/agents/agent-abc123",
+    "items": ["agent.json", "skills"]
+  }
+}
+```
+
+响应：
+
+```json
+{
+  "type": "res",
+  "id": "12",
+  "ok": true,
+  "payload": { "archivePath": "/home/user/.openclaw/agents/agent-abc123-export.zip" }
+}
+```
+
+### 6. 下载文件 (aiemas.files.download)
+
+请求：
+
+```json
+{
+  "type": "req",
+  "id": "13",
+  "method": "aiemas.files.download",
+  "params": { "filePath": "/home/user/.openclaw/agents/agent-abc123-export.zip" }
+}
+```
+
+响应：
+
+```json
+{
+  "type": "res",
+  "id": "13",
+  "ok": true,
+  "payload": {
+    "data": "UEsDBBQAAAAI...",
+    "fileName": "agent-abc123-export.zip",
+    "mimeType": "application/octet-stream"
+  }
+}
+```
+
+### 7. 上传文件 (aiemas.file.upload)
+
+请求：
+
+```json
+{
+  "type": "req",
+  "id": "14",
+  "method": "aiemas.file.upload",
+  "params": {
+    "fileName": "agent-abc123-export.zip",
+    "data": "UEsDBBQAAAAI..."
+  }
+}
+```
+
+响应：
+
+```json
+{
+  "type": "res",
+  "id": "14",
+  "ok": true,
+  "payload": { "filePath": "/tmp/aiemas-upload-x7k2m/agent-abc123-export.zip" }
+}
+```
+
+### 8. 导入智能体 (aiemas.agents.import)
+
+请求：
+
+```json
+{
+  "type": "req",
+  "id": "15",
+  "method": "aiemas.agents.import",
+  "params": { "archivePath": "/tmp/aiemas-upload-x7k2m/agent-abc123-export.zip" }
+}
+```
+
+响应：
+
+```json
+{
+  "type": "res",
+  "id": "15",
+  "ok": true,
+  "payload": {
+    "id": "agent-xyz789",
+    "name": "agent-abc123-export",
+    "workspace": "/home/user/.openclaw/agents/agent-xyz789",
+    "model": { "primary": "claude-sonnet-4-5", "fallbacks": [] }
+  }
+}
+```
+
 ---
 
 ## 四、事件详细示例 (Typical Event Detail)
@@ -244,3 +429,407 @@
   }
 }
 ```
+
+### 3. 拓扑变更通知 (topology.changed)
+
+当 Agent 拓扑关系被保存（`aiemas.agents.topology.save`）并完成会话级联同步后，服务端向所有在线客户端推送此事件。
+
+```json
+{
+  "type": "event",
+  "event": "topology.changed",
+  "payload": {
+    "rootAgentId": "aieiaas",
+    "edges": [
+      { "from": "aieiaas", "to": "aieiaas-model" },
+      { "from": "aieiaas", "to": "aieiaas-monitor" },
+      { "from": "aieiaas", "to": "aieiaas-resource" }
+    ]
+  }
+}
+```
+
+---
+
+## 五、拓扑关系 API (Topology API Detail)
+
+### 1. 查询拓扑关系 (aiemas.agents.topology.list)
+
+查询智能体拓扑关系。
+
+**权限**: admin, member, viewer
+
+**请求参数**:
+
+| 参数        | 类型   | 必填 | 说明                                                      |
+| ----------- | ------ | ---- | --------------------------------------------------------- |
+| rootAgentId | string | 否   | 根 Agent ID。提供时返回单棵拓扑树，不提供时返回所有拓扑树 |
+
+**请求示例**（按根节点查询）：
+
+```json
+{
+  "type": "req",
+  "id": "20",
+  "method": "aiemas.agents.topology.list",
+  "params": { "rootAgentId": "aie-iaas" }
+}
+```
+
+**响应示例**（提供 `rootAgentId` 时）：
+
+```json
+{
+  "type": "res",
+  "id": "20",
+  "ok": true,
+  "payload": {
+    "rootAgentId": "aie-iaas",
+    "topology": {
+      "edges": [
+        { "from": "aie-iaas", "to": "aieiaas-resource" },
+        { "from": "aie-iaas", "to": "aieiaas-model" }
+      ]
+    }
+  }
+}
+```
+
+**请求示例**（查询所有拓扑树）：
+
+```json
+{
+  "type": "req",
+  "id": "21",
+  "method": "aiemas.agents.topology.list",
+  "params": {}
+}
+```
+
+**响应示例**（未提供 `rootAgentId` 时）：
+
+```json
+{
+  "type": "res",
+  "id": "21",
+  "ok": true,
+  "payload": {
+    "topologies": [
+      {
+        "rootAgentId": "aie-iaas",
+        "topology": {
+          "edges": [
+            { "from": "aie-iaas", "to": "aieiaas-resource" },
+            { "from": "aie-iaas", "to": "aieiaas-model" }
+          ]
+        }
+      }
+    ]
+  }
+}
+```
+
+**响应示例**（指定的 `rootAgentId` 不存在拓扑数据时）：
+
+```json
+{
+  "type": "res",
+  "id": "20",
+  "ok": true,
+  "payload": {
+    "rootAgentId": "xxx",
+    "topology": { "edges": [] }
+  }
+}
+```
+
+### 2. 保存拓扑关系 (aiemas.agents.topology.save)
+
+保存智能体拓扑关系（整棵树覆盖写入）。
+
+**权限**: admin, member
+
+**请求参数**:
+
+| 参数           | 类型   | 必填 | 说明                                       |
+| -------------- | ------ | ---- | ------------------------------------------ |
+| rootAgentId    | string | 是   | 根 Agent ID                                |
+| topology       | object | 是   | 拓扑树文档                                 |
+| topology.edges | array  | 是   | 有向边数组，每条边包含 `from` 和 `to` 字段 |
+
+**请求示例**：
+
+```json
+{
+  "type": "req",
+  "id": "22",
+  "method": "aiemas.agents.topology.save",
+  "params": {
+    "rootAgentId": "aie-iaas",
+    "topology": {
+      "edges": [
+        { "from": "aie-iaas", "to": "aieiaas-resource" },
+        { "from": "aie-iaas", "to": "aieiaas-model" },
+        { "from": "aie-iaas", "to": "aieiaas-task" }
+      ]
+    }
+  }
+}
+```
+
+**成功响应**：
+
+```json
+{
+  "type": "res",
+  "id": "22",
+  "ok": true,
+  "payload": { "ok": true }
+}
+```
+
+**错误码**:
+
+| 错误码            | 说明                                                                    |
+| ----------------- | ----------------------------------------------------------------------- |
+| INVALID_PARAMS    | rootAgentId 为空、topology 缺失、或 edges 中存在自引用边（from === to） |
+| PERMISSION_DENIED | 角色权限不足（viewer 无写权限）                                         |
+
+**错误响应示例**（自引用边）：
+
+```json
+{
+  "type": "res",
+  "id": "22",
+  "ok": false,
+  "error": { "code": "INVALID_PARAMS", "message": "自引用边不允许" }
+}
+```
+
+**错误响应示例**（权限不足）：
+
+```json
+{
+  "type": "res",
+  "id": "22",
+  "ok": false,
+  "error": { "code": "PERMISSION_DENIED", "message": "权限不足" }
+}
+```
+
+---
+
+## 六、Session 级联 API (Session Cascade API Detail)
+
+### 1. 级联创建 Session (aiemas.sessions.create)
+
+级联创建 session：若 `agentId` 是 TopologyCache 中已知的根 Agent，则同时为根 Agent 及其所有后代 Agent 创建 session；否则仅为该 Agent 自身创建 session。
+
+**权限**: admin, member
+
+**请求参数**:
+
+| 参数    | 类型   | 必填 | 说明                                         |
+| ------- | ------ | ---- | -------------------------------------------- |
+| agentId | string | 是   | 目标 Agent ID（可以是根 Agent 或普通 Agent） |
+| label   | string | 否   | 用户可读的 session 标签                      |
+
+**请求示例**（根 Agent，触发级联）：
+
+```json
+{
+  "type": "req",
+  "id": "30",
+  "method": "aiemas.sessions.create",
+  "params": {
+    "agentId": "aie-iaas",
+    "label": "生产环境会话"
+  }
+}
+```
+
+**成功响应**：
+
+```json
+{
+  "type": "res",
+  "id": "30",
+  "ok": true,
+  "payload": {
+    "sessionKey": "agent:aie-iaas:group:mas-d4548844",
+    "sessionId": "sess-uuid-root-001"
+  }
+}
+```
+
+> 响应返回根 Agent 的 `sessionKey` 和 `sessionId`。后代 Agent 的 session 在后台自动创建，共享相同的 `sessionUuid`（即 `mas-d4548844`）。
+
+**请求示例**（非根 Agent，仅创建自身 session）：
+
+```json
+{
+  "type": "req",
+  "id": "31",
+  "method": "aiemas.sessions.create",
+  "params": {
+    "agentId": "standalone-agent"
+  }
+}
+```
+
+**错误码**:
+
+| 错误码            | 说明                              |
+| ----------------- | --------------------------------- |
+| INVALID_PARAMS    | agentId 为空或参数格式错误        |
+| PERMISSION_DENIED | 角色权限不足（viewer 无写权限）   |
+| INTERNAL          | 数据库写入失败或 Gateway 调用异常 |
+
+---
+
+### 2. 级联删除 Session (aiemas.sessions.delete)
+
+级联删除 session：若 `sessionKey` 对应 `aiemas_sessions` 表中的根 Agent 记录，则同时删除根 Agent 及所有后代 Agent 的 session；否则仅删除该 session 自身。
+
+**权限**: admin, member
+
+**请求参数**:
+
+| 参数       | 类型   | 必填 | 说明                                                       |
+| ---------- | ------ | ---- | ---------------------------------------------------------- |
+| sessionKey | string | 是   | 要删除的 session key，格式 `agent:{agentId}:{kind}:{uuid}` |
+
+**请求示例**（根 Agent session，触发级联删除）：
+
+```json
+{
+  "type": "req",
+  "id": "32",
+  "method": "aiemas.sessions.delete",
+  "params": {
+    "sessionKey": "agent:aie-iaas:group:mas-d4548844"
+  }
+}
+```
+
+**成功响应**：
+
+```json
+{
+  "type": "res",
+  "id": "32",
+  "ok": true,
+  "payload": { "ok": true }
+}
+```
+
+**错误码**:
+
+| 错误码            | 说明                             |
+| ----------------- | -------------------------------- |
+| INVALID_PARAMS    | sessionKey 为空或格式错误        |
+| PERMISSION_DENIED | 角色权限不足（viewer 无写权限）  |
+| INTERNAL          | Gateway 调用异常或数据库操作失败 |
+
+---
+
+### 3. 查询根 Agent Session 列表 (aiemas.sessions.list)
+
+查询当前租户下所有根 Agent 的 session 列表。仅返回 `aiemas_sessions` 表中持久化的根 Agent session 记录，不包含后代 Agent 的级联 session。
+
+**权限**: admin, member, viewer
+
+**请求参数**: 无（传空对象即可）
+
+**请求示例**：
+
+```json
+{
+  "type": "req",
+  "id": "33",
+  "method": "aiemas.sessions.list",
+  "params": {}
+}
+```
+
+**成功响应**：
+
+```json
+{
+  "type": "res",
+  "id": "33",
+  "ok": true,
+  "payload": {
+    "sessions": [
+      {
+        "sessionKey": "agent:aie-iaas:group:mas-d4548844",
+        "sessionId": "sess-uuid-root-001",
+        "agentId": "aie-iaas",
+        "sessionUuid": "mas-d4548844",
+        "label": "生产环境会话",
+        "userId": "user-abc",
+        "tenantId": "default",
+        "createdAt": 1711618000000
+      },
+      {
+        "sessionKey": "agent:aie-iaas:group:mas-e7f91234",
+        "sessionId": "sess-uuid-root-002",
+        "agentId": "aie-iaas",
+        "sessionUuid": "mas-e7f91234",
+        "label": null,
+        "userId": "user-abc",
+        "tenantId": "default",
+        "createdAt": 1711619000000
+      }
+    ]
+  }
+}
+```
+
+**响应字段说明**:
+
+| 字段        | 类型           | 说明                                                                 |
+| ----------- | -------------- | -------------------------------------------------------------------- |
+| sessionKey  | string         | 根 Agent 的 session key，格式 `agent:{agentId}:{kind}:{sessionUuid}` |
+| sessionId   | string         | 根 Agent 的 session ID（由 Gateway 分配）                            |
+| agentId     | string         | 根 Agent ID                                                          |
+| sessionUuid | string         | 会话组唯一标识，根 Agent 与所有后代 Agent 共享相同值                 |
+| label       | string \| null | 用户可读的 session 标签（创建时未指定则为 null）                     |
+| userId      | string         | 创建者用户 ID                                                        |
+| tenantId    | string         | 所属租户 ID                                                          |
+| createdAt   | number         | 创建时间戳（毫秒）                                                   |
+
+**错误码**:
+
+| 错误码            | 说明           |
+| ----------------- | -------------- |
+| PERMISSION_DENIED | 角色权限不足   |
+| INTERNAL          | 数据库查询失败 |
+
+---
+
+## 七、消息格式 (Message Format)
+
+### session_messages 表 role 字段
+
+`session.history.range` 返回的消息中，`role` 字段标识消息的来源类型：
+
+| role        | 说明                                                          | sourceAgentId           |
+| :---------- | :------------------------------------------------------------ | :---------------------- |
+| `user`      | 人类用户直接发送的消息                                        | null                    |
+| `agent`     | 其他 Agent 通过 `aiemas_sessions_send` 发送的消息（A2A 通信） | 发送方 Agent 的 agentId |
+| `assistant` | Agent（LLM）的回复消息                                        | null                    |
+| `tool`      | 工具调用结果                                                  | null                    |
+| `approval`  | 审批事件（requested / resolved / user-resolve）               | null                    |
+| `system`    | 系统消息                                                      | null                    |
+| `progress`  | SOP/Skill 进度事件                                            | null                    |
+| `summary`   | 会话摘要                                                      | null                    |
+
+### sourceAgentId 字段
+
+`sourceAgentId` 仅在 `role = "agent"` 时有值，标识消息的来源 Agent。例如：
+
+- 根 Agent `aieiaas` 通过 `aiemas_sessions_send` 向子 Agent `aieiaas-resource` 发送消息
+- 子 Agent session 中该消息的 `role = "agent"`，`sourceAgentId = "aieiaas"`
+
+这使得 UI 和审计系统能够区分"人类用户直接发送"和"Agent 间转发"的消息。

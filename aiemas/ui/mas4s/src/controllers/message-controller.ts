@@ -1,6 +1,8 @@
 import { getClient } from "../gateway/client.js";
+import { GatewayRequestError } from "../lib/gateway.js";
 import { AppStore } from "../store/app-store.js";
 import { buildChatSendParams } from "../utils/message-format.js";
+import { extractAgentNameFromKey } from "../utils/session-utils.js";
 
 /**
  * 消息发送与审批控制器。
@@ -26,15 +28,30 @@ export class MessageController {
     const rawText = e.detail.text;
     const clientRunId = crypto.randomUUID();
 
-    // 乐观追加用户消息，立即显示在聊天列表中
-    this.store.appendMessage(session.key, {
+    // 需求：如果当前正在聊天，则先中止
+    if (session.sessionUuid && this.store.isChattingBySession.get(session.sessionUuid)) {
+      console.debug("[mas4s:message] send → interrupting active run before sending");
+      await this.onAbortChat();
+    }
+
+    const msg: ChatMessage = {
       role: "user",
       content: [{ type: "text", text: rawText }],
       timestamp: Date.now(),
       id: clientRunId,
       senderLabel: displayName,
       subType: undefined,
-    });
+    };
+
+    // 乐观追加用户消息，立即显示在聊天列表中
+    this.store.appendMessage(session.sessionUuid!, msg);
+
+    // 同步到当前会话根 Agent 的消息流中，确保 Multi-Agent UI 能够立刻显示乐观输入
+    const rootAgentId = extractAgentNameFromKey(session.key);
+    this.store.appendAgentMessage(session.sessionUuid!, rootAgentId, msg);
+
+    // 开始聊天状态跟踪
+    this.store.setIsChatting(session.sessionUuid!, true, clientRunId);
 
     const client = getClient();
     try {
@@ -72,7 +89,117 @@ export class MessageController {
       });
       console.debug("[mas4s:message] resolveApproval ← ok");
     } catch (err) {
-      console.error("[mas4s:message] exec.approval.resolve failed:", err);
+      // 审批过期/已处理是正常竞态（乐观更新已生效），降级为 warn
+      if (
+        err instanceof GatewayRequestError &&
+        (err.gatewayCode === "NOT_FOUND" || /unknown or expired/i.test(err.message))
+      ) {
+        console.warn(
+          "[mas4s:message] approval already expired or resolved, optimistic update kept",
+        );
+      } else {
+        console.error("[mas4s:message] exec.approval.resolve failed:", err);
+      }
+    }
+  };
+
+  /**
+   * 子 Agent 抽屉消息发送。
+   * 构造子 Agent 的 sessionKey 并通过 chat.send 发送，
+   * 同时乐观追加到对应 Agent 的消息流中。
+   */
+  onSendSubAgentMessage = async (
+    subSessionKey: string,
+    agentId: string,
+    sessionUuid: string,
+    text: string,
+  ) => {
+    const displayName = this.store.currentUser?.displayName ?? "我";
+    const clientRunId = crypto.randomUUID();
+
+    const msg: ChatMessage = {
+      role: "user",
+      content: [{ type: "text", text }],
+      timestamp: Date.now(),
+      id: clientRunId,
+      senderLabel: displayName,
+      subType: undefined,
+    };
+
+    // 乐观追加到子 Agent 消息流
+    this.store.appendAgentMessage(sessionUuid, agentId, msg);
+
+    const client = getClient();
+    try {
+      await client.request(
+        "chat.send",
+        buildChatSendParams({
+          sessionKey: subSessionKey,
+          message: text,
+          clientRunId,
+        }),
+      );
+      console.debug("[mas4s:message] sub-agent send ← ok agentId=%s", agentId);
+    } catch (err) {
+      console.error("[mas4s:message] sub-agent chat.send failed:", err);
+    }
+  };
+
+  onAbortChat = async () => {
+    const session = this.store.activeSession;
+    if (!session || !session.sessionUuid) {
+      return;
+    }
+    const runId = this.store.activeRunIdBySession.get(session.sessionUuid);
+
+    // 需求：中止聊天时，如果有待审核任务，直接拒绝
+    const sessionKey = session.key;
+    const pendingForSession = this.store.pendingApprovals.filter(
+      (a) => a.request.sessionKey === sessionKey,
+    );
+
+    if (pendingForSession.length > 0) {
+      console.debug(
+        "[mas4s:message] abort → rejecting %d pending approvals",
+        pendingForSession.length,
+      );
+      const client = getClient();
+      for (const app of pendingForSession) {
+        // 乐观更新
+        this.store.resolveApproval(app.id, {
+          id: app.id,
+          decision: "deny",
+          ts: Date.now(),
+        });
+        // 发回 gateway
+        void client
+          .request("exec.approval.resolve", { id: app.id, decision: "deny" })
+          .catch((err) => {
+            console.error("[mas4s:message] abort: auto-deny approval failed:", err);
+          });
+      }
+    }
+
+    if (!runId) {
+      console.warn("[mas4s:message] abort ← no active runId for session");
+      // Fallback: reset UI state even if no runId found
+      this.store.setIsChatting(session.sessionUuid, false);
+      return;
+    }
+
+    console.debug("[mas4s:message] abort → sessionKey=%s runId=%s", sessionKey, runId);
+    const client = getClient();
+    try {
+      await client.request("chat.abort", {
+        sessionKey,
+        runId,
+      });
+      console.debug("[mas4s:message] abort ← chat.abort ok");
+    } catch (err) {
+      console.error("[mas4s:message] chat.abort failed:", err);
+    } finally {
+      // Reset local state regardless of result
+      this.store.setIsChatting(session.sessionUuid, false);
     }
   };
 }

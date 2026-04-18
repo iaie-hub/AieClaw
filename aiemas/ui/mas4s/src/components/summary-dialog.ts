@@ -523,7 +523,7 @@ export class SummaryDialog extends LitElement {
         <div class="section-label">对话摘要</div>
         <div class="section-content markdown-body">
           ${s.textSummary
-            ? markdownMath(s.textSummary)
+            ? markdownMath(s.textSummary.trim())
             : html` <span class="empty-hint">暂无对话内容</span> `}
         </div>
       </div>
@@ -531,7 +531,7 @@ export class SummaryDialog extends LitElement {
         <div class="section-label">工具调用摘要</div>
         <div class="section-content markdown-body">
           ${s.toolSummary
-            ? markdownMath(s.toolSummary)
+            ? markdownMath(s.toolSummary.trim())
             : html` <span class="empty-hint">暂无工具调用</span> `}
         </div>
       </div>

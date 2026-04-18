@@ -8,70 +8,27 @@
  */
 
 import { resolveEnvApiKey } from "../agents/model-auth-env.js";
+import type { AnyAgentTool } from "../agents/tools/common.js";
+import { createSessionsSendTool } from "../agents/tools/sessions-send-tool.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { collectConfigRuntimeEnvVars } from "../config/env-vars.js";
 import { isValidEnvSecretRefId } from "../config/types.secrets.js";
-import { onAgentEvent } from "../infra/agent-events.js";
-import type { createSubsystemLogger } from "../logging/subsystem.js";
+import { emitAgentEvent, onAgentEvent } from "../infra/agent-events.js";
+import type { SubsystemLogger } from "../logging/subsystem.js";
 import { resolveSecretInputString } from "../secrets/resolve-secret-input-string.js";
+import { callGateway } from "./call.js";
+import type { Mas4sIntegration } from "./mas4s-integration-types.js";
 import { ADMIN_SCOPE, READ_SCOPE, WRITE_SCOPE } from "./method-scopes.js";
 import { chatHandlers } from "./server-methods/chat.js";
 import { sessionsHandlers } from "./server-methods/sessions.js";
-import type {
-  GatewayRequestHandler,
-  GatewayRequestHandlers,
-  GatewayClient,
-} from "./server-methods/types.js";
+import type { GatewayRequestHandlers } from "./server-methods/types.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
 import { loadGatewaySessionRow } from "./session-utils.js";
 
-type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
+// Re-export for backward compatibility
+export type { Mas4sIntegration } from "./mas4s-integration-types.js";
 
-export interface Mas4sIntegration {
-  extraHandlers: GatewayRequestHandlers;
-  onClientConnected: (client: GatewayWsClient, upgradeReq: { url?: string }) => void;
-  onSessionCreated: (sessionKey: string, label: string, client: GatewayClient) => void;
-  /**
-   * Pre-request interceptor: check RBAC + session access before dispatching.
-   * Returns null to allow, or an error shape to reject.
-   */
-  interceptRequest: (
-    method: string,
-    params: Record<string, unknown>,
-    client: GatewayClient | null,
-  ) => { allowed: true } | { allowed: false; code: string; message: string };
-  /**
-   * Broadcast filter: returns a Set of connIds that should receive the event,
-   * or null to broadcast to all (compat mode / no filtering).
-   */
-  filterBroadcast: (
-    event: string,
-    payload: unknown,
-    clients: Set<GatewayWsClient>,
-  ) => ReadonlySet<string> | null;
-  /**
-   * Filter sessions.list results to only include sessions the user has membership for.
-   */
-  filterSessionsList: (sessions: unknown[], client: GatewayClient | null) => unknown[];
-  /**
-   * Called when a WS client disconnects. Marks the user offline if authenticated.
-   */
-  onClientDisconnected: (client: GatewayWsClient) => void;
-  /**
-   * Internal: allows server.impl.ts to keep the clients reference up to date.
-   * This is used by the MAS4S bridge to track user presence across all connections.
-   */
-  _setActiveClients?: (clients: Set<GatewayWsClient>) => void;
-  /**
-   * Internal: inject the ExecApprovalManager so interceptRequest can record
-   * exec.approval.resolve requests to session_messages for history replay.
-   */
-  _setExecApprovalManager?: (
-    manager: import("./exec-approval-manager.js").ExecApprovalManager,
-  ) => void;
-}
-
-const NOOP_INTEGRATION: Mas4sIntegration = {
+const NOOP_INTEGRATION: import("./mas4s-integration-types.js").Mas4sIntegration = {
   extraHandlers: {},
   onClientConnected: () => {},
   onClientDisconnected: () => {},
@@ -80,6 +37,7 @@ const NOOP_INTEGRATION: Mas4sIntegration = {
   filterBroadcast: () => null,
   filterSessionsList: (sessions) => sessions,
   _setActiveClients: () => {},
+  resolveAutoScopes: () => null,
 };
 
 async function resolveLlmKey(
@@ -177,7 +135,15 @@ export async function initMas4sIntegration(
       await import("../../aiemas/src/gateway-bridge/mas4s-gateway-plugin.js");
     const contextMod = await import("../../aiemas/src/gateway-bridge/context.js");
     const integrationMod = await import("../../aiemas/src/gateway-bridge/integration.js");
+    const sessionMod = await import("../../aiemas/src/gateway-bridge/aiemas-session.js");
+    const chatMod = await import("../../aiemas/src/gateway-bridge/aiemas-chat.js");
+    const authMod = await import("../../aiemas/src/gateway-bridge/aiemas-auth.js");
+    const agentMod = await import("../../aiemas/src/gateway-bridge/aiemas-agent.js");
+    const { extractUuidFromKey } = await import("../../aiemas/src/utils/session-utils.js");
+    const { createAiemasSessionsSendTool } =
+      await import("../../aiemas/src/gateway-bridge/aiemas-tools.js");
 
+    // Initialize the plugin
     const aiemasConfig = config?.plugins?.entries?.["aiemas"]?.config ?? {};
     const mas4sConfig = config?.plugins?.entries?.["mas4s"]?.config ?? {};
     let llm = (aiemasConfig["llm"] ?? mas4sConfig["llm"]) as
@@ -199,7 +165,6 @@ export async function initMas4sIntegration(
         const p = providers[bestKey];
         const modelId = p.models?.[0]?.id;
         if (p.baseUrl && modelId) {
-          // If the key is custom (e.g. "my-vllm"), try to map to a canonical ID for env resolution
           let providerId = bestKey;
           const kLower = bestKey.toLowerCase();
           if (kLower.includes("deepseek")) {
@@ -217,18 +182,10 @@ export async function initMas4sIntegration(
             apiKey: await resolveLlmKey(config, p.apiKey, providerId),
             model: modelId,
           };
-          console.log(
-            `[mas4s] LLM fallback config created using provider key: ${bestKey}, hint: ${providerId}, model: ${modelId}, hasApiKey: ${Boolean(llm.apiKey)}`,
-          );
-        } else {
-          console.warn(
-            `[mas4s] Found potential fallback provider ${bestKey}, but it is missing baseUrl (${Boolean(p.baseUrl)}) or models array (${p.models?.length ?? 0})`,
-          );
         }
       }
     }
 
-    // Also resolve apiKey if it was provided in plugin config (non-fallback)
     if (llm?.apiKey && config) {
       llm.apiKey = await resolveLlmKey(config, llm.apiKey);
     }
@@ -236,21 +193,118 @@ export async function initMas4sIntegration(
     const plugin = await createMas4sGatewayPlugin({ llm });
     log.info("mas4s multi-tenant plugin loaded");
 
+    // ── Shared reference to the live clients set ──────────────────────────
+    let activeClients: Set<GatewayWsClient> = new Set();
+    const setActiveClients = (c: Set<GatewayWsClient>) => {
+      activeClients = c;
+    };
+
+    // ── Request context tracking for AIEMAS agent integration ──────────────
+    let _currentRequestContext:
+      | import("./server-methods/types.js").GatewayRequestContext
+      | undefined;
+    let _currentRequestClient: GatewayWsClient | null = null;
+
+    /** Broadcast an event to ALL connected WebSocket clients. */
+    const broadcastToAll = (event: string, payload: unknown) => {
+      const frame = JSON.stringify({ type: "event", event, payload });
+      for (const c of activeClients) {
+        try {
+          c.socket.send(frame);
+        } catch {
+          /* ignore dead sockets */
+        }
+      }
+    };
+
+    // ── SOP Tracker + Progress Watcher integration ──────────────────────────
+    const { SOPTracker, ProgressWatcher } = await import("../../aiemas/src/sop-tracker/index.js");
+    const { homedir: _homedir } = await import("node:os");
+    const { join: _join } = await import("node:path");
+
+    // Track toolCallId → skillName mapping for result phase (where args are not available)
+    const _toolCallSkillMap = new Map<string, string>();
+    // Track toolCallId → runId mapping
+    const _toolCallRunIdMap = new Map<string, string>();
+    // Track background sessionId → skillName mapping to stop watches later
+    const _backgroundSessionToSkillMap = new Map<string, string>();
+
+    const sopTracker = new SOPTracker({
+      onStateChange: (statePayload) => {
+        log.info(
+          `[mas4s:sop] state change: step=${statePayload.currentStepIndex} session=${statePayload.sessionKey}`,
+        );
+        const latestRunId =
+          _toolCallRunIdMap.size > 0
+            ? [..._toolCallRunIdMap.values()][_toolCallRunIdMap.size - 1]
+            : undefined;
+        const payloadWithRunId = latestRunId
+          ? { ...statePayload, runId: latestRunId }
+          : statePayload;
+        broadcastToAll("sop.state", payloadWithRunId);
+        try {
+          const uuid = extractUuidFromKey(statePayload.sessionKey);
+          plugin.upsertRunState(uuid, {
+            runId: latestRunId,
+            sopSnapshot: {
+              sopName: statePayload.sopName,
+              sopLabel: statePayload.sopLabel,
+              stepStatuses: (statePayload.steps as Array<{ status: string }>).map(
+                (s) => s.status as import("../../aiemas/src/sop-tracker/types.js").SOPStepStatus,
+              ),
+              currentStepIndex: statePayload.currentStepIndex,
+              completedAt: statePayload.completedAt,
+            },
+            isChatting: true,
+          });
+        } catch (err) {
+          log.warn(`[mas4s:sop] upsertRunState failed: ${String(err)}`);
+        }
+        plugin.transcriptStore.recordProgressEvent({
+          sessionKey: statePayload.sessionKey,
+          type: "sop:state",
+          payload: payloadWithRunId,
+          timestamp: statePayload.ts,
+        });
+      },
+    });
+
+    const progressWatcher = new ProgressWatcher({
+      pollIntervalMs: 2000,
+      onProgress: (progressPayload) => {
+        const p = progressPayload.progress;
+        log.info(
+          `[mas4s:sop] skill progress: ${progressPayload.skill} type=${p.type} session=${progressPayload.sessionKey}`,
+        );
+        broadcastToAll("skill.progress", progressPayload);
+        plugin.transcriptStore.recordProgressEvent({
+          sessionKey: progressPayload.sessionKey,
+          type: "skill:progress",
+          payload: progressPayload,
+          timestamp: progressPayload.ts,
+        });
+      },
+    });
+
     onAgentEvent((evt) => {
       const p = evt as Record<string, unknown>;
       const evtSessionKey = typeof p["sessionKey"] === "string" ? p["sessionKey"] : "";
+      if (!evtSessionKey) {
+        return;
+      }
 
-      if (evtSessionKey && p["stream"] === "tool") {
+      if (p["stream"] === "tool") {
         const data = p["data"] as Record<string, unknown> | undefined;
         const phase = typeof data?.["phase"] === "string" ? data["phase"] : "";
+        const toolName = typeof data?.["name"] === "string" ? data["name"] : "";
         const toolCallId = typeof data?.["toolCallId"] === "string" ? data["toolCallId"] : "";
-        const name = typeof data?.["name"] === "string" ? data["name"] : "tool";
 
         if (toolCallId && (phase === "start" || phase === "result")) {
+          // Record tool event
           plugin.transcriptStore.recordToolEvent({
             sessionKey: evtSessionKey,
             toolCallId,
-            name,
+            name: toolName || "tool",
             phase,
             args: phase === "start" ? data?.["args"] : undefined,
             result:
@@ -260,452 +314,164 @@ export async function initMas4sIntegration(
             timestamp: typeof p["ts"] === "number" ? p["ts"] : Date.now(),
           });
         }
-      }
-    });
 
-    // Set the loadSessionRow callback so bridge can resolve sessionId from sessionKey.
-    // This is critical for sessions.reset, which generates a new sessionId while keeping
-    // the same sessionKey.
-    plugin.bridge.setLoadSessionRow((sessionKey: string) => {
-      return loadGatewaySessionRow(sessionKey);
-    });
+        if (toolName && (phase === "start" || phase === "result")) {
+          const agentIdMatch = /^agent:([^:]+):/.exec(evtSessionKey);
+          const agentId = agentIdMatch?.[1] ?? "default";
+          const workspaceDir = _join(_homedir(), ".openclaw", `workspace-${agentId}`);
 
-    // Helper: send an event frame to a specific WS client by connId
-    const sendToConnId = (
-      connId: string,
-      clients: Set<GatewayWsClient>,
-      event: string,
-      data: unknown,
-    ) => {
-      for (const c of clients) {
-        if (c.connId === connId) {
-          try {
-            c.socket.send(JSON.stringify({ type: "event", event, payload: data }));
-          } catch {
-            /* ignore */
+          let skillName = toolName;
+          if (toolName === "exec" && phase === "start") {
+            const args = data?.["args"] as Record<string, unknown> | undefined;
+            const command = typeof args?.["command"] === "string" ? args["command"] : "";
+            const scriptMatch = /\/([a-z_]+)\.py/.exec(command);
+            const runIdMatch = /"run_id":\s*"([^"]+)"/.exec(command);
+            if (scriptMatch?.[1]) {
+              skillName = scriptMatch[1];
+              if (toolCallId) {
+                _toolCallSkillMap.set(toolCallId, skillName);
+              }
+            }
+            if (runIdMatch?.[1] && toolCallId) {
+              _toolCallRunIdMap.set(toolCallId, runIdMatch[1]);
+            }
+          } else if (toolName === "exec" && phase === "result" && toolCallId) {
+            skillName = _toolCallSkillMap.get(toolCallId) ?? "exec";
+            _toolCallSkillMap.delete(toolCallId);
           }
-          break;
+
+          if (["exec", "tool", "read", "process"].includes(skillName)) {
+            if (skillName === "process" && phase === "result") {
+              const res = data?.["result"] as Record<string, unknown> | undefined;
+              const args = data?.["args"] as Record<string, unknown> | undefined;
+              const sessionId = (res?.["sessionId"] ?? args?.["sessionId"]) as string | undefined;
+              const status = res?.["status"] as string | undefined;
+              if (sessionId && (status === "completed" || status === "failed")) {
+                const backgroundSkill = _backgroundSessionToSkillMap.get(sessionId);
+                if (backgroundSkill) {
+                  _backgroundSessionToSkillMap.delete(sessionId);
+                  sopTracker.updateStepStatus(
+                    evtSessionKey,
+                    backgroundSkill,
+                    status === "failed" ? "failed" : "completed",
+                    typeof p["ts"] === "number" ? p["ts"] : Date.now(),
+                  );
+                  progressWatcher.stopWatch(`${evtSessionKey}:${backgroundSkill}`);
+                }
+              }
+            }
+          } else {
+            const res = data?.["result"] as Record<string, unknown> | undefined;
+            const status = res?.["status"] as string | undefined;
+            if (phase === "result" && status === "running" && res?.["sessionId"]) {
+              _backgroundSessionToSkillMap.set(res["sessionId"] as string, skillName);
+            }
+            sopTracker.onToolEvent({
+              sessionKey: evtSessionKey,
+              agentId,
+              workspaceDir,
+              toolName: skillName,
+              phase,
+              status,
+              isError:
+                phase === "result" && (typeof res?.["error"] === "string" || status === "error"),
+              timestamp: typeof p["ts"] === "number" ? p["ts"] : Date.now(),
+            });
+            if (phase === "start") {
+              const runId = _toolCallRunIdMap.get(toolCallId);
+              const progressDir = _join(
+                _homedir(),
+                ".openclaw",
+                `workspace-${agentId}`,
+                "workspace",
+                "progress",
+              );
+              const progressFile = _join(
+                progressDir,
+                runId ? `${runId}_${skillName}.progress.jsonl` : `${skillName}.progress.jsonl`,
+              );
+              progressWatcher.startWatch({
+                key: `${evtSessionKey}:${skillName}`,
+                sessionKey: evtSessionKey,
+                skill: skillName,
+                filePath: progressFile,
+              });
+            }
+            if (phase === "result") {
+              _toolCallRunIdMap.delete(toolCallId);
+            }
+          }
         }
       }
-    };
+    });
 
-    // Shared reference to the live clients set — updated by _setActiveClients.
-    // Declared early so onClientDisconnected and auth.login wrapper can close over it.
-    let activeClients: Set<GatewayWsClient> = new Set();
-    const setActiveClients = (c: Set<GatewayWsClient>) => {
-      activeClients = c;
-    };
+    plugin.bridge.setLoadSessionRow((sessionKey: string) => loadGatewaySessionRow(sessionKey));
 
     // ExecApprovalManager reference — injected after gateway startup via _setExecApprovalManager.
-    // Used to look up sessionKey when recording exec.approval.resolve requests.
     let execApprovalManager: import("./exec-approval-manager.js").ExecApprovalManager | null = null;
-    // Helper: build connId → MasAuthContext map from current activeClients
-    const buildConnectedUsers = () => {
-      const map = new Map<
-        string,
-        import("../../aiemas/src/gateway-bridge/context.js").MasAuthContext
-      >();
-      for (const c of activeClients) {
-        const auth = contextMod.getMasAuth(c);
-        if (auth) {
-          map.set(c.connId, auth);
-        }
-      }
-      return map;
-    };
 
     // Adapt SimpleHandler → GatewayRequestHandler
     const extraHandlers: GatewayRequestHandlers = {};
+    log.info(`[mas4s] plugin.extraHandlers keys: ${Object.keys(plugin.extraHandlers).join(", ")}`);
     for (const [method, handler] of Object.entries(plugin.extraHandlers)) {
-      const adapted: GatewayRequestHandler = async (opts) => {
-        // Bridge respond signature: SimpleHandler uses (ok, payload, error: unknown)
-        // while GatewayRequestHandler uses RespondFn (ok, payload?, error?: ErrorShape)
+      extraHandlers[method] = async (opts) => {
         const respond = (ok: boolean, payload: unknown, error: unknown) => {
           opts.respond(ok, payload ?? undefined, error as Parameters<typeof opts.respond>[2]);
         };
-        await handler({ params: opts.params, client: opts.client, respond });
-      };
-      extraHandlers[method] = adapted;
-    }
-
-    const onClientConnected: Mas4sIntegration["onClientConnected"] = (client, upgradeReq) => {
-      try {
-        const masToken = integrationMod.extractMasTokenFromUrl(
-          upgradeReq as import("node:http").IncomingMessage,
-        );
-        const masAuth = plugin.bridge.authenticateConnect({ masToken });
-        contextMod.setMasAuth(client, masAuth);
-
-        // Broadcast online presence immediately if successfully authenticated.
-        // This ensures peers see the user as "online" even on token-based reconnection (refresh).
-        if (masAuth.userId && masAuth.tenantId) {
-          plugin.bridge.pushUserPresence(
-            masAuth.userId,
-            masAuth.tenantId,
-            true,
-            buildConnectedUsers(),
-            (connId, event, data) => sendToConnId(connId, activeClients, event, data),
-          );
-        }
-
-        // Inject displayName into client.connect.client so chat.send can populate SenderName.
-        // This mirrors how channel integrations (e.g. Feishu) pass sender identity via MsgContext.
-        if (masAuth.displayName && client.connect?.client) {
-          client.connect.client.displayName = masAuth.displayName;
-        }
-
-        // Grant gateway scopes to authenticated MAS users so they can pass core authorization.
-        // User-level filtering is still performed by mas4s interceptRequest (RBAC).
-        if (masAuth.userId && client.connect) {
-          const scopes = client.connect.scopes ?? [];
-          if (masAuth.masRole === "admin") {
-            if (!scopes.includes(ADMIN_SCOPE)) {
-              scopes.push(ADMIN_SCOPE);
-            }
-          } else {
-            if (!scopes.includes(READ_SCOPE)) {
-              scopes.push(READ_SCOPE);
-            }
-            if (!scopes.includes(WRITE_SCOPE)) {
-              scopes.push(WRITE_SCOPE);
-            }
-          }
-          client.connect.scopes = scopes;
-        }
-      } catch (err) {
-        log.warn(`mas4s auth failed for conn=${client.connId}: ${String(err)}`);
-        contextMod.setMasAuth(client, contextMod.NULL_MAS_AUTH);
-
-        const urlParams = new URL(
-          (upgradeReq as import("node:http").IncomingMessage).url ?? "/",
-          "http://localhost",
-        ).searchParams;
-        if (urlParams.has("masToken")) {
-          client.socket.close(4008, "MAS_AUTH_FAILED");
-        }
-      }
-    };
-
-    const onSessionCreated: Mas4sIntegration["onSessionCreated"] = (sessionKey, label, client) => {
-      try {
-        const masAuth = contextMod.getMasAuth(client) ?? contextMod.NULL_MAS_AUTH;
-        plugin.bridge.onSessionCreated(sessionKey, label, masAuth);
-      } catch (err) {
-        log.warn(`mas4s onSessionCreated failed for session=${sessionKey}: ${String(err)}`);
-      }
-    };
-
-    const interceptRequest: Mas4sIntegration["interceptRequest"] = (method, params, client) => {
-      try {
-        const masAuth = client
-          ? (contextMod.getMasAuth(client) ?? contextMod.NULL_MAS_AUTH)
-          : contextMod.NULL_MAS_AUTH;
-        const result = plugin.bridge.interceptMethod(method, params, masAuth);
-
-        // ── Record exec.approval.resolve user request for history replay ──────
-        // Fire-and-forget after RBAC check passes. The approval is still pending
-        // at this point, so getSnapshot() can retrieve the sessionKey.
-        if (result.allowed && method === "exec.approval.resolve" && execApprovalManager) {
-          try {
-            const id = typeof params["id"] === "string" ? params["id"] : "";
-            const decision = typeof params["decision"] === "string" ? params["decision"] : "";
-            if (id && decision) {
-              const snapshot = execApprovalManager.getSnapshot(id);
-              const sessionKey =
-                typeof snapshot?.request?.sessionKey === "string"
-                  ? snapshot.request.sessionKey
-                  : "";
-              if (sessionKey) {
-                let displayName: string | null = masAuth.displayName ?? null;
-                if (!displayName && client) {
-                  displayName = client.connect?.client?.displayName ?? null;
-                }
-                plugin.transcriptStore.recordApprovalEvent({
-                  sessionKey,
-                  type: "user-resolve",
-                  payload: { id, decision, resolvedBy: displayName, ts: Date.now() },
-                  timestamp: Date.now(),
-                });
-              }
-            }
-          } catch (err) {
-            log.warn(
-              `mas4s interceptRequest: approval user-resolve capture failed: ${String(err)}`,
-            );
-          }
-        }
-
-        return result;
-      } catch (err) {
-        log.warn(`mas4s interceptRequest failed for method=${method}: ${String(err)}`);
-        return { allowed: true };
-      }
-    };
-
-    const filterBroadcast: Mas4sIntegration["filterBroadcast"] = (event, payload, clients) => {
-      // ── Intercept broadcast events to capture messages for history storage ──────
-      // This replaces the onSessionTranscriptUpdate path for tool calls and assistant
-      // final messages, which never pass through the transcript event bus.
-      try {
-        const p = payload as Record<string, unknown>;
-        const evtSessionKey = typeof p["sessionKey"] === "string" ? p["sessionKey"] : "";
-
-        if (evtSessionKey) {
-          // Assistant final message: handled by the transcript event path (handleUpdate).
-          // recordAssistantFinal is intentionally not called here to avoid double-writing,
-          // since handleUpdate already captures the full assistant message (including
-          // thinking + toolCall blocks) from the JSONL transcript event.
-        }
-
-        // 3. Approval events → persist to session_messages for history replay
-        if (event === "exec.approval.requested") {
-          const reqPayload = p as {
-            id?: string;
-            request?: Record<string, unknown>;
-            createdAtMs?: number;
-            expiresAtMs?: number;
-          };
-          const approvalSessionKey =
-            typeof reqPayload.request?.["sessionKey"] === "string"
-              ? reqPayload.request["sessionKey"]
-              : "";
-          if (approvalSessionKey && reqPayload.id) {
-            plugin.transcriptStore.recordApprovalEvent({
-              sessionKey: approvalSessionKey,
-              type: "requested",
-              payload: {
-                id: reqPayload.id,
-                command: reqPayload.request?.["command"],
-                commandPreview: reqPayload.request?.["commandPreview"],
-                cwd: reqPayload.request?.["cwd"],
-                resolvedPath: reqPayload.request?.["resolvedPath"],
-                host: reqPayload.request?.["host"],
-                agentId: reqPayload.request?.["agentId"],
-                security: reqPayload.request?.["security"],
-                sessionKey: approvalSessionKey,
-                createdAtMs: reqPayload.createdAtMs,
-                expiresAtMs: reqPayload.expiresAtMs,
-              },
-              timestamp: reqPayload.createdAtMs ?? Date.now(),
+        await handler({
+          params: opts.params,
+          client: opts.client,
+          respond,
+          dispatchGateway: async (innerMethod, innerParams, innerClient = opts.client) => {
+            const { handleGatewayRequest: dispatch } = await import("./server-methods.js");
+            return await new Promise<unknown>((resolve, reject) => {
+              void dispatch({
+                req: {
+                  type: "req" as const,
+                  method: innerMethod,
+                  params: innerParams,
+                  id: `mas4s-internal-${Date.now()}`,
+                },
+                client: (innerClient ?? null) as GatewayWsClient | null,
+                isWebchatConnect: () => false,
+                respond: (ok, payload, error) => {
+                  if (ok) {
+                    resolve(payload);
+                    return;
+                  }
+                  reject(
+                    new Error(
+                      typeof error === "object" && error
+                        ? ((error as { message?: string }).message ?? JSON.stringify(error))
+                        : String(error),
+                    ),
+                  );
+                },
+                context: opts.context,
+                extraHandlers,
+              });
             });
-          }
-        }
-
-        if (event === "exec.approval.resolved") {
-          const resPayload = p as {
-            id?: string;
-            decision?: string;
-            resolvedBy?: string | null;
-            ts?: number;
-            request?: Record<string, unknown>;
-          };
-          const approvalSessionKey =
-            typeof resPayload.request?.["sessionKey"] === "string"
-              ? resPayload.request["sessionKey"]
-              : "";
-          if (approvalSessionKey && resPayload.id) {
-            plugin.transcriptStore.recordApprovalEvent({
-              sessionKey: approvalSessionKey,
-              type: "resolved",
-              payload: {
-                id: resPayload.id,
-                decision: resPayload.decision,
-                resolvedBy: resPayload.resolvedBy,
-                ts: resPayload.ts,
-              },
-              timestamp: resPayload.ts ?? Date.now(),
-            });
-          }
-        }
-      } catch (err) {
-        log.warn(`mas4s filterBroadcast capture failed for event=${event}: ${String(err)}`);
-      }
-      // ── Original filterBroadcast logic ───────────────────────────────────────
-      try {
-        // Build connectedUsers map: connId → MasAuthContext
-        const connectedUsers = new Map<
-          string,
-          import("../../aiemas/src/gateway-bridge/context.js").MasAuthContext
-        >();
-        for (const c of clients) {
-          const auth = contextMod.getMasAuth(c);
-          if (auth) {
-            connectedUsers.set(c.connId, auth);
-          }
-        }
-        if (connectedUsers.size === 0) {
-          return null;
-        }
-
-        const targetUserIds = plugin.bridge.filterBroadcastTargets(event, payload, connectedUsers);
-        if (targetUserIds === null) {
-          return null;
-        }
-
-        // Map userId set → connId set
-        const connIds = new Set<string>();
-        for (const [connId, auth] of connectedUsers.entries()) {
-          if (auth.userId !== null && targetUserIds.has(auth.userId)) {
-            connIds.add(connId);
-          }
-        }
-        if (event === "exec.approval.requested" || event === "exec.approval.resolved") {
-          log.info(
-            `filterBroadcast ${event}: targetUserIds=[${[...targetUserIds].join(",")}] connIds=[${[...connIds].join(",")}] totalClients=${clients.size}`,
-          );
-        }
-        return connIds;
-      } catch (err) {
-        log.warn(`mas4s filterBroadcast failed for event=${event}: ${String(err)}`);
-        return null;
-      }
-    };
-
-    const filterSessionsList: Mas4sIntegration["filterSessionsList"] = (sessions, client) => {
-      try {
-        const masAuth = client
-          ? (contextMod.getMasAuth(client) ?? contextMod.NULL_MAS_AUTH)
-          : contextMod.NULL_MAS_AUTH;
-        return plugin.bridge.filterSessionsForUser(sessions, masAuth);
-      } catch (err) {
-        log.warn(`mas4s filterSessionsList failed: ${String(err)}`);
-        return sessions;
-      }
-    };
-
-    const onClientDisconnected: Mas4sIntegration["onClientDisconnected"] = (client) => {
-      try {
-        const masAuth = contextMod.getMasAuth(client) ?? contextMod.NULL_MAS_AUTH;
-        log.info(
-          `mas4s onClientDisconnected conn=${client.connId} userId=${masAuth.userId ?? "null"}`,
-        );
-        if (masAuth.userId) {
-          plugin.bridge.logout(masAuth.userId);
-          // Broadcast offline status to same-tenant peers
-          if (masAuth.tenantId) {
-            plugin.bridge.pushUserPresence(
-              masAuth.userId,
-              masAuth.tenantId,
-              false,
-              buildConnectedUsers(),
-              (connId, event, data) => sendToConnId(connId, activeClients, event, data),
-            );
-          }
-        }
-      } catch (err) {
-        log.warn(`mas4s onClientDisconnected failed for conn=${client.connId}: ${String(err)}`);
-      }
-    };
-
-    // Wrap session.invite and session.removeMember to push real-time notifications.
-    const origInvite = extraHandlers["session.invite"];
-    if (origInvite) {
-      extraHandlers["session.invite"] = async (opts) => {
-        const targetUserId =
-          typeof opts.params["targetUserId"] === "string" ? opts.params["targetUserId"] : "";
-        const sessionKey =
-          typeof opts.params["sessionKey"] === "string" ? opts.params["sessionKey"] : "";
-        let inviteOk = false;
-        let invitePayload: unknown;
-
-        await origInvite({
-          ...opts,
-          respond: (ok, payload, error, meta) => {
-            inviteOk = ok;
-            invitePayload = payload;
-            opts.respond(ok, payload, error, meta);
           },
         });
-
-        if (inviteOk && targetUserId && sessionKey) {
-          try {
-            const connectedUsers = buildConnectedUsers();
-            const callerAuth = opts.client
-              ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
-              : contextMod.NULL_MAS_AUTH;
-            const member =
-              invitePayload && typeof invitePayload === "object"
-                ? ((invitePayload as Record<string, unknown>)["member"] as
-                    | Record<string, unknown>
-                    | undefined)
-                : undefined;
-
-            const sessionRow = loadGatewaySessionRow(sessionKey);
-            const sessionLabel = sessionRow?.displayName ?? sessionRow?.label ?? sessionKey;
-
-            plugin.bridge.pushSessionJoined(
-              targetUserId,
-              {
-                sessionKey,
-                label: sessionLabel,
-                invitedBy: callerAuth.userId ?? "",
-                joinedAt: member ? Number(member["joinedAt"] ?? Date.now()) : Date.now(),
-              },
-              connectedUsers,
-              (connId, event, data) => sendToConnId(connId, activeClients, event, data),
-            );
-          } catch (err) {
-            log.warn(`mas4s pushSessionJoined failed: ${String(err)}`);
-          }
-        }
       };
     }
-
-    const origRemoveMember = extraHandlers["session.removeMember"];
-    if (origRemoveMember) {
-      extraHandlers["session.removeMember"] = async (opts) => {
-        const targetUserId =
-          typeof opts.params["targetUserId"] === "string" ? opts.params["targetUserId"] : "";
-        const sessionKey =
-          typeof opts.params["sessionKey"] === "string" ? opts.params["sessionKey"] : "";
-        let removeOk = false;
-
-        await origRemoveMember({
-          ...opts,
-          respond: (ok, payload, error, meta) => {
-            removeOk = ok;
-            opts.respond(ok, payload, error, meta);
-          },
-        });
-
-        if (removeOk && targetUserId && sessionKey) {
-          try {
-            const connectedUsers = buildConnectedUsers();
-            const callerAuth = opts.client
-              ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
-              : contextMod.NULL_MAS_AUTH;
-            plugin.bridge.pushSessionRemoved(
-              targetUserId,
-              { sessionKey, removedBy: callerAuth.userId ?? "" },
-              connectedUsers,
-              (connId, event, data) => sendToConnId(connId, activeClients, event, data),
-            );
-          } catch (err) {
-            log.warn(`mas4s pushSessionRemoved failed: ${String(err)}`);
-          }
-        }
-      };
-    }
-
-    // Inject gatewayDispatch so plugin handlers can call core gateway methods (e.g. chat.history).
-    // The dispatch captures the adapted handler's context per-request via closure.
-    // We wrap archive/summary handlers below to provide the context.
-    let currentRequestContext:
-      | import("./server-methods/types.js").GatewayRequestContext
-      | undefined;
-    let currentRequestClient: GatewayWsClient | null = null;
+    log.info(`[mas4s] adapted extraHandlers keys: ${Object.keys(extraHandlers).join(", ")}`);
 
     plugin.gatewayDispatch = async (method, params, _client) => {
-      const { handleGatewayRequest: dispatch } = await import("./server-methods.js");
-      const context = currentRequestContext;
+      const { getPluginRuntimeGatewayRequestScope } =
+        await import("../plugins/runtime/gateway-request-scope.js");
+      const scope = getPluginRuntimeGatewayRequestScope();
+      const context = scope?.context;
       if (!context) {
         throw new Error("Gateway context not available for internal dispatch");
       }
+
+      const { handleGatewayRequest: dispatch } = await import("./server-methods.js");
       return new Promise<unknown>((resolve, reject) => {
         void dispatch({
           req: { type: "req" as const, method, params, id: `mas4s-internal-${Date.now()}` },
-          client: currentRequestClient,
-          isWebchatConnect: () => false,
+          client: scope.client as GatewayWsClient | null,
+          isWebchatConnect: scope.isWebchatConnect,
           respond: (ok, payload, error) => {
             if (ok) {
               resolve(payload);
@@ -720,371 +486,273 @@ export async function initMas4sIntegration(
             }
           },
           context,
-          // Pass extraHandlers so internal dispatches can reach mas4s-registered
-          // methods like session.history.range (not in coreGatewayHandlers).
           extraHandlers,
         });
       });
     };
 
-    // Wrap session.archive to push session.archived event to all members on success.
-    const origArchive = extraHandlers["session.archive"];
-    if (origArchive) {
-      extraHandlers["session.archive"] = async (opts) => {
-        const sessionKey =
-          typeof opts.params["sessionKey"] === "string" ? opts.params["sessionKey"] : "";
-        let archiveOk = false;
-        let archivePayload: Record<string, unknown> | undefined;
-
-        // Set request context so gatewayDispatch can call chat.history
-        currentRequestContext = opts.context;
-        currentRequestClient = opts.client as GatewayWsClient | null;
-        try {
-          await origArchive({
-            ...opts,
-            respond: (ok, payload, error, meta) => {
-              archiveOk = ok;
-              if (ok && payload && typeof payload === "object") {
-                archivePayload = payload as Record<string, unknown>;
-              }
-              opts.respond(ok, payload, error, meta);
-            },
+    // Initialize module contexts and register delegated handlers
+    const commonCtx = {
+      plugin,
+      getMasAuth: contextMod.getMasAuth as (
+        client: unknown,
+      ) => import("../../aiemas/src/gateway-bridge/context.js").MasAuthContext,
+      getActiveClients: () =>
+        activeClients as unknown as Set<
+          import("../../aiemas/src/gateway-bridge/aiemas-utils.js").GatewayClient
+        >,
+      extractUuid: extractUuidFromKey,
+      loadSessionRow: loadGatewaySessionRow,
+      log,
+    };
+    plugin.loadGatewaySessionRow = loadGatewaySessionRow;
+    const authCtx = {
+      ...commonCtx,
+      integrationMod: {
+        extractMasTokenFromUrl: (req: { url?: string }) =>
+          integrationMod.extractMasTokenFromUrl(
+            req as unknown as import("node:http").IncomingMessage,
+          ),
+      },
+      ADMIN_SCOPE,
+      READ_SCOPE,
+      WRITE_SCOPE,
+    };
+    const chatCtx = {
+      ...commonCtx,
+      sopTracker: {
+        recordChatEvent: (params: {
+          sessionKey: string;
+          event: string;
+          payload: unknown;
+          ts: number;
+        }) => {
+          if (params.event === "assistant-final") {
+            const p = params.payload as { text: string; runId?: string };
+            plugin.transcriptStore.recordAssistantFinal({
+              sessionKey: params.sessionKey,
+              runId: p.runId || `final-${Date.now()}`,
+              text: p.text || "",
+              timestamp: params.ts,
+            });
+          } else if (params.event === "sop:state" || params.event === "skill:progress") {
+            plugin.transcriptStore.recordProgressEvent({
+              sessionKey: params.sessionKey,
+              type: params.event,
+              payload: params.payload,
+              timestamp: params.ts,
+            });
+          }
+        },
+      },
+      broadcastToAll,
+    };
+    const agentCtx = {
+      plugin,
+      db: plugin.db,
+      cacheService: plugin.tenantService.cacheService,
+      setCurrentRequestContext: (ctx: unknown, cli: unknown) => {
+        _currentRequestContext = ctx as
+          | import("./server-methods/types.js").GatewayRequestContext
+          | undefined;
+        _currentRequestClient = cli as GatewayWsClient | null;
+      },
+      clearRequestContext: () => {
+        _currentRequestContext = undefined;
+        _currentRequestClient = null;
+      },
+      getCallGateway: () => {
+        if (!plugin.gatewayDispatch) {
+          return null;
+        }
+        const dispatch = plugin.gatewayDispatch;
+        return (method: string, callParams: Record<string, unknown>) =>
+          dispatch(method, callParams, null);
+      },
+      broadcastEvent: broadcastToAll,
+      sessionCallbacks: {
+        recordSessionCreated: (sessionKey: string, uid: string, tid: string) => {
+          plugin.bridge.onSessionCreated(sessionKey, "", {
+            userId: uid,
+            tenantId: tid,
+            masRole: null,
           });
-        } finally {
-          currentRequestContext = undefined;
-          currentRequestClient = null;
-        }
+        },
+        deleteSessionRecords: (sessionKey: string) => {
+          plugin.bridge.onSessionDeleted(sessionKey);
+        },
+      },
+    };
 
-        if (archiveOk && sessionKey && archivePayload) {
-          try {
-            const connectedUsers = buildConnectedUsers();
-            const callerAuth = opts.client
-              ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
-              : contextMod.NULL_MAS_AUTH;
-            plugin.bridge.pushSessionArchived(
-              sessionKey,
-              {
-                sessionKey,
-                archivedAt: Number(archivePayload["archivedAt"] ?? Date.now()),
-                archivedBy: callerAuth.userId ?? "",
-              },
-              connectedUsers,
-              (connId, event, data) => sendToConnId(connId, activeClients, event, data),
-            );
-          } catch (err) {
-            log.warn(`mas4s pushSessionArchived failed: ${String(err)}`);
-          }
-        }
-      };
-    }
-
-    // Wrap session.unarchive to push session.unarchived event to all members on success.
-    const origUnarchive = extraHandlers["session.unarchive"];
-    if (origUnarchive) {
-      extraHandlers["session.unarchive"] = async (opts) => {
-        const sessionKey =
-          typeof opts.params["sessionKey"] === "string" ? opts.params["sessionKey"] : "";
-        let unarchiveOk = false;
-
-        await origUnarchive({
-          ...opts,
-          respond: (ok, payload, error, meta) => {
-            unarchiveOk = ok;
-            opts.respond(ok, payload, error, meta);
-          },
-        });
-
-        if (unarchiveOk && sessionKey) {
-          try {
-            const connectedUsers = buildConnectedUsers();
-            const callerAuth = opts.client
-              ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
-              : contextMod.NULL_MAS_AUTH;
-            plugin.bridge.pushSessionUnarchived(
-              sessionKey,
-              { sessionKey, unarchivedBy: callerAuth.userId ?? "" },
-              connectedUsers,
-              (connId, event, data) => sendToConnId(connId, activeClients, event, data),
-            );
-          } catch (err) {
-            log.warn(`mas4s pushSessionUnarchived failed: ${String(err)}`);
-          }
-        }
-      };
-    }
-
-    // Wrap session.summary.generate to push session.summary.updated when persisted (archived session).
-    const origSummaryGenerate = extraHandlers["session.summary.generate"];
-    if (origSummaryGenerate) {
-      extraHandlers["session.summary.generate"] = async (opts) => {
-        const sessionKey =
-          typeof opts.params["sessionKey"] === "string" ? opts.params["sessionKey"] : "";
-        let generateOk = false;
-        let generatePayload: Record<string, unknown> | undefined;
-
-        // Set request context so gatewayDispatch can call chat.history
-        currentRequestContext = opts.context;
-        currentRequestClient = opts.client as GatewayWsClient | null;
-        try {
-          await origSummaryGenerate({
-            ...opts,
-            respond: (ok, payload, error, meta) => {
-              generateOk = ok;
-              if (ok && payload && typeof payload === "object") {
-                generatePayload = payload as Record<string, unknown>;
-              }
-              opts.respond(ok, payload, error, meta);
-            },
-          });
-        } finally {
-          currentRequestContext = undefined;
-          currentRequestClient = null;
-        }
-
-        if (generateOk && sessionKey && generatePayload?.["persisted"] === true) {
-          try {
-            const connectedUsers = buildConnectedUsers();
-            plugin.bridge.pushSummaryUpdated(
-              sessionKey,
-              {
-                sessionKey,
-                generatedAt: Number(generatePayload["generatedAt"] ?? Date.now()),
-              },
-              connectedUsers,
-              (connId: string, event: string, data: unknown) =>
-                sendToConnId(connId, activeClients, event, data),
-            );
-          } catch (err) {
-            log.warn(`mas4s pushSummaryUpdated failed: ${String(err)}`);
-          }
-        }
-      };
-    }
-
-    // Wrap sessions.delete to clean up summary records when a session is deleted.
-    const coreSessionsDelete = sessionsHandlers["sessions.delete"];
-    if (coreSessionsDelete) {
-      extraHandlers["sessions.delete"] = async (opts) => {
-        const sessionKey = typeof opts.params["key"] === "string" ? opts.params["key"] : "";
-        let deleteOk = false;
-
-        await coreSessionsDelete({
-          ...opts,
-          respond: (ok, payload, error, meta) => {
-            deleteOk = ok;
-            opts.respond(ok, payload, error, meta);
-          },
-        });
-
-        if (deleteOk && sessionKey) {
-          try {
-            plugin.bridge.onSessionDeleted(sessionKey);
-          } catch (err) {
-            log.warn(`mas4s onSessionDeleted failed for session=${sessionKey}: ${String(err)}`);
-          }
-        }
-      };
-    }
-
-    // Wrap chat.send to broadcast user input to other session members.
-    // The core handler does not broadcast 'user' messages via the 'chat' event,
-    // only via 'session.message' (transcript updates), which doesn't include
-    // sender display names. We add a custom broadcast here to sustain real-time
-    // collaboration for aiemas users.
-    const coreChatSend = chatHandlers["chat.send"];
-    if (coreChatSend) {
-      extraHandlers["chat.send"] = async (opts) => {
-        const masAuth = opts.client
-          ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
-          : contextMod.NULL_MAS_AUTH;
-        const sessionKey =
-          typeof opts.params["sessionKey"] === "string" ? opts.params["sessionKey"] : "";
-        const message = typeof opts.params["message"] === "string" ? opts.params["message"] : "";
-        const clientRunId =
-          typeof opts.params["clientRunId"] === "string" ? opts.params["clientRunId"] : undefined;
-
-        // Record sender context for message capture before core handler runs
-        if (sessionKey) {
-          const sessionRow = loadGatewaySessionRow(sessionKey);
-          const sessionId = sessionRow?.sessionId ?? sessionKey;
-          plugin.transcriptStore.recordSenderContext(sessionKey, sessionId, {
-            userId: masAuth.userId ?? null,
-            tenantId: masAuth.tenantId ?? null,
-          });
-        }
-
-        // Run core handler first (manages idempotency, persistence, agent run)
-        await coreChatSend(opts);
-
-        // Broadcast the user's message to other members in the session.
-        // We include runId and senderUserId so the receiving frontend can deduplicate
-        // and filterBroadcastTargets can exclude the sender.
-        if (masAuth.userId && sessionKey && message) {
-          try {
-            opts.context.broadcast(
-              "chat",
-              {
-                sessionKey,
-                runId: clientRunId,
-                state: "user",
-                senderUserId: masAuth.userId,
-                message: {
-                  role: "user",
-                  content: message,
-                  timestamp: Date.now(),
-                  senderLabel: masAuth.displayName || "User",
-                },
-              },
-              { dropIfSlow: true },
-            );
-          } catch (err) {
-            log.warn(`mas4s user message broadcast failed: ${String(err)}`);
-          }
-        }
-      };
-    }
-
-    // Wrap auth.login to broadcast user.presence online after successful login.
-    // Note: onClientConnected fires before login (masToken not yet in URL at WS upgrade),
-    // so we must broadcast here when we know the userId and tenantId from the login result.
-    const origAuthLogin = extraHandlers["auth.login"];
-    if (origAuthLogin) {
-      extraHandlers["auth.login"] = async (opts) => {
-        let loginOk = false;
-        let loginUserId: string | undefined;
-        let loginTenantId: string | undefined;
-
-        await origAuthLogin({
-          ...opts,
-          respond: (ok, payload, error, meta) => {
-            loginOk = ok;
-            if (ok && payload && typeof payload === "object") {
-              const p = payload as Record<string, unknown>;
-              // login response shape: { ok, token, user: { userId, tenantId, ... } }
-              const user = p["user"] as Record<string, unknown> | undefined;
-              loginUserId = typeof user?.["userId"] === "string" ? user["userId"] : undefined;
-              loginTenantId = typeof user?.["tenantId"] === "string" ? user["tenantId"] : undefined;
-            }
-            opts.respond(ok, payload, error, meta);
-          },
-        });
-
-        if (loginOk && loginUserId && loginTenantId) {
-          try {
-            plugin.bridge.pushUserPresence(
-              loginUserId,
-              loginTenantId,
-              true,
-              buildConnectedUsers(),
-              (connId, event, data) => sendToConnId(connId, activeClients, event, data),
-            );
-          } catch (err) {
-            log.warn(`mas4s pushUserPresence (login) failed: ${String(err)}`);
-          }
-        }
-      };
-    }
-
-    // Wrap user.logout to broadcast user.presence offline before the user disconnects.
-    const origUserLogout = extraHandlers["user.logout"];
-    if (origUserLogout) {
-      extraHandlers["user.logout"] = async (opts) => {
-        const masAuth = opts.client
-          ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
-          : contextMod.NULL_MAS_AUTH;
-        const logoutUserId = masAuth.userId;
-        const logoutTenantId = masAuth.tenantId;
-
-        await origUserLogout(opts);
-
-        if (logoutUserId && logoutTenantId) {
-          try {
-            plugin.bridge.pushUserPresence(
-              logoutUserId,
-              logoutTenantId,
-              false,
-              buildConnectedUsers(),
-              (connId, event, data) => sendToConnId(connId, activeClients, event, data),
-            );
-          } catch (err) {
-            log.warn(`mas4s pushUserPresence (logout) failed: ${String(err)}`);
-          }
-        }
-      };
-    }
-
-    // Wrap sessions.resolve to enforce membership check after key resolution.
-    // sessions.resolve params can carry sessionId/label/spawnedBy instead of key,
-    // so _extractSessionKey returns undefined and the pre-request interceptor cannot
-    // check membership before the handler runs. We override it as an extraHandler
-    // (which takes priority over coreGatewayHandlers) and validate the resolved key
-    // against session_memberships before returning it to the caller.
-    const coreSessionsResolve = sessionsHandlers["sessions.resolve"];
-    if (coreSessionsResolve) {
-      extraHandlers["sessions.resolve"] = async (opts) => {
-        const masAuth = opts.client
-          ? (contextMod.getMasAuth(opts.client) ?? contextMod.NULL_MAS_AUTH)
-          : contextMod.NULL_MAS_AUTH;
-
-        // Compat mode: no userId, skip membership check
-        if (masAuth.userId === null) {
-          await coreSessionsResolve(opts);
-          return;
-        }
-
-        let resolvedKey: string | undefined;
-        let resolveOk = false;
-
-        // Run the core handler, capturing the resolved key from the response
-        await coreSessionsResolve({
-          ...opts,
-          respond: (ok, payload, error, meta) => {
-            if (ok && payload && typeof payload === "object") {
-              const key = (payload as Record<string, unknown>)["key"];
-              if (typeof key === "string") {
-                resolvedKey = key;
-                resolveOk = true;
-              }
-            }
-            if (!ok) {
-              // Pass through errors (session not found etc.) unchanged
-              opts.respond(ok, payload, error, meta);
-            }
-          },
-        });
-
-        if (!resolveOk || !resolvedKey) {
-          // Core handler already responded with an error above
-          return;
-        }
-
-        // Now check membership for the resolved key
-        const accessResult = plugin.bridge.checkSessionAccess(resolvedKey, masAuth);
-        if (!accessResult.allowed) {
-          opts.respond(false, undefined, {
-            code: accessResult.code,
-            message: accessResult.message,
-          });
-          return;
-        }
-
-        opts.respond(true, { ok: true, key: resolvedKey }, undefined);
-      };
-    }
+    sessionMod.registerSessionHandlers(
+      extraHandlers,
+      sessionsHandlers,
+      commonCtx as unknown as import("../../aiemas/src/gateway-bridge/aiemas-utils.js").CommonContext,
+    );
+    chatMod.registerChatHandlers(
+      extraHandlers,
+      chatHandlers,
+      chatCtx as unknown as import("../../aiemas/src/gateway-bridge/aiemas-chat.js").ChatContext,
+    );
+    authMod.registerAuthHandlers(
+      extraHandlers,
+      authCtx as unknown as import("../../aiemas/src/gateway-bridge/aiemas-auth.js").AuthContext,
+    );
+    agentMod.registerAgentHandlers(
+      extraHandlers,
+      agentCtx as unknown as import("../../aiemas/src/gateway-bridge/aiemas-agent.js").AgentContext,
+    );
+    log.info(`[mas4s] final extraHandlers keys: ${Object.keys(extraHandlers).join(", ")}`);
 
     return {
       extraHandlers,
-      onClientConnected,
-      onClientDisconnected,
-      onSessionCreated,
-      interceptRequest,
-      filterBroadcast,
-      filterSessionsList,
-      /** Internal: allows server.impl.ts to keep the clients reference up to date */
+      onClientConnected: (client, upgradeReq) =>
+        authMod.onClientConnected(
+          client as unknown as import("../../aiemas/src/gateway-bridge/aiemas-utils.js").GatewayClient,
+          upgradeReq,
+          authCtx as unknown as import("../../aiemas/src/gateway-bridge/aiemas-auth.js").AuthContext,
+        ),
+      onClientDisconnected: (client) =>
+        authMod.onClientDisconnected(
+          client as unknown as import("../../aiemas/src/gateway-bridge/aiemas-utils.js").GatewayClient,
+          authCtx as unknown as import("../../aiemas/src/gateway-bridge/aiemas-auth.js").AuthContext,
+        ),
+      onSessionCreated: (sessionKey, label, client) =>
+        sessionMod.onSessionCreated(
+          sessionKey,
+          label,
+          client as unknown as import("../../aiemas/src/gateway-bridge/aiemas-utils.js").GatewayClient,
+          commonCtx as unknown as import("../../aiemas/src/gateway-bridge/aiemas-utils.js").CommonContext,
+        ),
+      interceptRequest: (method, params, client) => {
+        const masAuth = client
+          ? (contextMod.getMasAuth(
+              client as unknown as import("../../aiemas/src/gateway-bridge/aiemas-utils.js").GatewayClient,
+            ) ?? contextMod.NULL_MAS_AUTH)
+          : contextMod.NULL_MAS_AUTH;
+        const result = plugin.bridge.interceptMethod(method, params, masAuth);
+        if (result.allowed && method === "exec.approval.resolve" && execApprovalManager) {
+          try {
+            const id = typeof params["id"] === "string" ? params["id"] : "";
+            const decision = typeof params["decision"] === "string" ? params["decision"] : "";
+            if (id && decision) {
+              const snapshot = execApprovalManager.getSnapshot(id);
+              const sessionKey =
+                typeof snapshot?.request?.sessionKey === "string"
+                  ? snapshot.request.sessionKey
+                  : "";
+              if (sessionKey) {
+                const displayName =
+                  masAuth.displayName ||
+                  (client as unknown as GatewayWsClient).connect?.client?.displayName ||
+                  null;
+                plugin.transcriptStore.recordApprovalEvent({
+                  sessionKey,
+                  type: "user-resolve",
+                  payload: { id, decision, resolvedBy: displayName, ts: Date.now() },
+                  timestamp: Date.now(),
+                });
+              }
+            }
+          } catch (err) {
+            log.warn(`mas4s interceptRequest: approval capture failed: ${String(err)}`);
+          }
+        }
+        return result;
+      },
+      filterBroadcast: (event, payload, clients) =>
+        chatMod.filterBroadcast(
+          event,
+          payload,
+          Array.from(
+            clients,
+          ) as unknown as import("../../aiemas/src/gateway-bridge/aiemas-utils.js").GatewayClient[],
+          chatCtx as unknown as import("../../aiemas/src/gateway-bridge/aiemas-chat.js").ChatContext,
+        ),
+      filterSessionsList: (sessions, client) =>
+        sessionMod.filterSessionsList(
+          sessions,
+          client as unknown as import("../../aiemas/src/gateway-bridge/aiemas-utils.js").GatewayClient,
+          commonCtx as unknown as import("../../aiemas/src/gateway-bridge/aiemas-utils.js").CommonContext,
+        ),
       _setActiveClients: setActiveClients,
-      /** Internal: inject ExecApprovalManager so interceptRequest can record user resolve requests */
       _setExecApprovalManager: (manager) => {
         execApprovalManager = manager;
+      },
+      resolveAutoScopes: () => null,
+      resolveAgentTools: (context) => {
+        try {
+          const tools: AnyAgentTool[] = [];
+          const callSessionsSend = async (params: {
+            sessionKey: string;
+            message: string;
+            timeoutSeconds?: number;
+          }) => {
+            // Disable A2A ping-pong for AIEMAS inter-agent calls.
+            // When a child agent's exec tool triggers an approval prompt, the
+            // agent run ends normally (status "ok") with the prompt as its reply.
+            // The default ping-pong (maxPingPongTurns=5) would forward that reply
+            // back and forth between orchestrator and child, causing the child to
+            // re-execute the same command and trigger a duplicate approval request.
+            // AIEMAS orchestration handles multi-turn coordination itself via
+            // explicit aiemas_sessions_send calls, so ping-pong is unnecessary.
+            const noPingPongConfig = {
+              ...context.config,
+              session: {
+                ...context.config?.session,
+                agentToAgent: {
+                  ...context.config?.session?.agentToAgent,
+                  maxPingPongTurns: 0,
+                },
+              },
+            };
+            const sendTool = createSessionsSendTool({
+              agentSessionKey: context.agentSessionKey,
+              agentChannel: context.agentChannel,
+              config: noPingPongConfig,
+              callGateway,
+            });
+            const res = await sendTool.execute("aiemas-internal", {
+              sessionKey: params.sessionKey,
+              message: params.message,
+              timeoutSeconds: params.timeoutSeconds ?? 30,
+            });
+            return res.details;
+          };
+          tools.push(
+            createAiemasSessionsSendTool(
+              {
+                db: plugin.db,
+                callSessionsSend,
+                transcriptStore: plugin.transcriptStore,
+                broadcastChatEvent: (params) => {
+                  // Broadcast A2A input message via the agent event bus so the
+                  // UI's handleAgentEvent (stream="prompt") can render it in the
+                  // sub-agent drawer in real-time.
+                  try {
+                    emitAgentEvent({
+                      runId: params.runId,
+                      sessionKey: params.sessionKey,
+                      stream: "agent",
+                      data: {
+                        role: params.message.role,
+                        text: params.message,
+                        senderLabel: params.message.senderLabel,
+                      },
+                    });
+                  } catch (err) {
+                    log.warn(`[mas4s] broadcastChatEvent failed: ${String(err)}`);
+                  }
+                },
+              },
+              { agentSessionKey: context.agentSessionKey },
+            ),
+          );
+          return tools;
+        } catch (err) {
+          log.warn(`[mas4s] resolveAgentTools failed: ${String(err)}`);
+          return [];
+        }
       },
     };
   } catch (err) {

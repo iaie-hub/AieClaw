@@ -1,6 +1,8 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { MasSession } from "../types/session-types.js";
+import "./session-name-dialog.js";
+import "./session-create-control.js";
 
 /**
  * 会话列表侧边栏（280px 宽）。
@@ -9,31 +11,35 @@ import type { MasSession } from "../types/session-types.js";
 @customElement("session-sidebar")
 export class SessionSidebar extends LitElement {
   @property({ attribute: false }) sessions: MasSession[] = [];
+  @property({ attribute: false }) agents: import("../store/app-store.js").AgentInfo[] = [];
   @property({ type: String }) activeSessionKey: string | null = null;
 
   @state() private _nameDialog: {
     mode: "create" | "rename";
     sessionKey?: string;
     value: string;
+    agentId?: string;
     reasoningLevel: "stream" | "on" | "off";
   } | null = null;
 
   @state() private _deleteConfirm: { sessionKey: string; label: string } | null = null;
 
   @state() private _refreshing = false;
+  @state() private _recentExpanded = true;
   @state() private _initiatedExpanded = true;
-  @state() private _participatedExpanded = true;
+  @state() private _participatedExpanded = false;
   @state() private _sidebarCollapsed = false;
 
   static styles = css`
+    /* ── Host ── */
     :host {
       display: flex;
       flex-direction: column;
       width: 280px;
       min-width: 280px;
       height: 100vh;
-      background: #f8fafc;
-      border-right: 1px solid #e2e8f0;
+      background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+      border-right: 1px solid rgba(226, 232, 240, 0.7);
       flex-shrink: 0;
       box-sizing: border-box;
       transition:
@@ -41,26 +47,36 @@ export class SessionSidebar extends LitElement {
         min-width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       overflow: hidden;
       position: relative;
+      font-family: "DM Sans", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
     }
 
     :host([collapsed]) {
-      width: 48px;
-      min-width: 48px;
+      width: 40px;
+      min-width: 40px;
     }
 
+    /* ── Sidebar Header ── */
     .sidebar-header {
       height: 70px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 16px;
-      font-weight: 600;
-      font-size: 16px;
-      border-bottom: 1px solid #e2e8f0;
-      color: #1e293b;
+      padding: 0 18px;
+      border-bottom: 1px solid rgba(226, 232, 240, 0.6);
       flex-shrink: 0;
       transition: padding 0.3s;
       overflow: hidden;
+      position: relative;
+    }
+
+    .sidebar-header::after {
+      content: "";
+      position: absolute;
+      bottom: -1px;
+      left: 18px;
+      right: 18px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.15), transparent);
     }
 
     :host([collapsed]) .sidebar-header {
@@ -68,14 +84,36 @@ export class SessionSidebar extends LitElement {
       justify-content: center;
     }
 
-    .sidebar-header span {
+    .sidebar-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       white-space: nowrap;
       transition:
         opacity 0.2s,
         width 0.2s;
     }
 
-    :host([collapsed]) .sidebar-header span {
+    .sidebar-title-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      background: #eff6ff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: #2563eb;
+    }
+
+    .sidebar-title-text {
+      font-weight: 700;
+      font-size: 15px;
+      color: #1e293b;
+      letter-spacing: -0.01em;
+    }
+
+    :host([collapsed]) .sidebar-title {
       opacity: 0;
       width: 0;
       pointer-events: none;
@@ -89,38 +127,38 @@ export class SessionSidebar extends LitElement {
     }
 
     :host([collapsed]) .header-actions {
-      /* 仅保留折叠按钮并在容器中居中 */
       gap: 0;
     }
 
     :host([collapsed]) .refresh-btn,
-    :host([collapsed]) .add-btn {
+    :host([collapsed]) session-create-control {
       display: none;
     }
 
+    /* ── Refresh Button ── */
     .refresh-btn {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
-      border: none;
-      color: white;
+      width: 30px;
+      height: 30px;
+      border-radius: 9px;
+      background: transparent;
+      border: 1px solid #e2e8f0;
+      color: #94a3b8;
       font-size: 14px;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 2px 6px rgba(16, 185, 129, 0.35);
-      transition: all 0.2s;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .refresh-btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 10px rgba(16, 185, 129, 0.45);
+      background: #f8fafc;
+      border-color: #cbd5e1;
+      color: #64748b;
     }
 
     .refresh-btn:disabled {
-      opacity: 0.7;
+      opacity: 0.5;
       cursor: not-allowed;
       transform: none;
     }
@@ -135,35 +173,14 @@ export class SessionSidebar extends LitElement {
       }
     }
 
-    .add-btn {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
-      border: none;
-      color: white;
-      font-size: 18px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-      box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
-      transition: all 0.2s;
-    }
-
-    .add-btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 10px rgba(59, 130, 246, 0.4);
-    }
-
+    /* ── Toggle Sidebar Button ── */
     .toggle-sidebar-btn {
-      width: 28px;
-      height: 28px;
-      border-radius: 6px;
+      width: 30px;
+      height: 30px;
+      border-radius: 9px;
       background: transparent;
-      border: none;
-      color: #64748b;
+      border: 1px solid transparent;
+      color: #94a3b8;
       cursor: pointer;
       display: flex;
       align-items: center;
@@ -172,8 +189,9 @@ export class SessionSidebar extends LitElement {
     }
 
     .toggle-sidebar-btn:hover {
-      background: #f1f5f9;
-      color: #1e293b;
+      background: rgba(100, 116, 139, 0.08);
+      border-color: rgba(100, 116, 139, 0.12);
+      color: #475569;
     }
 
     :host([collapsed]) .toggle-sidebar-btn {
@@ -182,10 +200,11 @@ export class SessionSidebar extends LitElement {
       border-radius: 10px;
     }
 
+    /* ── Session List Container ── */
     .session-list {
       flex: 1;
       overflow-y: auto;
-      padding: 8px 0;
+      padding: 6px 0 12px;
       transition: opacity 0.2s;
     }
 
@@ -194,134 +213,224 @@ export class SessionSidebar extends LitElement {
       pointer-events: none;
     }
 
+    /* ── Group Header ── */
     .group-header {
-      padding: 6px 12px 6px 14px;
-      margin: 4px 8px 2px;
+      padding: 8px 6px 8px 16px;
+      margin: 6px 10px 4px;
       font-size: 13px;
-      font-weight: 600;
-      color: #94a3b8;
-      letter-spacing: 0.2px;
+      font-weight: 700;
+      color: #475569;
+      letter-spacing: 0.02em;
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
       cursor: pointer;
       user-select: none;
-      border-radius: 6px;
-      transition:
-        background 0.15s,
-        color 0.15s;
+      border-radius: 8px;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .group-header:hover {
-      background: #f1f5f9;
-      color: #64748b;
+      background: rgba(100, 116, 139, 0.06);
+      color: #334155;
     }
 
     .group-header-arrow {
-      width: 12px;
-      height: 12px;
+      width: 14px;
+      height: 14px;
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: transform 0.2s;
+      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       flex-shrink: 0;
+      opacity: 0.6;
     }
 
     .group-header-arrow.collapsed {
       transform: rotate(-90deg);
     }
 
-    /* 分组内容区：左侧竖线轨道 */
+    .group-header-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .group-header-icon.initiated {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+
+    .group-header-icon.participated {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+
+    .group-header-icon.recent {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+
+    .group-count {
+      margin-left: auto;
+      font-size: 10px;
+      font-weight: 600;
+      color: #cbd5e1;
+      background: rgba(203, 213, 225, 0.2);
+      padding: 1px 6px;
+      border-radius: 10px;
+      min-width: 18px;
+      text-align: center;
+    }
+
+    /* ── Group Items Container ── */
     .group-items {
       position: relative;
       padding-left: 0;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
+      animation: groupReveal 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    @keyframes groupReveal {
+      from {
+        opacity: 0;
+        transform: translateY(-4px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
     .group-items::before {
       content: "";
       position: absolute;
-      left: 26px;
-      top: 2px;
-      bottom: 2px;
+      left: 28px;
+      top: 4px;
+      bottom: 4px;
       width: 1.5px;
-      background: #e2e8f0;
+      background: linear-gradient(180deg, #e2e8f0 0%, transparent 100%);
       border-radius: 1px;
     }
 
+    .group-divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent 10%, #e2e8f0 50%, transparent 90%);
+      margin: 8px 20px;
+    }
+
+    /* ── Session Item ── */
     .session-item {
-      height: 34px;
+      min-height: 34px;
       display: flex;
       align-items: center;
-      padding: 0 8px 0 48px;
+      padding: 4px 10px 4px 48px;
       cursor: pointer;
-      border-radius: 7px;
+      border-radius: 10px;
       margin: 1px 8px;
-      transition: all 0.15s;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
       font-size: 13px;
       color: #64748b;
-      border: none;
-      background: none;
+      border: 1px solid transparent;
+      background: transparent;
       width: calc(100% - 16px);
       text-align: left;
       box-sizing: border-box;
+      position: relative;
     }
 
     .session-item:hover {
-      background: white;
-      color: #1e293b;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+      background: rgba(255, 255, 255, 0.85);
+      color: #334155;
+      border-color: rgba(226, 232, 240, 0.6);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+      transform: translateX(2px);
     }
 
     .session-item.active {
-      background: white;
-      color: #3b82f6;
+      background: #f8fafc;
+      color: #1e293b;
       font-weight: 600;
-      box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
-      border-left: 3px solid #3b82f6;
-      padding-left: 45px;
+      border-color: #e2e8f0;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+      transform: translateX(2px);
+    }
+
+    .session-item.active::before {
+      content: "";
+      position: absolute;
+      left: -1px;
+      top: 8px;
+      bottom: 8px;
+      width: 3px;
+      border-radius: 0 3px 3px 0;
+      background: #2563eb;
     }
 
     .session-item.archived {
-      color: #94a3b8;
-      font-style: italic;
+      opacity: 0.55;
     }
 
+    .session-item.archived:hover {
+      opacity: 0.75;
+    }
+
+    /* ── Session Item Body ── */
     .session-item-body {
       flex: 1;
       display: flex;
       flex-direction: row;
       align-items: center;
+      justify-content: flex-start;
       overflow: hidden;
       gap: 6px;
-      /* 作为 actions 的定位容器 */
       position: relative;
     }
 
     .session-label {
       flex: 1;
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       font-size: 13px;
-      line-height: 1.3;
+      line-height: 1.4;
+      letter-spacing: -0.005em;
+    }
+
+    .session-item.active .session-label {
+      background: linear-gradient(135deg, #1e293b, #334155);
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+
+    .archived-icon {
+      display: inline-flex;
+      align-items: center;
+      margin-right: 4px;
+      opacity: 0.6;
     }
 
     .session-time {
-      font-size: 11px;
-      color: #94a3b8;
+      font-size: 10px;
+      color: #b0bec5;
       font-variant-numeric: tabular-nums;
-      letter-spacing: 0.1px;
+      letter-spacing: 0.02em;
       white-space: nowrap;
       flex-shrink: 0;
-      /* 为 actions 悬浮留出空间 */
-      margin-right: 2px;
+      line-height: 1.2;
+      font-family: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
     }
 
     .session-item.active .session-time {
       color: #93c5fd;
     }
 
+    /* ── Notification Badges ── */
     .badge-dot {
       width: 8px;
       height: 8px;
@@ -329,35 +438,51 @@ export class SessionSidebar extends LitElement {
       background: #ef4444;
       flex-shrink: 0;
       margin-left: auto;
+      box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+      animation: badgePulse 2s ease-in-out infinite;
+    }
+
+    @keyframes badgePulse {
+      0%,
+      100% {
+        box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+      }
+      50% {
+        box-shadow: 0 0 0 5px rgba(239, 68, 68, 0.08);
+      }
     }
 
     .badge-count {
-      background: #3b82f6;
+      background: #1e293b;
       color: white;
       border-radius: 10px;
-      padding: 1px 6px;
-      font-size: 11px;
-      font-weight: 600;
+      padding: 1px 7px;
+      font-size: 10px;
+      font-weight: 700;
       flex-shrink: 0;
       margin-left: auto;
+      letter-spacing: 0.02em;
     }
 
+    /* ── Item Actions (hover overlay) ── */
     .item-actions {
-      /* 绝对定位，悬浮在日期位置上 */
       position: absolute;
       right: 0;
       top: 50%;
       transform: translateY(-50%);
       display: flex;
       align-items: center;
-      gap: 2px;
+      gap: 1px;
       opacity: 0;
       pointer-events: none;
-      transition: opacity 0.15s;
-      background: white;
-      border-radius: 6px;
-      padding: 2px 2px;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+      transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border-radius: 8px;
+      padding: 3px 4px;
+      border: 1px solid rgba(226, 232, 240, 0.5);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
     }
 
     .session-item:hover .item-actions {
@@ -372,12 +497,10 @@ export class SessionSidebar extends LitElement {
       border: none;
       cursor: pointer;
       color: #94a3b8;
-      padding: 3px 4px;
-      border-radius: 4px;
+      padding: 4px 5px;
+      border-radius: 6px;
       flex-shrink: 0;
-      transition:
-        color 0.15s,
-        background 0.15s;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
       line-height: 1;
       position: relative;
       display: flex;
@@ -386,17 +509,17 @@ export class SessionSidebar extends LitElement {
 
     .rename-btn:hover {
       color: #3b82f6;
-      background: #eff6ff;
+      background: rgba(59, 130, 246, 0.1);
     }
 
     .delete-btn:hover {
       color: #ef4444;
-      background: #fef2f2;
+      background: rgba(239, 68, 68, 0.08);
     }
 
     .refresh-item-btn:hover {
       color: #10b981;
-      background: #ecfdf5;
+      background: rgba(16, 185, 129, 0.1);
     }
 
     /* CSS tooltip */
@@ -405,31 +528,60 @@ export class SessionSidebar extends LitElement {
     .refresh-item-btn::after {
       content: attr(data-tip);
       position: absolute;
-      bottom: calc(100% + 6px);
+      bottom: calc(100% + 8px);
       left: 50%;
-      transform: translateX(-50%);
+      transform: translateX(-50%) scale(0.95);
       background: #1e293b;
-      color: #fff;
+      color: #f1f5f9;
       font-size: 11px;
+      font-weight: 500;
       white-space: nowrap;
-      padding: 3px 7px;
-      border-radius: 5px;
+      padding: 4px 10px;
+      border-radius: 7px;
       pointer-events: none;
       opacity: 0;
-      transition: opacity 0.15s;
+      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
       z-index: 100;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }
 
     .rename-btn:hover::after,
-    .delete-btn:hover::after {
+    .delete-btn:hover::after,
+    .refresh-item-btn:hover::after {
       opacity: 1;
+      transform: translateX(-50%) scale(1);
     }
 
-    /* 删除确认对话框 */
+    /* ── Empty State ── */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 16px 16px;
+      color: #cbd5e1;
+      font-size: 12px;
+      gap: 6px;
+    }
+
+    .empty-state-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: rgba(203, 213, 225, 0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #cbd5e1;
+    }
+
+    /* ── Delete Confirm Dialog ── */
     .confirm-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.25);
+      background: rgba(15, 23, 42, 0.4);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -437,194 +589,91 @@ export class SessionSidebar extends LitElement {
     }
 
     .confirm-dialog {
-      background: white;
+      background: #ffffff;
+      border-radius: 16px;
+      padding: 28px;
+      width: 340px;
+      box-shadow:
+        0 20px 60px rgba(0, 0, 0, 0.15),
+        0 0 0 1px rgba(0, 0, 0, 0.05);
+      animation: dialogAppear 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @keyframes dialogAppear {
+      from {
+        opacity: 0;
+        transform: scale(0.92) translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+    }
+
+    .confirm-dialog-icon {
+      width: 44px;
+      height: 44px;
       border-radius: 12px;
-      padding: 20px 24px;
-      width: 320px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+      background: rgba(239, 68, 68, 0.08);
       display: flex;
-      flex-direction: column;
-      gap: 12px;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+      color: #ef4444;
     }
 
     .confirm-dialog h3 {
-      margin: 0;
-      font-size: 15px;
-      font-weight: 600;
+      margin: 0 0 10px;
+      font-size: 17px;
+      font-weight: 700;
       color: #1e293b;
+      letter-spacing: -0.01em;
     }
 
     .confirm-dialog p {
-      margin: 0;
-      font-size: 13px;
+      margin: 0 0 24px;
+      font-size: 14px;
       color: #64748b;
-      line-height: 1.5;
+      line-height: 1.6;
     }
 
     .confirm-dialog-actions {
       display: flex;
-      gap: 8px;
       justify-content: flex-end;
+      gap: 10px;
     }
 
     .confirm-dialog-actions button {
-      padding: 6px 16px;
-      border-radius: 8px;
-      font-size: 13px;
+      padding: 9px 18px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
       cursor: pointer;
       border: 1px solid #e2e8f0;
       background: white;
       color: #64748b;
-      transition: all 0.15s;
-    }
-
-    .confirm-dialog-actions button.danger {
-      background: #ef4444;
-      color: white;
-      border-color: #ef4444;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      letter-spacing: -0.005em;
     }
 
     .confirm-dialog-actions button:hover {
-      opacity: 0.85;
-    }
-
-    /* 创建/重命名弹层 */
-    .name-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.25);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-    }
-
-    .name-dialog {
-      background: white;
-      border-radius: 12px;
-      padding: 20px 24px;
-      width: 320px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-
-    .name-dialog h3 {
-      margin: 0;
-      font-size: 15px;
-      font-weight: 600;
+      background: #f8fafc;
       color: #1e293b;
+      border-color: #cbd5e1;
     }
 
-    .name-dialog input {
-      width: 100%;
-      padding: 8px 10px;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      font-size: 14px;
-      outline: none;
-      box-sizing: border-box;
-      transition: border-color 0.15s;
-    }
-
-    .name-dialog input:focus {
-      border-color: #3b82f6;
-    }
-
-    .name-dialog-actions {
-      display: flex;
-      gap: 8px;
-      justify-content: flex-end;
-    }
-
-    .name-dialog-actions button {
-      padding: 6px 16px;
-      border-radius: 8px;
-      font-size: 13px;
-      cursor: pointer;
-      border: 1px solid #e2e8f0;
-      background: white;
-      color: #64748b;
-      transition: all 0.15s;
-    }
-
-    .name-dialog-actions button.primary {
-      background: #3b82f6;
+    .confirm-dialog-actions button.danger {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
       color: white;
-      border-color: #3b82f6;
+      border-color: transparent;
+      box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
     }
 
-    .name-dialog-actions button:hover {
-      opacity: 0.85;
-    }
-
-    .reasoning-toggle {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-size: 13px;
-      color: #475569;
-    }
-
-    .reasoning-toggle span {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .reasoning-toggle small {
-      font-size: 11px;
-      color: #94a3b8;
-    }
-
-    .toggle-switch {
-      position: relative;
-      width: 36px;
-      height: 20px;
-      flex-shrink: 0;
-    }
-
-    .toggle-switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-      position: absolute;
-    }
-
-    .toggle-track {
-      position: absolute;
-      inset: 0;
-      background: #cbd5e1;
-      border-radius: 10px;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    .toggle-track::after {
-      content: "";
-      position: absolute;
-      top: 3px;
-      left: 3px;
-      width: 14px;
-      height: 14px;
-      background: white;
-      border-radius: 50%;
-      transition: transform 0.2s;
-    }
-
-    .toggle-switch input:checked + .toggle-track {
-      background: #3b82f6;
-    }
-
-    .toggle-switch input:checked + .toggle-track::after {
-      transform: translateX(16px);
+    .confirm-dialog-actions button.danger:hover {
+      box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
+      transform: translateY(-1px);
     }
   `;
-
-  private _onCreate() {
-    this._nameDialog = { mode: "create", value: "", reasoningLevel: "stream" };
-  }
 
   private _onRefresh() {
     if (this._refreshing) {
@@ -649,7 +698,7 @@ export class SessionSidebar extends LitElement {
     this._nameDialog = {
       mode: "rename",
       sessionKey: session.key,
-      value: session.label ?? session.displayName ?? "",
+      value: session.label ?? "",
       reasoningLevel: (session.reasoningLevel as "stream" | "on" | "off") ?? "stream",
     };
   }
@@ -658,7 +707,7 @@ export class SessionSidebar extends LitElement {
     e.stopPropagation();
     this._deleteConfirm = {
       sessionKey: session.key,
-      label: session.label ?? session.displayName ?? session.key,
+      label: session.label ?? session.key,
     };
   }
 
@@ -685,28 +734,18 @@ export class SessionSidebar extends LitElement {
     this._deleteConfirm = null;
   }
 
-  private _onNameInput(e: Event) {
-    const input = e.target as HTMLInputElement;
-    if (this._nameDialog) {
-      this._nameDialog = { ...this._nameDialog, value: input.value };
-    }
-  }
-
-  private _onNameConfirm() {
+  private _onNameConfirm(detail: {
+    label: string;
+    agentId?: string;
+    reasoningLevel: "stream" | "on" | "off";
+  }) {
     if (!this._nameDialog) {
       return;
     }
-    const { mode, sessionKey, value, reasoningLevel } = this._nameDialog;
-    const label = value.trim();
-    if (!label) {
-      return;
-    }
+    const { mode, sessionKey } = this._nameDialog;
+    const { label, reasoningLevel } = detail;
 
-    if (mode === "create") {
-      this.dispatchEvent(
-        new CustomEvent("session-create", { detail: { label, reasoningLevel }, bubbles: true }),
-      );
-    } else if (mode === "rename" && sessionKey) {
+    if (mode === "rename" && sessionKey) {
       this.dispatchEvent(
         new CustomEvent("session-rename", {
           detail: { sessionKey, label, reasoningLevel },
@@ -717,19 +756,16 @@ export class SessionSidebar extends LitElement {
     this._nameDialog = null;
   }
 
-  private _onNameKeydown(e: KeyboardEvent) {
-    if (e.key === "Enter" && !e.isComposing) {
-      this._onNameConfirm();
-    }
-    if (e.key === "Escape") {
-      this._nameDialog = null;
-    }
-  }
-
   private _onSessionClick(key: string) {
     this.dispatchEvent(
       new CustomEvent("session-select", { detail: { sessionKey: key }, bubbles: true }),
     );
+  }
+
+  private get _recentSessions() {
+    return [...this.sessions]
+      .toSorted((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+      .slice(0, 10);
   }
 
   private get _initiatedSessions() {
@@ -744,15 +780,30 @@ export class SessionSidebar extends LitElement {
     if (!ts) {
       return "";
     }
+    const now = new Date();
     const d = new Date(ts);
     const pad = (n: number) => String(n).padStart(2, "0");
+
+    const sameDay =
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate();
+
+    if (sameDay) {
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    if (d.getFullYear() === now.getFullYear()) {
+      return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   }
 
   private _renderSession(session: MasSession) {
     const isActive = session.key === this.activeSessionKey;
     const isArchived = session.archivedAt != null;
-    const label = session.label ?? session.displayName ?? session.key;
+    const label = session.label ?? session.key;
     const timeStr = this._formatTime(session.updatedAt);
     return html`
       <div
@@ -769,7 +820,25 @@ export class SessionSidebar extends LitElement {
         title=${label}
       >
         <div class="session-item-body">
-          <span class="session-label">${isArchived ? html`📦 ${label}` : label}</span>
+          <span class="session-label"
+            >${isArchived
+              ? html`<span class="archived-icon">
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <polyline points="21 8 21 21 3 21 3 8"></polyline>
+                      <rect x="1" y="3" width="22" height="5"></rect>
+                    </svg> </span
+                  >${label}`
+              : label}</span
+          >
           ${timeStr ? html`<span class="session-time">${timeStr}</span>` : nothing}
           ${session.masType === "initiated"
             ? html` <div class="item-actions">
@@ -857,6 +926,24 @@ export class SessionSidebar extends LitElement {
     return html`
       <div class="confirm-overlay" @click=${() => (this._deleteConfirm = null)}>
         <div class="confirm-dialog" @click=${(e: Event) => e.stopPropagation()}>
+          <div class="confirm-dialog-icon">
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+              <path d="M10 11v6"></path>
+              <path d="M14 11v6"></path>
+              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+            </svg>
+          </div>
           <h3>删除会话</h3>
           <p>确定要删除会话「${label}」吗？此操作不可撤销，消息记录也将一并删除。</p>
           <div class="confirm-dialog-actions">
@@ -872,48 +959,17 @@ export class SessionSidebar extends LitElement {
     if (!this._nameDialog) {
       return nothing;
     }
-    const { mode, value, reasoningLevel } = this._nameDialog;
-    const title = mode === "create" ? "新建会话" : "重命名会话";
-    const streamEnabled = reasoningLevel === "stream";
+    const { mode, value, agentId, reasoningLevel } = this._nameDialog;
     return html`
-      <div class="name-overlay" @click=${() => (this._nameDialog = null)}>
-        <div class="name-dialog" @click=${(e: Event) => e.stopPropagation()}>
-          <h3>${title}</h3>
-          <input
-            type="text"
-            .value=${value}
-            placeholder="输入会话名称"
-            @input=${(e: Event) => this._onNameInput(e)}
-            @keydown=${(e: KeyboardEvent) => this._onNameKeydown(e)}
-            autofocus
-          />
-          <div class="reasoning-toggle">
-            <span>
-              启用思考过程
-              <small>开启后 AI 会实时输出推理内容</small>
-            </span>
-            <label class="toggle-switch">
-              <input
-                type="checkbox"
-                .checked=${streamEnabled}
-                @change=${(e: Event) => {
-                  if (this._nameDialog) {
-                    this._nameDialog = {
-                      ...this._nameDialog,
-                      reasoningLevel: (e.target as HTMLInputElement).checked ? "stream" : "off",
-                    };
-                  }
-                }}
-              />
-              <span class="toggle-track"></span>
-            </label>
-          </div>
-          <div class="name-dialog-actions">
-            <button @click=${() => (this._nameDialog = null)}>取消</button>
-            <button class="primary" @click=${() => this._onNameConfirm()}>确认</button>
-          </div>
-        </div>
-      </div>
+      <session-name-dialog
+        .mode=${mode}
+        .initialValue=${value}
+        .initialAgentId=${agentId}
+        .initialReasoningLevel=${reasoningLevel}
+        .agents=${this.agents}
+        @confirm=${(e: CustomEvent) => this._onNameConfirm(e.detail)}
+        @cancel=${() => (this._nameDialog = null)}
+      ></session-name-dialog>
     `;
   }
 
@@ -926,6 +982,10 @@ export class SessionSidebar extends LitElement {
     }
   }
 
+  private _toggleRecent() {
+    this._recentExpanded = !this._recentExpanded;
+  }
+
   private _toggleInitiated() {
     this._initiatedExpanded = !this._initiatedExpanded;
   }
@@ -934,10 +994,53 @@ export class SessionSidebar extends LitElement {
     this._participatedExpanded = !this._participatedExpanded;
   }
 
+  private _renderEmptyGroup(message: string) {
+    return html`
+      <div class="empty-state">
+        <div class="empty-state-icon">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="8" y1="12" x2="16" y2="12"></line>
+          </svg>
+        </div>
+        <span>${message}</span>
+      </div>
+    `;
+  }
+
   render() {
+    const initiatedCount = this._initiatedSessions.length;
+    const participatedCount = this._participatedSessions.length;
+    const recentCount = this._recentSessions.length;
+
     return html`
       <div class="sidebar-header">
-        <span>会话列表</span>
+        <div class="sidebar-title">
+          <div class="sidebar-title-icon">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+          </div>
+          <span class="sidebar-title-text">会话</span>
+        </div>
         <div class="header-actions">
           <button
             class="refresh-btn ${this._refreshing ? "spinning" : ""}"
@@ -963,14 +1066,7 @@ export class SessionSidebar extends LitElement {
               <path d="M8 16H3v5" />
             </svg>
           </button>
-          <button
-            class="add-btn"
-            @click=${() => this._onCreate()}
-            aria-label="发起新会话"
-            title="发起新会话"
-          >
-            +
-          </button>
+          <session-create-control .agents=${this.agents}></session-create-control>
           <button
             class="toggle-sidebar-btn"
             @click=${() => this._toggleSidebar()}
@@ -1013,6 +1109,7 @@ export class SessionSidebar extends LitElement {
       </div>
 
       <div class="session-list">
+        <!-- 发起的会话 -->
         <div class="group-header" @click=${() => this._toggleInitiated()}>
           <span class="group-header-arrow ${this._initiatedExpanded ? "" : "collapsed"}">
             <svg
@@ -1028,14 +1125,34 @@ export class SessionSidebar extends LitElement {
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
           </span>
-          📁 发起的会话
+          <span class="group-header-icon initiated">
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+              <path d="M8 9h8"></path>
+              <path d="M8 13h6"></path>
+            </svg>
+          </span>
+          发起的会话
+          <span class="group-count">${initiatedCount}</span>
         </div>
         ${this._initiatedExpanded
           ? html`<div class="group-items">
-              ${this._initiatedSessions.map((s) => this._renderSession(s))}
+              ${initiatedCount > 0
+                ? this._initiatedSessions.map((s) => this._renderSession(s))
+                : this._renderEmptyGroup("暂无发起的会话")}
             </div>`
           : nothing}
 
+        <!-- 参与的会话 -->
         <div class="group-header" @click=${() => this._toggleParticipated()}>
           <span class="group-header-arrow ${this._participatedExpanded ? "" : "collapsed"}">
             <svg
@@ -1051,11 +1168,76 @@ export class SessionSidebar extends LitElement {
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
           </span>
-          🔗 参与的会话
+          <span class="group-header-icon participated">
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+          </span>
+          参与的会话
+          <span class="group-count">${participatedCount}</span>
         </div>
         ${this._participatedExpanded
           ? html`<div class="group-items">
-              ${this._participatedSessions.map((s) => this._renderSession(s))}
+              ${participatedCount > 0
+                ? this._participatedSessions.map((s) => this._renderSession(s))
+                : this._renderEmptyGroup("暂无参与的会话")}
+            </div>`
+          : nothing}
+
+        <!-- 分隔线 -->
+        <div class="group-divider"></div>
+
+        <!-- 最近会话 -->
+        <div class="group-header" @click=${() => this._toggleRecent()}>
+          <span class="group-header-arrow ${this._recentExpanded ? "" : "collapsed"}">
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="3"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </span>
+          <span class="group-header-icon recent">
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+          </span>
+          最近会话
+          <span class="group-count">${recentCount}</span>
+        </div>
+        ${this._recentExpanded
+          ? html`<div class="group-items">
+              ${recentCount > 0
+                ? this._recentSessions.map((s) => this._renderSession(s))
+                : this._renderEmptyGroup("暂无最近会话")}
             </div>`
           : nothing}
       </div>

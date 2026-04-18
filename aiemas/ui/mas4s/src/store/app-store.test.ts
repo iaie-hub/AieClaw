@@ -181,10 +181,10 @@ describe("消息追加（属性 6）", () => {
 describe("setActiveSession", () => {
   beforeEach(resetSingleton);
 
-  it("更新 activeSessionId", () => {
+  it("更新 activeSessionUuid", () => {
     const store = AppStore.instance;
     store.setActiveSession("key-1");
-    expect(store.activeSessionId).toBe("key-1");
+    expect(store.activeSessionUuid).toBe("key-1");
   });
 
   it("activeSession 返回对应会话", () => {

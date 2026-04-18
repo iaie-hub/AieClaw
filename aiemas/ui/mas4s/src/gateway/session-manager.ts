@@ -33,9 +33,19 @@ function splitHistoryMessage(msg: ChatMessage): ChatMessage[] {
   // Accumulates thinking + text items until a tool_call is encountered
   let pendingItems: MessageContentItem[] = [];
 
+  let chunkCount = 0;
+  const getUniqueId = () => {
+    if (chunkCount === 0) {
+      chunkCount++;
+      return msg.id;
+    }
+    chunkCount++;
+    return msg.id ? `${msg.id}-split-${chunkCount}` : undefined;
+  };
+
   const flushPending = () => {
     if (pendingItems.length > 0) {
-      result.push({ ...msg, content: [...pendingItems] });
+      result.push({ ...msg, id: getUniqueId(), content: [...pendingItems] });
       pendingItems = [];
     }
   };
@@ -56,11 +66,11 @@ function splitHistoryMessage(msg: ChatMessage): ChatMessage[] {
         toolItems.push(next);
         i++;
       }
-      result.push({ ...msg, content: toolItems });
+      result.push({ ...msg, id: getUniqueId(), content: toolItems });
     } else if (item.type === "tool_result") {
       // Orphaned tool_result (no preceding tool_call in this message) — own bubble
       flushPending();
-      result.push({ ...msg, content: [item] });
+      result.push({ ...msg, id: getUniqueId(), content: [item] });
     } else {
       // thinking, text, or other — accumulate together
       pendingItems.push(item);
@@ -77,13 +87,12 @@ function splitHistoryMessage(msg: ChatMessage): ChatMessage[] {
 interface SessionLabelResult {
   sessionKey: string;
   label: string | null;
-  displayName: string | null;
   updatedAt: number | null;
 }
 
 /**
- * 从 aiemas DB 查询持久化的 label/displayName。
- * 当 sessions.list 返回的 label/displayName 均为 null 时作为 fallback。
+ * 从 aiemas DB 查询持久化的 label。
+ * 当 sessions.list 返回的 label 为 null 时作为 fallback。
  */
 export async function fetchSessionLabel(
   client: GatewayBrowserClient,
@@ -130,29 +139,25 @@ export async function createSession(
     reasoningLevel?: "stream" | "on" | "off";
   },
 ): Promise<MasSession> {
-  const uuid = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
   const agentId = opts.agentId ?? "default";
-  const key = `agent:${agentId}:group:mas-${uuid}`;
   const reasoningLevel = opts.reasoningLevel ?? "stream";
 
   const result = await client.request<{
-    ok?: boolean;
-    key?: string;
+    sessionKey?: string;
     sessionId?: string;
     error?: { message?: string };
-  }>("sessions.create", {
-    key,
+  }>("aiemas.sessions.create", {
+    agentId,
     label: opts.label,
     reasoningLevel,
   });
 
-  // gateway returns ok:false with an error shape on failure (e.g. label conflict)
-  if (result.ok === false) {
-    throw new Error(result.error?.message ?? "sessions.create failed");
+  if (!result.sessionKey) {
+    throw new Error(result.error?.message ?? "aiemas.sessions.create failed");
   }
 
   return {
-    key: result.key ?? key,
+    key: result.sessionKey,
     kind: "group",
     label: opts.label,
     updatedAt: Date.now(),
@@ -170,8 +175,8 @@ export async function createSession(
 
 /**
  * 将 GatewaySessionRow 归一化为 MasSession。
- * label 优先使用 row.label，回退到 row.displayName（gateway 从 channel/subject 派生），
- * 再回退到 persistedLabel（来自 aiemas DB session_labels 表），
+ * label 优先使用 row.label，回退到 row.displayName（gateway 兼容），
+ * 再回退到 persistedLabel（来自 aiemas DB aiemas_sessions 表），
  * 确保渲染层始终有可用的显示名称。
  */
 function rowToMasSession(row: GatewaySessionRow, persistedLabel?: string | null): MasSession {
@@ -194,10 +199,13 @@ function rowToMasSession(row: GatewaySessionRow, persistedLabel?: string | null)
 /**
  * 拉取当前用户有权限的会话列表（按 session_memberships 过滤）。
  * 在连接成功后调用，用于恢复历史会话。
- * displayName 已由服务端 enrichSessionRow 从 session_labels 表注入，无需前端二次查询。
+ * label 已由服务端 enrichSessionRow 从 aiemas_sessions 表注入，无需前端二次查询。
  */
 export async function fetchSessions(client: GatewayBrowserClient): Promise<MasSession[]> {
-  const result = await client.request<{ sessions: GatewaySessionRow[] }>("sessions.list", {});
+  const result = await client.request<{ sessions: GatewaySessionRow[] }>(
+    "aiemas.sessions.list",
+    {},
+  );
   const rows = result.sessions ?? [];
   const sessions = rows.map((row) => rowToMasSession(row));
 
@@ -310,7 +318,7 @@ export async function deleteSession(
   client: GatewayBrowserClient,
   sessionKey: string,
 ): Promise<void> {
-  await client.request("sessions.delete", { key: sessionKey, deleteTranscript: true });
+  await client.request("aiemas.sessions.delete", { sessionKey });
 }
 
 /**
@@ -331,8 +339,11 @@ export async function joinSession(
 
   const canonicalKey = resolved.key;
 
-  // 通过 sessions.list 获取完整 row（含 label/status 等）
-  const listResult = await client.request<{ sessions: GatewaySessionRow[] }>("sessions.list", {});
+  // 通过 aiemas.sessions.list 获取完整 row（含 label/status 等）
+  const listResult = await client.request<{ sessions: GatewaySessionRow[] }>(
+    "aiemas.sessions.list",
+    {},
+  );
   const row = listResult.sessions.find((s) => s.key === canonicalKey);
 
   if (row) {
@@ -347,4 +358,14 @@ export async function joinSession(
     notificationCount: 0,
     participants: [],
   } as MasSession;
+}
+/**
+ * 更新会话关联的 Agent。
+ */
+export async function updateSessionAgent(
+  client: GatewayBrowserClient,
+  sessionKey: string,
+  agentId: string,
+): Promise<void> {
+  await client.request("session.agent.update", { sessionKey, agentId });
 }

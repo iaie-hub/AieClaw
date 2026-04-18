@@ -99,6 +99,21 @@ function stripInboundMetadata(text: string): string {
 export function normalizeMessage(message: unknown): NormalizedMessage {
   const m = message as Record<string, unknown>;
   let role = typeof m.role === "string" ? m.role : "unknown";
+  let subType: string | undefined = undefined;
+
+  // Detect async execution followups from system and tag them for dedicated card rendering.
+  if (role === "system" && typeof m.content === "string") {
+    if (m.content.includes("An async command the user already approved has completed")) {
+      subType = "execution-followup";
+      const idMatch = /id=([a-f0-9-]+)/.exec(m.content);
+      if (idMatch && idMatch[1]) {
+        m.toolCallId = idMatch[1];
+      }
+      if (!m.toolName) {
+        m.toolName = "exec";
+      }
+    }
+  }
 
   const toolCallId =
     (typeof m.toolCallId === "string" ? m.toolCallId : "") ||
@@ -141,8 +156,15 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
     };
 
     for (const line of lines) {
+      // Strip leading timestamp if present (e.g. [Thu 2026-04-09 14:56 GMT+8])
+      // so it doesn't break anchored marker matching.
+      const processedLine = line.replace(
+        /^\[[A-Z][a-z]{2}\s\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}\sGMT[+-]\d{1,2}\]\s*/,
+        "",
+      );
+
       // [thinking] prefix — may span multiple lines; collect until next marker
-      const thinkingMatch = /^\[thinking\] (.*)$/.exec(line);
+      const thinkingMatch = /^\[thinking\] (.*)$/.exec(processedLine);
       if (thinkingMatch) {
         flushText();
         // Unescape \n literals back to real newlines
@@ -150,14 +172,14 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
         continue;
       }
       // [text] prefix — explicit text block (serialised by extractContent)
-      const textBlockMatch = /^\[text\] (.*)$/.exec(line);
+      const textBlockMatch = /^\[text\] (.*)$/.exec(processedLine);
       if (textBlockMatch) {
         flushText();
         items.push({ type: "text", text: (textBlockMatch[1] ?? "").replace(/\\n/g, "\n") });
         continue;
       }
       // [tool_use:name] {...} prefix
-      const toolMatch = /^\[tool_use:([^\]]+)\]\s*(.*)$/.exec(line);
+      const toolMatch = /^\[tool_use:([^\]]+)\]\s*(.*)$/.exec(processedLine);
       if (toolMatch) {
         flushText();
         const name = toolMatch[1] ?? "tool";
@@ -173,7 +195,7 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
       }
       // [tool_result] ... prefix — tool execution output stored alongside the call
       // Newlines within the result were escaped to \n literals during storage.
-      const resultMatch = /^\[tool_result\]\s*(.*)$/.exec(line);
+      const resultMatch = /^\[tool_result\]\s*(.*)$/.exec(processedLine);
       if (resultMatch) {
         flushText();
         const text = (resultMatch[1] ?? "").replace(/\\n/g, "\n");
@@ -195,7 +217,7 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
         continue;
       }
       // [approval:requested] {...} prefix — exec approval request stored for history replay
-      const approvalReqMatch = /^\[approval:requested\]\s*(.*)$/.exec(line);
+      const approvalReqMatch = /^\[approval:requested\]\s*(.*)$/.exec(processedLine);
       if (approvalReqMatch) {
         flushText();
         try {
@@ -207,7 +229,7 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
         continue;
       }
       // [approval:resolved] {...} prefix — exec approval decision stored for history replay
-      const approvalResMatch = /^\[approval:resolved\]\s*(.*)$/.exec(line);
+      const approvalResMatch = /^\[approval:resolved\]\s*(.*)$/.exec(processedLine);
       if (approvalResMatch) {
         flushText();
         try {
@@ -219,13 +241,37 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
         continue;
       }
       // [approval:user-resolve] {...} prefix — user's resolve request (before gateway broadcast)
-      const approvalUserResMatch = /^\[approval:user-resolve\]\s*(.*)$/.exec(line);
+      const approvalUserResMatch = /^\[approval:user-resolve\]\s*(.*)$/.exec(processedLine);
       if (approvalUserResMatch) {
         flushText();
         try {
           const data = JSON.parse(approvalUserResMatch[1] ?? "{}");
           // Mark as user-resolve so message-list can render it as a user action bubble
           items.push({ type: "approval_resolved", args: { ...data, _source: "user-resolve" } });
+        } catch {
+          items.push({ type: "text", text: line });
+        }
+        continue;
+      }
+      // [sop:state] {...} prefix — SOP pipeline state for history replay
+      const sopStateMatch = /^\[sop:state\]\s*(.*)$/.exec(processedLine);
+      if (sopStateMatch) {
+        flushText();
+        try {
+          const data = JSON.parse(sopStateMatch[1] ?? "{}");
+          items.push({ type: "sop_state", args: data });
+        } catch {
+          items.push({ type: "text", text: line });
+        }
+        continue;
+      }
+      // [skill:progress] {...} prefix — skill-level progress for history replay
+      const skillProgressMatch = /^\[skill:progress\]\s*(.*)$/.exec(line);
+      if (skillProgressMatch) {
+        flushText();
+        try {
+          const data = JSON.parse(skillProgressMatch[1] ?? "{}");
+          items.push({ type: "skill_progress", args: data });
         } catch {
           items.push({ type: "text", text: line });
         }
@@ -269,6 +315,7 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
 
   const timestamp = typeof m.timestamp === "number" ? m.timestamp : Date.now();
   const id = typeof m.id === "string" ? m.id : undefined;
+  const sessionKey = typeof m.sessionKey === "string" ? m.sessionKey : undefined;
   // gateway 存储时会在 senderLabel 末尾附加 " (channel-id)" 后缀（如 "管理员 (webchat-ui)"），
   // 前端只展示用户名部分，剥离括号后缀。
   const rawSenderLabel =
@@ -287,5 +334,5 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
     });
   }
 
-  return { role, content, timestamp, id, senderLabel, toolCallId, toolName };
+  return { role, content, timestamp, id, sessionKey, senderLabel, toolCallId, toolName, subType };
 }

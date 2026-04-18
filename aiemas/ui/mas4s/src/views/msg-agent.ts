@@ -1,16 +1,42 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { extractAgentNameFromKey } from "../../../../src/utils/session-utils.js";
 import { markdownMath } from "../lib/markdown-directive.js";
-import type { ChatMessage, MessageContentItem } from "../types/chat-types.js";
 import "./msg-tool-card.js";
+import "../components/copy-button.js";
+import type { ChatMessage, MessageContentItem } from "../types/chat-types.js";
+
+/** 检测文本末尾是否为疑问句（中英文问号），用于推断是否需要快捷回复按钮 */
+function endsWithQuestion(text: string): boolean {
+  const trimmed = text.trimEnd();
+  return trimmed.endsWith("?") || trimmed.endsWith("？");
+}
+
+/** 根据问句内容推断合适的快捷回复选项 */
+function inferQuickReplies(text: string): string[] {
+  const t = text.toLowerCase();
+  // 跳过/停止类
+  if (t.includes("跳过") || t.includes("skip")) {
+    return ["继续", "跳过", "停止"];
+  }
+  // 分析类
+  if (t.includes("分析") || t.includes("analyz") || t.includes("deep")) {
+    return ["继续分析", "跳过分析", "停止"];
+  }
+  // 默认：继续 / 停止
+  return ["继续", "停止"];
+}
 
 /**
  * Agent 消息气泡（左对齐，绿色渐变头像）。
  * 渲染文本内容 + tool_call / tool_result 卡片。
+ * isLatest=true 时，若末尾为疑问句则在气泡下方渲染快捷回复按钮。
  */
 @customElement("msg-agent")
 export class MsgAgent extends LitElement {
   @property({ attribute: false }) message!: ChatMessage;
+  /** 是否为当前会话最新的 agent 消息（由 message-list 传入） */
+  @property({ type: Boolean }) isLatest = false;
   @state() private _thinkingExpanded = false;
 
   static styles = css`
@@ -40,12 +66,10 @@ export class MsgAgent extends LitElement {
       display: flex;
       align-items: center;
       justify-content: center;
-      color: #fff;
+      color: #64748b;
       margin: 0 16px 0 0;
       flex-shrink: 0;
-      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
-      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-      /* SVG icon instead of emoji */
+      background: #f1f5f9;
     }
 
     .avatar-icon {
@@ -55,14 +79,15 @@ export class MsgAgent extends LitElement {
     }
 
     .message-content {
-      max-width: 65%;
+      width: 100%;
+      max-width: calc(100% - 80px);
       display: flex;
       flex-direction: column;
     }
 
     .message-name {
       font-size: 13px;
-      color: #059669;
+      color: #475569;
       margin-bottom: 6px;
       display: flex;
       align-items: center;
@@ -77,8 +102,8 @@ export class MsgAgent extends LitElement {
     }
 
     .agent-tag {
-      background: #d1fae5;
-      color: #059669;
+      background: #f1f5f9;
+      color: #64748b;
       border-radius: 4px;
       padding: 1px 5px;
       font-size: 10px;
@@ -89,9 +114,9 @@ export class MsgAgent extends LitElement {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      background: #fef3c7;
-      color: #92400e;
-      border: 1px solid #fde68a;
+      background: #f1f5f9;
+      color: #64748b;
+      border: 1px solid #e2e8f0;
       border-radius: 4px;
       padding: 1px 6px;
       font-size: 10px;
@@ -101,19 +126,33 @@ export class MsgAgent extends LitElement {
 
     .tool-tag-icon {
       font-size: 11px;
+      color: #94a3b8;
     }
 
     .message-bubble {
-      padding: 14px 18px;
-      border-radius: 16px;
-      border-top-left-radius: 4px;
+      padding: 12px 16px;
+      border-radius: 20px 20px 20px 4px;
       font-size: 14px;
-      line-height: 1.6;
+      line-height: 1.5;
       word-break: break-word;
-      background: #ffffff;
-      border: 1px solid #e2e8f0;
-      color: #1e293b;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+      background: #f1f5f9;
+      border: none;
+      color: #0f172a;
+      box-shadow: 0 1px 1px rgba(0, 0, 0, 0.02);
+      position: relative;
+    }
+
+    .copy-btn {
+      position: absolute;
+      right: -32px;
+      bottom: 0;
+      opacity: 0;
+      transition: all 0.2s;
+      z-index: 5;
+    }
+
+    .message-row:hover .copy-btn {
+      opacity: 1;
     }
 
     /* Markdown content styles */
@@ -149,8 +188,8 @@ export class MsgAgent extends LitElement {
       margin: 0.2em 0;
     }
     .message-bubble code {
-      background: #f0fdf4;
-      border: 1px solid #d1fae5;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
       border-radius: 4px;
       padding: 1px 5px;
       font-size: 0.88em;
@@ -161,25 +200,28 @@ export class MsgAgent extends LitElement {
       border: 1px solid #e2e8f0;
       border-radius: 8px;
       padding: 10px 14px;
-      overflow-x: auto;
       margin: 0.6em 0;
+      white-space: pre-wrap;
+      word-break: break-all;
     }
     .message-bubble pre code {
       background: none;
       border: none;
       padding: 0;
       font-size: 0.85em;
+      white-space: pre-wrap;
+      word-break: break-all;
     }
     .message-bubble blockquote {
-      border-left: 3px solid #10b981;
+      border-left: 3px solid #cbd5e1;
       margin: 0.6em 0;
       padding: 4px 12px;
       color: #475569;
-      background: #f0fdf4;
+      background: #f8fafc;
       border-radius: 0 6px 6px 0;
     }
     .message-bubble a {
-      color: #059669;
+      color: #1e293b;
       text-decoration: underline;
     }
     .message-bubble strong {
@@ -196,17 +238,21 @@ export class MsgAgent extends LitElement {
     .message-bubble table {
       border-collapse: collapse;
       width: 100%;
-      margin: 0.6em 0;
+      margin: 0.8em 0;
       font-size: 0.9em;
+      font-family: "SF Mono", "Fira Code", monospace;
     }
     .message-bubble th,
     .message-bubble td {
-      border: 1px solid #e2e8f0;
-      padding: 6px 10px;
+      border: 1px solid var(--ai-border, #eef2f8);
+      padding: 8px 12px;
       text-align: left;
     }
+    .message-bubble table tbody tr:nth-child(even) {
+      background: rgba(0, 0, 0, 0.02);
+    }
     .message-bubble th {
-      background: #f0fdf4;
+      background: var(--ai-bg-body, #f8fafc);
       font-weight: 600;
     }
 
@@ -217,9 +263,42 @@ export class MsgAgent extends LitElement {
       margin-top: 8px;
     }
 
+    .quick-replies {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .quick-reply-btn {
+      padding: 6px 16px;
+      border-radius: 20px;
+      border: 1.5px solid #cbd5e1;
+      background: #ffffff;
+      color: #475569;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+      line-height: 1.4;
+    }
+
+    .quick-reply-btn:hover {
+      background: #f8fafc;
+      border-color: #94a3b8;
+      color: #1e293b;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+    }
+
+    .quick-reply-btn:active {
+      transform: translateY(0);
+    }
+
     .thinking-block {
       margin-bottom: 6px;
-      border: 1px solid #d1fae5;
+      border: 1px solid #e2e8f0;
       border-radius: 10px;
       overflow: hidden;
       font-size: 13px;
@@ -230,15 +309,23 @@ export class MsgAgent extends LitElement {
       align-items: center;
       gap: 6px;
       padding: 7px 12px;
-      background: #f0fdf4;
-      color: #059669;
+      background: #f8fafc;
+      color: #64748b;
       cursor: pointer;
       user-select: none;
       font-weight: 500;
     }
 
     .thinking-toggle:hover {
-      background: #dcfce7;
+      background: #f1f5f9;
+    }
+
+    .thinking-wrapper {
+      position: relative;
+    }
+
+    .thinking-copy-btn {
+      margin-left: auto;
     }
 
     .thinking-arrow {
@@ -253,11 +340,24 @@ export class MsgAgent extends LitElement {
 
     .thinking-body {
       padding: 10px 14px;
-      background: #fafffe;
+      background: #fafafa;
       color: #475569;
       line-height: 1.6;
       word-break: break-word;
-      border-top: 1px solid #d1fae5;
+      border-top: 1px solid #e2e8f0;
+    }
+
+    .thinking-body-copy-btn {
+      position: absolute;
+      right: -30px;
+      bottom: 8px;
+      opacity: 0;
+      transition: all 0.2s;
+      z-index: 5;
+    }
+
+    .thinking-wrapper:hover .thinking-body-copy-btn {
+      opacity: 1;
     }
 
     /* Markdown styles inside thinking block */
@@ -283,16 +383,16 @@ export class MsgAgent extends LitElement {
       margin: 0.15em 0;
     }
     .thinking-body code {
-      background: #ecfdf5;
-      border: 1px solid #d1fae5;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
       border-radius: 3px;
       padding: 1px 4px;
       font-size: 0.87em;
       font-family: ui-monospace, monospace;
     }
     .thinking-body pre {
-      background: #f0fdf4;
-      border: 1px solid #d1fae5;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
       border-radius: 6px;
       padding: 8px 12px;
       overflow-x: auto;
@@ -304,11 +404,11 @@ export class MsgAgent extends LitElement {
       padding: 0;
     }
     .thinking-body blockquote {
-      border-left: 3px solid #10b981;
+      border-left: 3px solid #cbd5e1;
       margin: 0.5em 0;
       padding: 3px 10px;
       color: #64748b;
-      background: #f0fdf4;
+      background: #f8fafc;
       border-radius: 0 4px 4px 0;
     }
     .thinking-body strong {
@@ -325,11 +425,11 @@ export class MsgAgent extends LitElement {
     }
     .thinking-body th,
     .thinking-body td {
-      border: 1px solid #d1fae5;
+      border: 1px solid #e2e8f0;
       padding: 4px 8px;
     }
     .thinking-body th {
-      background: #ecfdf5;
+      background: #f1f5f9;
       font-weight: 600;
     }
   `;
@@ -356,18 +456,32 @@ export class MsgAgent extends LitElement {
         })();
 
         return html`
-          <div class="thinking-block">
-            <div
-              class="thinking-toggle"
-              @click=${() => {
-                this._thinkingExpanded = !this._thinkingExpanded;
-              }}
-            >
-              <span class="thinking-arrow ${this._thinkingExpanded ? "expanded" : ""}">▶</span>
-              <span>思考过程</span>
+          <div class="thinking-wrapper">
+            <div class="thinking-block">
+              <div
+                class="thinking-toggle"
+                @click=${() => {
+                  this._thinkingExpanded = !this._thinkingExpanded;
+                }}
+              >
+                <span class="thinking-arrow ${this._thinkingExpanded ? "expanded" : ""}">▶</span>
+                <span>思考过程</span>
+                <copy-button
+                  class="thinking-copy-btn"
+                  .value=${rawThinking}
+                  title="仅复制内容"
+                ></copy-button>
+              </div>
+              ${this._thinkingExpanded
+                ? html`<div class="thinking-body">${markdownMath(thinkingText)}</div>`
+                : nothing}
             </div>
             ${this._thinkingExpanded
-              ? html`<div class="thinking-body">${markdownMath(thinkingText)}</div>`
+              ? html`<copy-button
+                  class="thinking-body-copy-btn"
+                  .value=${`思考过程\n${rawThinking}`}
+                  title="复制标题和内容"
+                ></copy-button>`
               : nothing}
           </div>
         `;
@@ -378,13 +492,22 @@ export class MsgAgent extends LitElement {
         if (!text.trim()) {
           return nothing;
         }
-        return html`<div class="message-bubble">${markdownMath(text)}</div>`;
+        return html`
+          <div class="message-bubble">
+            ${markdownMath(text.trim())}
+            <copy-button class="copy-btn" .value=${text.trim()} title="复制消息内容"></copy-button>
+          </div>
+        `;
       }
 
       if (item.type === "tool_call") {
+        // 对于 aiemas_sessions_send，仅最新 agent 消息中的 tool_call 可能处于等待状态
+        // 非最新消息的 tool_call 一定已完成
+        const isSessionsSend = (item.name ?? "").includes("sessions_send");
+        const hasResult = isSessionsSend ? !this.isLatest : true;
         return html`
           <div class="tool-cards">
-            <msg-tool-card .item=${item}></msg-tool-card>
+            <msg-tool-card .item=${item} .hasResult=${hasResult}></msg-tool-card>
           </div>
         `;
       }
@@ -393,8 +516,44 @@ export class MsgAgent extends LitElement {
     })}`;
   }
 
+  private _onQuickReply(text: string) {
+    this.dispatchEvent(
+      new CustomEvent("quick-reply", {
+        detail: { text },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  private _renderQuickReplies() {
+    if (!this.isLatest) {
+      return nothing;
+    }
+
+    // 找最后一条 text 类型 content item
+    const textItems = this.message.content.filter((c) => c.type === "text" && c.text?.trim());
+    const lastText = textItems[textItems.length - 1]?.text ?? "";
+    if (!endsWithQuestion(lastText)) {
+      return nothing;
+    }
+
+    const replies = inferQuickReplies(lastText);
+    return html`
+      <div class="quick-replies">
+        ${replies.map(
+          (r) => html`
+            <button class="quick-reply-btn" @click=${() => this._onQuickReply(r)}>${r}</button>
+          `,
+        )}
+      </div>
+    `;
+  }
+
   render() {
-    const name = this.message.senderLabel ?? "Agent";
+    const agentName = this.message.sessionKey
+      ? extractAgentNameFromKey(this.message.sessionKey)
+      : (this.message.senderLabel ?? "Agent");
     const ts = this.message.timestamp;
     const timeStr = ts
       ? (() => {
@@ -420,26 +579,32 @@ export class MsgAgent extends LitElement {
               width="18"
               height="12"
               rx="3"
-              fill="rgba(255,255,255,0.25)"
-              stroke="white"
+              fill="none"
+              stroke="currentColor"
               stroke-width="1.5"
             />
-            <circle cx="9" cy="14" r="2" fill="white" />
-            <circle cx="15" cy="14" r="2" fill="white" />
-            <path d="M9 8V6" stroke="white" stroke-width="1.5" stroke-linecap="round" />
-            <path d="M15 8V6" stroke="white" stroke-width="1.5" stroke-linecap="round" />
-            <circle cx="9" cy="5" r="1" fill="white" />
-            <circle cx="15" cy="5" r="1" fill="white" />
-            <path d="M12 6V4" stroke="white" stroke-width="1.5" stroke-linecap="round" />
-            <circle cx="12" cy="3" r="1.2" fill="white" />
-            <path d="M7 20v1M17 20v1" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+            <circle cx="9" cy="14" r="2" fill="currentColor" />
+            <circle cx="15" cy="14" r="2" fill="currentColor" />
+            <path d="M9 8V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            <path d="M15 8V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            <circle cx="9" cy="5" r="1" fill="currentColor" />
+            <circle cx="15" cy="5" r="1" fill="currentColor" />
+            <path d="M12 6V4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            <circle cx="12" cy="3" r="1.2" fill="currentColor" />
+            <path
+              d="M7 20v1M17 20v1"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
           </svg>
         </div>
         <div class="message-content">
           <div class="message-name">
-            ${name} ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
+            Agent: ${agentName}
+            ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
           </div>
-          ${this._renderContent(this.message.content)}
+          ${this._renderContent(this.message.content)} ${this._renderQuickReplies()}
         </div>
       </div>
     `;

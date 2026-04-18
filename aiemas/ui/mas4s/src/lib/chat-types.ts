@@ -10,7 +10,9 @@ export type MessageContentItem = {
     | "tool_result"
     | "thinking"
     | "approval_requested"
-    | "approval_resolved";
+    | "approval_resolved"
+    | "sop_state"
+    | "skill_progress";
   text?: string;
   thinking?: string;
   name?: string;
@@ -24,8 +26,10 @@ export type NormalizedMessage = {
   content: MessageContentItem[];
   timestamp: number;
   id?: string;
+  sessionKey?: string;
   senderLabel?: string | null;
   toolCallId?: string;
   toolName?: string;
   isError?: boolean;
+  subType?: string;
 };

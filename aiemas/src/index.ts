@@ -3,13 +3,13 @@ import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { logPermissionFailure } from "./audit/audit-logger.js";
 import { signToken, verifyToken, refreshToken, getJwtSecret } from "./auth/jwt.js";
+import { CacheService } from "./cache/cache-service.js";
 import { AUTH_FAILED, ACCOUNT_PENDING_APPROVAL, ACCOUNT_REJECTED } from "./errors.js";
 import type { GlobalRole, PublicUser } from "./models.js";
 import { updatePresence, markOffline, startOfflineScanner } from "./presence/presence-service.js";
 import { checkPermission as _checkPermission } from "./rbac/permission-checker.js";
 import type { SessionPermissionContext, PermissionResult } from "./rbac/permission-checker.js";
 import { initDatabase } from "./store/database.js";
-import { UserCache } from "./users/user-cache.js";
 import {
   registerUser,
   listUsers,
@@ -24,6 +24,16 @@ import type { RegisterParams, UpdateUserParams } from "./users/user-service.js";
 export type { GlobalRole, PublicUser } from "./models.js";
 export type { SessionPermissionContext, PermissionResult } from "./rbac/permission-checker.js";
 export type { RegisterParams, UpdateUserParams } from "./users/user-service.js";
+export type { CacheService } from "./cache/cache-service.js";
+export { SOPTracker, ProgressWatcher } from "./sop-tracker/index.js";
+export type {
+  SOPDefinition,
+  SOPState,
+  SOPStepState,
+  SOPStateEventPayload,
+  SkillProgressEventPayload,
+  ProgressLine,
+} from "./sop-tracker/index.js";
 
 export interface TenantServiceConfig {
   jwtSecret?: string;
@@ -82,6 +92,9 @@ export interface TenantService {
   // Cache lookup (no DB hit)
   resolveDisplayName(userId: string): string | undefined;
 
+  // Cache
+  cacheService: CacheService;
+
   // Lifecycle
   init(): Promise<void>;
 }
@@ -92,12 +105,11 @@ const RATE_LIMIT_MAX_FAILURES = 10;
 export function createTenantService(config?: TenantServiceConfig): TenantService {
   const dbPath = config?.dbPath ?? join(homedir(), ".openclaw", "aiemas", "mas4s.db");
 
-  // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
   let db: DatabaseSync | undefined;
   let _stopOfflineScanner: (() => void) | undefined;
 
-  // In-memory user cache — populated on init(), kept in sync on mutations.
-  const cache = new UserCache();
+  // Centralized cache service — populated on init(), kept in sync on mutations.
+  const cacheService = new CacheService();
 
   // In-memory sliding window rate limiter: ip -> timestamps of failures
   const failureMap = new Map<string, number[]>();
@@ -120,8 +132,8 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
       getJwtSecret();
       // Initialize database
       db = initDatabase(dbPath);
-      // Load all users into the in-memory cache
-      cache.load(db);
+      // Load all caches (users, topologies, etc.) via centralized CacheService
+      cacheService.init(db);
       // Start offline presence scanner (runs every 60s)
       _stopOfflineScanner = startOfflineScanner(db);
       console.log("[mas4s] TenantService initialized successfully.");
@@ -141,7 +153,7 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
       const database = getDb();
 
       // Find user by username from cache (no DB hit)
-      const user = cache.findByUsername(username, tenantId);
+      const user = cacheService.userCache.findByUsername(username, tenantId);
 
       if (!user) {
         if (clientIp) {
@@ -196,7 +208,7 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
       try {
         const claims = verifyToken(token);
         // Read from cache — no DB hit
-        const user = cache.findById(claims.userId);
+        const user = cacheService.userCache.findById(claims.userId);
         if (!user || user.status !== "approved") {
           return { ok: false, error: "ACCOUNT_INVALID" };
         }
@@ -239,7 +251,7 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
       // Re-read the full User row (with passwordHash) to populate cache correctly
       const full = findUserById(getDb(), publicUser.userId);
       if (full) {
-        cache.set(full);
+        cacheService.userCache.set(full);
       }
       return publicUser;
     },
@@ -251,7 +263,7 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
     updateUser(params, callerRole) {
       // Write to DB, then patch cache
       const publicUser = updateUser(getDb(), params, callerRole);
-      cache.patch(params.userId, {
+      cacheService.userCache.patch(params.userId, {
         ...(params.displayName !== undefined ? { displayName: params.displayName } : {}),
         ...(params.role !== undefined ? { role: params.role } : {}),
       });
@@ -260,12 +272,12 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
 
     approveUser(targetUserId, callerRole) {
       approveUser(getDb(), targetUserId, callerRole);
-      cache.patch(targetUserId, { status: "approved" });
+      cacheService.userCache.patch(targetUserId, { status: "approved" });
     },
 
     rejectUser(targetUserId, callerRole) {
       rejectUser(getDb(), targetUserId, callerRole);
-      cache.patch(targetUserId, { status: "rejected" });
+      cacheService.userCache.patch(targetUserId, { status: "rejected" });
     },
 
     checkPermission(userId, role, method, sessionContext) {
@@ -298,12 +310,14 @@ export function createTenantService(config?: TenantServiceConfig): TenantService
 
     getSystemStatus() {
       // Use cache size to avoid a DB query on every status check
-      return { initialized: cache.size() > 0 };
+      return { initialized: cacheService.userCache.size() > 0 };
     },
 
     resolveDisplayName(userId: string) {
-      return cache.findById(userId)?.displayName;
+      return cacheService.userCache.findById(userId)?.displayName;
     },
+
+    cacheService,
 
     logout(userId: string) {
       markOffline(getDb(), userId);

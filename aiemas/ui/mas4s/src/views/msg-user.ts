@@ -1,6 +1,7 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { markdownMath } from "../lib/markdown-directive.js";
+import "../components/copy-button.js";
 import type { ChatMessage } from "../types/chat-types.js";
 
 /**
@@ -32,7 +33,7 @@ export class MsgUser extends LitElement {
     }
 
     .message-content {
-      max-width: 65%;
+      max-width: calc(100% - 80px);
       display: flex;
       flex-direction: column;
       align-items: flex-end;
@@ -60,18 +61,32 @@ export class MsgUser extends LitElement {
     }
 
     .message-bubble {
-      padding: 14px 18px;
-      border-radius: 16px;
-      border-top-right-radius: 4px;
+      padding: 12px 16px;
+      border-radius: 20px 20px 4px 20px;
       font-size: 14px;
-      line-height: 1.6;
+      line-height: 1.5;
       word-break: break-word;
-      background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
-      color: #fff;
-      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+      overflow-wrap: break-word;
+      background: #dbeafe;
+      color: #1e293b;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+      position: relative;
     }
 
-    /* Markdown resets for white-on-blue bubble */
+    .copy-btn {
+      position: absolute;
+      left: -32px;
+      bottom: 0;
+      opacity: 0;
+      transition: all 0.2s;
+      z-index: 5;
+    }
+
+    .message-row:hover .copy-btn {
+      opacity: 1;
+    }
+
+    /* Markdown resets for user bubble */
     .message-bubble p {
       margin: 0 0 0.5em;
     }
@@ -79,25 +94,28 @@ export class MsgUser extends LitElement {
       margin-bottom: 0;
     }
     .message-bubble a {
-      color: #bfdbfe;
+      color: #2563eb;
     }
     .message-bubble code {
-      background: rgba(255, 255, 255, 0.15);
+      background: rgba(37, 99, 235, 0.1);
       border-radius: 4px;
       padding: 1px 5px;
       font-size: 0.88em;
       font-family: ui-monospace, monospace;
     }
     .message-bubble pre {
-      background: rgba(0, 0, 0, 0.2);
+      background: rgba(0, 0, 0, 0.05);
       border-radius: 8px;
       padding: 10px 14px;
-      overflow-x: auto;
       margin: 0.5em 0;
+      white-space: pre-wrap;
+      word-break: break-all;
     }
     .message-bubble pre code {
       background: none;
       padding: 0;
+      white-space: pre-wrap;
+      word-break: break-all;
     }
     .message-bubble ul,
     .message-bubble ol {
@@ -111,7 +129,7 @@ export class MsgUser extends LitElement {
       font-weight: 600;
     }
     .message-bubble blockquote {
-      border-left: 3px solid rgba(255, 255, 255, 0.5);
+      border-left: 3px solid rgba(37, 99, 235, 0.4);
       margin: 0.5em 0;
       padding: 2px 10px;
       opacity: 0.85;
@@ -124,12 +142,11 @@ export class MsgUser extends LitElement {
       display: flex;
       align-items: center;
       justify-content: center;
-      color: #fff;
+      color: #64748b;
       font-size: 18px;
       margin: 0 0 0 16px;
       flex-shrink: 0;
-      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
-      background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+      background: #f1f5f9;
     }
   `;
 
@@ -154,9 +171,34 @@ export class MsgUser extends LitElement {
           <div class="message-name">
             ${name} ${timeStr ? html`<span class="message-time">${timeStr}</span>` : nothing}
           </div>
-          ${text.trim() ? html`<div class="message-bubble">${markdownMath(text)}</div>` : nothing}
+          ${text.trim()
+            ? html`
+                <div class="message-bubble">
+                  ${markdownMath(text.trim())}
+                  <copy-button
+                    class="copy-btn"
+                    .value=${text.trim()}
+                    title="复制消息内容"
+                  ></copy-button>
+                </div>
+              `
+            : nothing}
         </div>
-        <div class="message-avatar">👤</div>
+        <div class="message-avatar">
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="8" r="4"></circle>
+            <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"></path>
+          </svg>
+        </div>
       </div>
     `;
   }
