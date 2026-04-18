@@ -1,5 +1,5 @@
 import { LitElement, html, css, nothing } from "lit";
-import { customElement, property } from "lit/decorators.js";
+import { customElement, property, state } from "lit/decorators.js";
 import type { ChatMessage } from "../types/chat-types.js";
 import type { LayoutMode } from "../types/layout-types.js";
 
@@ -29,6 +29,8 @@ export class TopologyBar extends LitElement {
   @property({ type: Boolean }) rootRunning = false;
   @property({ type: String }) layoutMode: LayoutMode = "single";
   @property({ type: Boolean }) layoutDisabled = false;
+
+  @state() private _isFullscreen = false;
 
   static styles = css`
     :host {
@@ -573,6 +575,49 @@ export class TopologyBar extends LitElement {
       cursor: default;
     }
 
+    /* ── 全屏按钮 ── */
+    .fullscreen-session-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+      background: rgba(255, 255, 255, 0.7);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      cursor: pointer;
+      flex-shrink: 0;
+      margin-left: 6px;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      color: #64748b;
+      outline: none;
+    }
+
+    .fullscreen-session-btn:hover {
+      background: rgba(255, 255, 255, 0.95);
+      border-color: #cbd5e1;
+      color: #475569;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    }
+
+    .fullscreen-session-btn:focus-visible {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+    }
+
+    .fullscreen-session-btn.active {
+      background: #fef2f2;
+      border-color: #fecaca;
+      color: #ef4444;
+    }
+
+    .fullscreen-session-btn.active:hover {
+      color: #dc2626;
+      background: #fee2e2;
+    }
+
     /* ── 响应式 ── */
     @media (max-width: 768px) {
       .bar {
@@ -683,6 +728,35 @@ export class TopologyBar extends LitElement {
         textEl.style.animationPlayState = "paused";
       }
     }
+  }
+
+  private _toggleSessionFullscreen() {
+    this._isFullscreen = !this._isFullscreen;
+    this.dispatchEvent(
+      new CustomEvent("session-fullscreen-toggle", {
+        detail: { fullscreen: this._isFullscreen },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+    if (this._isFullscreen) {
+      document.addEventListener("keydown", this._onEscKey);
+    } else {
+      document.removeEventListener("keydown", this._onEscKey);
+    }
+  }
+
+  private _onEscKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && this._isFullscreen) {
+      e.preventDefault();
+      e.stopPropagation();
+      this._toggleSessionFullscreen();
+    }
+  };
+
+  override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    document.removeEventListener("keydown", this._onEscKey);
   }
 
   private _getLatestPreview(agentId: string): string {
@@ -953,6 +1027,54 @@ export class TopologyBar extends LitElement {
             <rect x="3" y="14" width="7" height="7" rx="1"></rect>
             <rect x="14" y="14" width="7" height="7" rx="1"></rect>
           </svg>
+        </div>
+
+        <!-- 全屏会话按钮 -->
+        <div
+          class="fullscreen-session-btn ${this._isFullscreen ? "active" : ""}"
+          role="button"
+          tabindex="0"
+          aria-label=${this._isFullscreen ? "退出全屏 (ESC)" : "全屏会话，ESC 退出"}
+          title=${this._isFullscreen ? "退出全屏 (ESC)" : "全屏会话，ESC 退出"}
+          @click=${() => this._toggleSessionFullscreen()}
+          @keydown=${(e: KeyboardEvent) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              this._toggleSessionFullscreen();
+            }
+          }}
+        >
+          ${this._isFullscreen
+            ? html`<svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="4 14 10 14 10 20"></polyline>
+                <polyline points="20 10 14 10 14 4"></polyline>
+                <line x1="14" y1="10" x2="21" y2="3"></line>
+                <line x1="3" y1="21" x2="10" y2="14"></line>
+              </svg>`
+            : html`<svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="15 3 21 3 21 9"></polyline>
+                <polyline points="9 21 3 21 3 15"></polyline>
+                <line x1="21" y1="3" x2="14" y2="10"></line>
+                <line x1="3" y1="21" x2="10" y2="14"></line>
+              </svg>`}
         </div>
       </div>
     `;

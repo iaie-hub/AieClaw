@@ -85,6 +85,8 @@ export class MainWorkspace extends LitElement {
   @state() private _userLayoutChoice: LayoutMode = "single";
   /** 小屏时禁用布局切换按钮 */
   @state() private _layoutDisabled = false;
+  /** 整个会话界面是否全屏 */
+  @state() private _sessionFullscreen = false;
 
   /** ResizeObserver 实例 */
   private _resizeObserver: ResizeObserver | null = null;
@@ -138,6 +140,20 @@ export class MainWorkspace extends LitElement {
         0 1px 2px rgba(0, 0, 0, 0.03);
       border: 1px solid #eef2f8;
       position: relative;
+    }
+
+    .primary-panel.session-fullscreen {
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      right: 0 !important;
+      bottom: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      z-index: 9998 !important;
+      border-radius: 0 !important;
+      border: none !important;
+      flex: none !important;
     }
 
     /* ── chat-workspace: 主聊天区 ── */
@@ -537,6 +553,10 @@ export class MainWorkspace extends LitElement {
 
   private _onLayoutToggle = () => {
     this._layoutPanelOpen = !this._layoutPanelOpen;
+  };
+
+  private _onSessionFullscreenToggle = (e: CustomEvent<{ fullscreen: boolean }>) => {
+    this._sessionFullscreen = e.detail.fullscreen;
   };
 
   private _onLayoutChange(e: CustomEvent<{ mode: LayoutMode }>): void {
@@ -1112,7 +1132,7 @@ export class MainWorkspace extends LitElement {
               @toggle-tool-messages=${this._onToggleToolMessages}
             ></main-header>
             <div class="workspace-content">
-              <div class="primary-panel">
+              <div class="primary-panel ${this._sessionFullscreen ? "session-fullscreen" : ""}">
                 ${showTopo
                   ? html`
                       <topology-bar
@@ -1131,6 +1151,7 @@ export class MainWorkspace extends LitElement {
                         @agent-expand=${this._onAgentExpand}
                         @agent-collapse=${this._onAgentCollapse}
                         @layout-toggle=${this._onLayoutToggle}
+                        @session-fullscreen-toggle=${this._onSessionFullscreenToggle}
                       ></topology-bar>
                     `
                   : nothing}

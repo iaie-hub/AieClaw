@@ -72,6 +72,7 @@ export class AgentPanel extends LitElement {
   @state() private _settingsOpen = false;
   @state() private _loadingMore = false;
   @state() private _isAtBottom = true;
+  @state() private _isFullscreen = false;
 
   private _wheelAccumulator = 0;
   private _eventsBound = false;
@@ -102,6 +103,21 @@ export class AgentPanel extends LitElement {
 
     :host([selected]) {
       border-color: #7c3aed;
+    }
+
+    /* ── 全屏模式 ── */
+    :host([fullscreen]) {
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      right: 0 !important;
+      bottom: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      z-index: 9999 !important;
+      border-radius: 0 !important;
+      border: none !important;
+      flex: none !important;
     }
 
     /* ── Sub variant header ── */
@@ -209,6 +225,32 @@ export class AgentPanel extends LitElement {
     .header-btn:hover {
       color: #475569;
       background: #e2e8f0;
+    }
+
+    .fullscreen-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #94a3b8;
+      padding: 3px 5px;
+      border-radius: 5px;
+      line-height: 1;
+      font-size: 12px;
+      transition: all 0.15s;
+    }
+
+    .fullscreen-btn:hover {
+      color: #2563eb;
+      background: #eff6ff;
+    }
+
+    :host([fullscreen]) .fullscreen-btn {
+      color: #ef4444;
+    }
+
+    :host([fullscreen]) .fullscreen-btn:hover {
+      color: #dc2626;
+      background: #fef2f2;
     }
 
     /* ── 消息容器 ── */
@@ -388,12 +430,15 @@ export class AgentPanel extends LitElement {
     super.connectedCallback();
     this.addEventListener("summary-click", this._onSummaryClick as EventListener);
     this.addEventListener("quick-reply", this._onQuickReply as EventListener);
+    this.addEventListener("dblclick", this._onDblClick);
   }
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
     this.removeEventListener("summary-click", this._onSummaryClick as EventListener);
     this.removeEventListener("quick-reply", this._onQuickReply as EventListener);
+    this.removeEventListener("dblclick", this._onDblClick);
+    document.removeEventListener("keydown", this._onEscKey);
     if (this._container) {
       this._container.removeEventListener("scroll", this._onScroll);
       this._container.removeEventListener("wheel", this._onWheel);
@@ -679,6 +724,36 @@ export class AgentPanel extends LitElement {
     );
   }
 
+  // ── 全屏操作 ──────────────────────────────────────────────────────────────
+
+  private _toggleFullscreen() {
+    this._isFullscreen = !this._isFullscreen;
+    if (this._isFullscreen) {
+      this.setAttribute("fullscreen", "");
+      document.addEventListener("keydown", this._onEscKey);
+    } else {
+      this.removeAttribute("fullscreen");
+      document.removeEventListener("keydown", this._onEscKey);
+    }
+  }
+
+  private _onEscKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && this._isFullscreen) {
+      e.preventDefault();
+      e.stopPropagation();
+      this._toggleFullscreen();
+    }
+  };
+
+  private _onDblClick = (e: Event) => {
+    // 避免双击按钮、输入框等元素时触发全屏
+    const target = e.target as HTMLElement;
+    if (target.closest("button, input, textarea, a, .settings-panel, .settings-overlay")) {
+      return;
+    }
+    this._toggleFullscreen();
+  };
+
   /** 供外部调用：通知面板用户刚发送了消息，触发滚动对齐 */
   notifySent() {
     this._isAtBottom = true;
@@ -712,6 +787,44 @@ export class AgentPanel extends LitElement {
             : nothing}
         </div>
         <div class="header-actions">
+          <button
+            class="fullscreen-btn"
+            @click=${() => this._toggleFullscreen()}
+            title=${this._isFullscreen ? "退出全屏 (ESC)" : "全屏查看，ESC 退出"}
+            aria-label=${this._isFullscreen ? "退出全屏" : "全屏查看"}
+          >
+            ${this._isFullscreen
+              ? html`<svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="4 14 10 14 10 20"></polyline>
+                  <polyline points="20 10 14 10 14 4"></polyline>
+                  <line x1="14" y1="10" x2="21" y2="3"></line>
+                  <line x1="3" y1="21" x2="10" y2="14"></line>
+                </svg>`
+              : html`<svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="15 3 21 3 21 9"></polyline>
+                  <polyline points="9 21 3 21 3 15"></polyline>
+                  <line x1="21" y1="3" x2="14" y2="10"></line>
+                  <line x1="3" y1="21" x2="10" y2="14"></line>
+                </svg>`}
+          </button>
           ${this.hasSummary
             ? html`<button
                 class="header-btn"
@@ -817,6 +930,44 @@ export class AgentPanel extends LitElement {
             : nothing}
         </div>
         <div class="header-actions">
+          <button
+            class="fullscreen-btn"
+            @click=${() => this._toggleFullscreen()}
+            title=${this._isFullscreen ? "退出全屏 (ESC)" : "全屏查看，ESC 退出"}
+            aria-label=${this._isFullscreen ? "退出全屏" : "全屏查看"}
+          >
+            ${this._isFullscreen
+              ? html`<svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="4 14 10 14 10 20"></polyline>
+                  <polyline points="20 10 14 10 14 4"></polyline>
+                  <line x1="14" y1="10" x2="21" y2="3"></line>
+                  <line x1="3" y1="21" x2="10" y2="14"></line>
+                </svg>`
+              : html`<svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="15 3 21 3 21 9"></polyline>
+                  <polyline points="9 21 3 21 3 15"></polyline>
+                  <line x1="21" y1="3" x2="14" y2="10"></line>
+                  <line x1="3" y1="21" x2="10" y2="14"></line>
+                </svg>`}
+          </button>
           <button
             class="header-btn"
             @click=${this._onSettingsToggle}
