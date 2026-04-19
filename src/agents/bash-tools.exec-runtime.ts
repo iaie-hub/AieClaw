@@ -306,7 +306,9 @@ function maybeNotifyOnExit(session: ProcessSession, status: "completed" | "faile
     deliveryContext: session.notifyDeliveryContext,
     trusted: false,
   });
-  requestHeartbeatNow(scopedHeartbeatWakeOptions(sessionKey, { reason: "exec-event" }));
+  requestHeartbeatNow(
+    scopedHeartbeatWakeOptions(sessionKey, { reason: "exec-event", coalesceMs: 0 }),
+  );
 }
 
 export function createApprovalSlug(id: string) {
@@ -382,7 +384,9 @@ export function emitExecSystemEvent(
     contextKey: opts.contextKey,
     deliveryContext: opts.deliveryContext,
   });
-  requestHeartbeatNow(scopedHeartbeatWakeOptions(sessionKey, { reason: "exec-event" }));
+  requestHeartbeatNow(
+    scopedHeartbeatWakeOptions(sessionKey, { reason: "exec-event", coalesceMs: 0 }),
+  );
 }
 
 function joinExecFailureOutput(aggregated: string, reason: string) {

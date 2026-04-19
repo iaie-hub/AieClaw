@@ -302,6 +302,8 @@ export type TelegramDirectConfig = {
   errorCooldownMs?: number;
   /** Auto-rename DM forum topics on first message using LLM. Default: true. */
   autoTopicLabel?: AutoTopicLabelConfig;
+  /** If true, skip automatic voice-note transcription for mention detection in this DM. */
+  disableAudioPreflight?: boolean;
 };
 
 export type TelegramConfig = {
