@@ -293,6 +293,25 @@ function handleChatEvent(store: AppStore, payload: unknown): void {
     return;
   }
 
+  // run 结束时的状态清理必须在 message 检查之前执行，
+  // 因为 chat final 事件的 message 可能为 undefined（例如模型回复被抑制时），
+  // 但 isChatting / thinking 缓存等 UI 状态仍需正确重置。
+  if (state === "final" && runId) {
+    _thinkingByRun.delete(runId);
+    store.setIsChatting(sessionUuid, false);
+
+    // 子 Agent run 结束，清除活跃状态，标记为已完成
+    if (!isRootAgent) {
+      store.clearAgentActive(sessionUuid, agentId);
+      store.markAgentCompleted(sessionUuid, agentId);
+    }
+  } else if (state === "delta" && runId) {
+    // 收到 delta 表示正在聊天，确保 UI 状态同步（即便不是由当前客户端发起的 run）
+    if (!store.isChattingBySession.get(sessionUuid)) {
+      store.setIsChatting(sessionUuid, true, runId);
+    }
+  }
+
   if (!message) {
     return;
   }
@@ -319,74 +338,6 @@ function handleChatEvent(store: AppStore, payload: unknown): void {
   // user 消息和 final 状态（最终确认）仍由此处处理。
   if (normalized.role === "assistant" && state === "delta") {
     return;
-  }
-
-  // run 结束，清理 thinking 缓存
-  if (state === "final" && runId) {
-    _thinkingByRun.delete(runId);
-    store.setIsChatting(sessionUuid, false);
-
-    // 子 Agent run 结束，清除活跃状态，标记为已完成
-    if (!isRootAgent) {
-      store.clearAgentActive(sessionUuid, agentId);
-      store.markAgentCompleted(sessionUuid, agentId);
-    }
-
-    // ── 碎片修复：Root_Agent run 结束后用 History_Range_API 替换 streaming 碎片 ──
-    if (isRootAgent && runId) {
-      void (async () => {
-        try {
-          const { getClient } = await import("./client.js");
-          const { fetchSessionHistoryRange } = await import("./session-manager.js");
-          const client = getClient();
-          const result = await fetchSessionHistoryRange(client, sessionKey);
-          const completeMessages = result.messages;
-
-          // 保留 user 和 approval(pending) 消息，用完整消息替换 assistant + tool 碎片
-          const currentMsgs = store.messagesBySession.get(sessionUuid) ?? [];
-          const preserved = currentMsgs.filter((m) => m.role === "user" || m.subType === "pending");
-
-          // 合并：保留的消息 + API 返回的完整消息（过滤掉 user、pending，且仅保留根 Agent 消息）
-          const rootAgentId = extractAgentNameFromKey(sessionKey);
-          const apiNonUserMsgs = completeMessages.filter((m) => {
-            if (m.role === "user" || m.subType === "pending") {
-              return false;
-            }
-            // 仅保留根 Agent 的消息，过滤子 Agent 消息
-            if (m.sessionKey) {
-              return extractAgentNameFromKey(m.sessionKey) === rootAgentId;
-            }
-            // 无 sessionKey 的消息：仅保留非 agent 角色的消息（兼容），
-            // agent/assistant 角色的消息若无 sessionKey 则无法确定归属，跳过
-            if (m.role === "assistant" || m.role === "Agent") {
-              return false;
-            }
-            return true; // 其他角色（system 等）保留
-          });
-
-          // 按时间戳排序合并
-          const merged = [...preserved, ...apiNonUserMsgs].toSorted(
-            (a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0),
-          );
-
-          store.messagesBySession.set(sessionUuid, merged);
-          // 同步更新 messagesByAgent 中根 Agent 的消息（Primary_Panel 数据源）
-          const agentMap = store.messagesByAgent.get(sessionUuid);
-          if (agentMap) {
-            agentMap.set(rootAgentId, merged);
-          }
-          store.notify();
-        } catch (err) {
-          console.error("[mas4s:event-handler] fragment repair failed:", err);
-          // 失败时保留现有消息不做替换
-        }
-      })();
-    }
-  } else if (state === "delta" && runId) {
-    // 收到 delta 表示正在聊天，确保 UI 状态同步（即便不是由当前客户端发起的 run）
-    if (!store.isChattingBySession.get(sessionUuid)) {
-      store.setIsChatting(sessionUuid, true, runId);
-    }
   }
 
   // 所有消息路由到 messagesByAgent（无论视图模式）

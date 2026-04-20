@@ -107,6 +107,9 @@ export class MainWorkspace extends LitElement {
   private _prevUnreadSnapshot = new Set<string>();
   /** 全局输入框当前目标："root" 或子 Agent ID */
   @state() private _activeInputTarget = "root";
+
+  /** 图片预览 URL */
+  @state() private _previewImageUrl: string | null = null;
   static styles = css`
     :host {
       display: flex;
@@ -140,6 +143,71 @@ export class MainWorkspace extends LitElement {
         0 1px 2px rgba(0, 0, 0, 0.03);
       border: 1px solid #eef2f8;
       position: relative;
+    }
+
+    /* ── 图片预览灯箱 ── */
+    .image-lightbox {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: rgba(0, 0, 0, 0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: zoom-out;
+      animation: fadeIn 0.15s ease-out;
+      backdrop-filter: blur(4px);
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    .lightbox-image {
+      max-width: 90vw;
+      max-height: 90vh;
+      object-fit: contain;
+      border-radius: 4px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      animation: scaleIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @keyframes scaleIn {
+      from {
+        transform: scale(0.9);
+        opacity: 0;
+      }
+      to {
+        transform: scale(1);
+        opacity: 1;
+      }
+    }
+
+    .lightbox-close {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      width: 40px;
+      height: 40px;
+      background: rgba(255, 255, 255, 0.1);
+      border: none;
+      border-radius: 50%;
+      color: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .lightbox-close:hover {
+      background: rgba(255, 255, 255, 0.2);
+      transform: scale(1.1);
     }
 
     .primary-panel.session-fullscreen {
@@ -394,6 +462,7 @@ export class MainWorkspace extends LitElement {
 
   override connectedCallback(): void {
     super.connectedCallback();
+    this.addEventListener("preview-image", this._onPreviewImage as EventListener);
     if (typeof ResizeObserver === "undefined") {
       return;
     }
@@ -451,6 +520,7 @@ export class MainWorkspace extends LitElement {
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
+    this.removeEventListener("preview-image", this._onPreviewImage as EventListener);
     if (this._resizeObserver) {
       this._resizeObserver.disconnect();
       this._resizeObserver = null;
@@ -584,7 +654,17 @@ export class MainWorkspace extends LitElement {
 
     // Task 9.2: ResizeObserver 会在下一帧通过 resolveEffectiveLayout 应用响应式降级
     // 此处直接设置用户选择，让 ResizeObserver 异步纠正
+    // 此处直接设置用户选择，让 ResizeObserver 异步纠正
   }
+
+  private _onPreviewImage = (e: CustomEvent<{ url: string }>) => {
+    e.stopPropagation();
+    this._previewImageUrl = e.detail.url;
+  };
+
+  private _closePreview = () => {
+    this._previewImageUrl = null;
+  };
 
   private _onClickOutsidePanel = (e: Event) => {
     // 使用 composedPath 确保 Shadow DOM 边界内的点击检测正确
@@ -1026,16 +1106,8 @@ export class MainWorkspace extends LitElement {
 
   // ── 其他事件转发 ──────────────────────────────────────────────────────────
 
-  private _onSendMessage = (e: CustomEvent) => {
-    e.stopPropagation();
-    this.dispatchEvent(
-      new CustomEvent("send-message", {
-        detail: e.detail,
-        bubbles: true,
-        composed: true,
-      }),
-    );
-  };
+  // NOTE: _onSendMessage 和 _onResolve 等转发函数已移除。
+  // 我们现在依靠事件冒泡 (composed: true) 让子组件 (chat-input, agent-panel) 的事件自然达到 app-shell。
 
   private _onInviteClick = () => {
     this.dispatchEvent(
@@ -1052,13 +1124,6 @@ export class MainWorkspace extends LitElement {
         new CustomEvent("summary-click", { detail: e.detail, bubbles: true, composed: false }),
       );
     }
-  };
-
-  private _onResolve = (e: CustomEvent) => {
-    e.stopPropagation();
-    this.dispatchEvent(
-      new CustomEvent("resolve-approval", { detail: e.detail, bubbles: true, composed: true }),
-    );
   };
 
   private _onSessionArchive = (e: CustomEvent) => {
@@ -1126,7 +1191,6 @@ export class MainWorkspace extends LitElement {
               .showToolMessages=${this.showToolMessages}
               @invite-click=${this._onInviteClick}
               @summary-click=${this._onSummaryClick}
-              @resolve-approval=${this._onResolve}
               @session-archive=${this._onSessionArchive}
               @session-unarchive=${this._onSessionUnarchive}
               @toggle-tool-messages=${this._onToggleToolMessages}
@@ -1187,7 +1251,6 @@ export class MainWorkspace extends LitElement {
                             .progressLogs=${this.progressLogs}
                             .currentStepIndex=${this.currentStepIndex}
                             .sopCompletedAt=${this.sopCompletedAt}
-                            @resolve=${this._onResolve}
                             @load-more-history=${this._onLoadMoreHistory}
                             @abort-chat=${this._onAbortChat}
                           ></agent-panel>
@@ -1228,7 +1291,6 @@ export class MainWorkspace extends LitElement {
                         .isChatting=${this.isChatting}
                         .agents=${this.agents}
                         .rootAgentName=${rootAgentName}
-                        @send-message=${this._onSendMessage}
                         @drawer-send-message=${this._onDrawerSendMessage}
                         @abort-chat=${this._onAbortChat}
                       ></global-input-bar>
@@ -1250,7 +1312,6 @@ export class MainWorkspace extends LitElement {
                         .isChatting=${this.isChatting}
                         .agents=${this.agents}
                         .rootAgentName=${rootAgentName}
-                        @send-message=${this._onSendMessage}
                         @drawer-send-message=${this._onDrawerSendMessage}
                         @abort-chat=${this._onAbortChat}
                       ></global-input-bar>
@@ -1276,6 +1337,28 @@ export class MainWorkspace extends LitElement {
               <div class="placeholder">该视图正在开发中…</div>
             </div>
           `}
+      ${this._previewImageUrl
+        ? html`
+            <div class="image-lightbox" @click=${this._closePreview}>
+              <img class="lightbox-image" src=${this._previewImageUrl} />
+              <button class="lightbox-close" @click=${this._closePreview}>
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+          `
+        : nothing}
     `;
   }
 }

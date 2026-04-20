@@ -398,6 +398,12 @@ export type GatewayConfig = {
    */
   mode?: "local" | "remote";
   /**
+   * Shared JWT secret for AIEMAS multi-tenant auth (MAS4S_JWT_SECRET).
+   * When set, both the gateway and gateway-proxy use this secret to sign
+   * and verify JWT tokens, ensuring token interoperability.
+   */
+  jwtSecret?: string;
+  /**
    * Bind address policy for the Gateway WebSocket + Control UI HTTP server.
    * - auto: Loopback (127.0.0.1) if available, else 0.0.0.0 (fallback to all interfaces)
    * - lan: 0.0.0.0 (all interfaces, no fallback)

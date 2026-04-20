@@ -1,5 +1,6 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import type { ChatAttachment } from "../lib/chat-types.js";
 import type { MasSession } from "../types/session-types.js";
 import "../views/chat-input.js";
 
@@ -154,26 +155,28 @@ export class GlobalInputBar extends LitElement {
       padding-bottom: 0;
     }
   `;
-
-  private _onSendMessage = (e: CustomEvent<{ sessionKey: string; text: string }>) => {
-    e.stopPropagation();
+  private _onSendMessage = (
+    e: CustomEvent<{ sessionKey: string; text: string; attachments?: ChatAttachment[] }>,
+  ) => {
     if (this.activeTarget === "root") {
-      this.dispatchEvent(
-        new CustomEvent("send-message", {
-          detail: e.detail,
-          bubbles: true,
-          composed: true,
-        }),
-      );
-    } else {
-      this.dispatchEvent(
-        new CustomEvent("drawer-send-message", {
-          detail: { agentId: this.activeTarget, text: e.detail.text },
-          bubbles: true,
-          composed: true,
-        }),
-      );
+      // 目标是根 Agent 时，允许 chat-input 的原始 send-message 事件自然冒泡到上层 (main-workspace / app-shell)
+      // 不再进行 e.stopPropagation() + dispatchEvent 冗余转发，避免多层转发产生重复事件
+      return;
     }
+
+    // 目标是子 Agent 时，拦截原始事件并转换为 drawer-send-message 发送
+    e.stopPropagation();
+    this.dispatchEvent(
+      new CustomEvent("drawer-send-message", {
+        detail: {
+          agentId: this.activeTarget,
+          text: e.detail.text,
+          attachments: e.detail.attachments,
+        },
+        bubbles: true,
+        composed: true,
+      }),
+    );
   };
 
   private _onAbortChat = (e: Event) => {

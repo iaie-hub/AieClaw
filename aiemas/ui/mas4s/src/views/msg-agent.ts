@@ -225,7 +225,7 @@ export class MsgAgent extends LitElement {
       text-decoration: underline;
     }
     .message-bubble strong {
-      font-weight: 600;
+      font-weight: 700;
     }
     .message-bubble em {
       font-style: italic;
@@ -432,6 +432,30 @@ export class MsgAgent extends LitElement {
       background: #f1f5f9;
       font-weight: 600;
     }
+
+    .message-image-container {
+      margin-top: 8px;
+      max-width: 400px;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      display: flex;
+    }
+
+    .message-image {
+      width: 100%;
+      height: auto;
+      max-height: 500px;
+      object-fit: contain;
+      display: block;
+      cursor: pointer;
+      transition: filter 0.2s;
+    }
+
+    .message-image:hover {
+      filter: brightness(0.9);
+    }
   `;
 
   private _renderContent(items: MessageContentItem[]) {
@@ -508,6 +532,26 @@ export class MsgAgent extends LitElement {
         return html`
           <div class="tool-cards">
             <msg-tool-card .item=${item} .hasResult=${hasResult}></msg-tool-card>
+          </div>
+        `;
+      }
+
+      if (item.type === "image" || item.type === "image_url") {
+        return html`
+          <div class="message-image-container">
+            <img
+              class="message-image"
+              src=${item.args?.["url"] ?? item.args?.["dataUrl"] ?? ""}
+              alt="Image"
+              @click=${() =>
+                this.dispatchEvent(
+                  new CustomEvent("preview-image", {
+                    detail: { url: item.args?.["url"] ?? item.args?.["dataUrl"] },
+                    bubbles: true,
+                    composed: true,
+                  }),
+                )}
+            />
           </div>
         `;
       }

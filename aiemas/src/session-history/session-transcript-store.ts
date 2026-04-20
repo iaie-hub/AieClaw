@@ -899,7 +899,7 @@ export class SessionTranscriptStore {
         return;
       }
       // Drain the buffer atomically.
-      const msgs = this.buffer.splice(0, this.buffer.length);
+      const msgs = this.buffer.splice(0);
       this.persistBatch(msgs);
     } catch (err) {
       console.error("[mas4s:transcript-store] flush error:", err);

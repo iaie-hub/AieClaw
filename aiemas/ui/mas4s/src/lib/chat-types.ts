@@ -6,6 +6,8 @@
 export type MessageContentItem = {
   type:
     | "text"
+    | "image"
+    | "image_url"
     | "tool_call"
     | "tool_result"
     | "thinking"
@@ -32,4 +34,13 @@ export type NormalizedMessage = {
   toolName?: string;
   isError?: boolean;
   subType?: string;
+};
+
+/** Attachment structure for input bar and previews */
+export type ChatAttachment = {
+  id: string; // client-side unique id
+  type: string; // mime type
+  name: string;
+  dataUrl?: string; // for images preview
+  file?: File;
 };

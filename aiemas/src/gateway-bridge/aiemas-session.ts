@@ -458,7 +458,7 @@ export function createSessionCascadeService(
       // 使用可变副本，因为后续会修改 descendantSessions
       const activeSessions = allSessions
         .filter((s) => s.agentId === rootAgentId)
-        .map((s) => ({ ...s, descendantSessions: [...s.descendantSessions] }));
+        .map((s) => Object.assign(s, { descendantSessions: Array.from(s.descendantSessions) }));
 
       console.log(
         `[mas4s:syncTopology] Found ${activeSessions.length} active sessions to sync for ${rootAgentId}`,

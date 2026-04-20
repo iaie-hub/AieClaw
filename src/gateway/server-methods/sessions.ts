@@ -97,13 +97,12 @@ import { assertValidParams } from "./validation.js";
 
 const log = createSubsystemLogger("gateway/sessions");
 
-type SessionsRuntimeModule = typeof import("./sessions.runtime.js");
+import * as sessionsRuntimeModule from "./sessions.runtime.js";
 
-let sessionsRuntimeModulePromise: Promise<SessionsRuntimeModule> | undefined;
+type SessionsRuntimeModule = typeof sessionsRuntimeModule;
 
 function loadSessionsRuntimeModule(): Promise<SessionsRuntimeModule> {
-  sessionsRuntimeModulePromise ??= import("./sessions.runtime.js");
-  return sessionsRuntimeModulePromise;
+  return Promise.resolve(sessionsRuntimeModule);
 }
 
 function requireSessionKey(key: unknown, respond: RespondFn): string | null {

@@ -162,15 +162,17 @@ export function queryHistoryRange(
   // Only resolve display names for user messages; assistant/tool messages
   // render as "Agent" in the UI (senderLabel=null), matching real-time behavior.
   const { resolveDisplayName } = params;
-  const enriched: StoredMessageWithSender[] = messages.map((m) => ({
-    ...m,
-    senderLabel:
-      m.role === "agent" && m.sourceAgentId
-        ? `Agent: ${m.sourceAgentId}`
-        : m.role === "user" && m.userId && resolveDisplayName
-          ? (resolveDisplayName(m.userId) ?? null)
-          : null,
-  }));
+  const enriched: StoredMessageWithSender[] = messages.map(
+    (m) =>
+      Object.assign(m, {
+        senderLabel:
+          m.role === "agent" && m.sourceAgentId
+            ? `Agent: ${m.sourceAgentId}`
+            : m.role === "user" && m.userId && resolveDisplayName
+              ? (resolveDisplayName(m.userId) ?? null)
+              : null,
+      }) as StoredMessageWithSender,
+  );
 
   // ── Session-level statistics from session_msg_statistic ──────────────────
   // Read the pre-aggregated row so we never need a COUNT(*) on session_messages.
