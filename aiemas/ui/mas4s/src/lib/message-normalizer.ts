@@ -277,6 +277,15 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
         }
         continue;
       }
+      // [image:<mimeType>] <url> prefix — image stored for history replay
+      const imageMatch = /^\[image:([^\]]+)\]\s+(.+)$/.exec(processedLine);
+      if (imageMatch) {
+        flushText();
+        const mimeType = imageMatch[1] ?? "image/png";
+        const url = imageMatch[2] ?? "";
+        items.push({ type: "image", args: { url, mimeType } });
+        continue;
+      }
       textLines.push(line);
     }
     flushText();

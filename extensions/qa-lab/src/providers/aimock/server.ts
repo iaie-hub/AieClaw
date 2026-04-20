@@ -1,15 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-// @ts-expect-error missing module in this environment
-import { LLMock, type JournalEntry, type Mountable } from "@copilotkit/aimock";
-
-type ChatCompletionRequest = {
-  messages?: Array<{
-    role?: string;
-    content?: unknown;
-    [key: string]: unknown;
-  }>;
-  model?: string;
-} & Record<string, unknown>;
+import {
+  LLMock,
+  type JournalEntry,
+  type Mountable,
+  type ChatCompletionRequest,
+} from "@copilotkit/aimock";
 
 type AimockRequestSnapshot = {
   raw: string;

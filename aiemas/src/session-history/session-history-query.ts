@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import type { StoredMessage } from "./session-transcript-store.js";
 
@@ -218,4 +219,51 @@ export function queryHistoryRange(
     hasSummary,
     sessionStats,
   };
+}
+
+// ── Image inlining ───────────────────────────────────────────────────────────
+
+const IMAGE_LINE_RE = /^\[image:([^\]]+)\]\s+(.+)$/;
+
+/** Maximum file size (bytes) to inline as base64. Files larger than this are skipped. */
+const MAX_INLINE_BYTES = 5 * 1024 * 1024; // 5 MB
+
+/**
+ * Scan `content` for `[image:<mime>] <filePath>` lines and replace the file
+ * path with an inline `data:` URL so the frontend can render the image
+ * directly without a separate media-serving endpoint.
+ *
+ * Lines whose file cannot be read (missing, too large, permission error) are
+ * kept unchanged — the frontend can show a placeholder for those.
+ */
+export function inlineImageContent(content: string): string {
+  const lines = content.split("\n");
+  const result: string[] = [];
+  for (const line of lines) {
+    const match = IMAGE_LINE_RE.exec(line);
+    if (match) {
+      const mimeType = match[1];
+      const filePath = match[2];
+      // Already inlined (data: URL) — keep as-is
+      if (filePath.startsWith("data:")) {
+        result.push(line);
+        continue;
+      }
+      try {
+        const buf = readFileSync(filePath);
+        if (buf.byteLength > MAX_INLINE_BYTES) {
+          result.push(line);
+          continue;
+        }
+        const b64 = buf.toString("base64");
+        result.push(`[image:${mimeType}] data:${mimeType};base64,${b64}`);
+      } catch {
+        // File missing or unreadable — keep original path for graceful degradation
+        result.push(line);
+      }
+    } else {
+      result.push(line);
+    }
+  }
+  return result.join("\n");
 }

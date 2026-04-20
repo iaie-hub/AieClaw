@@ -84,6 +84,16 @@ export function registerSessionHandlers(handlers: SimpleHandlers, deps: SessionH
         buffered,
         resolveDisplayName: (userId) => tenantService.resolveDisplayName(userId),
       });
+
+      // Inline image file content as data: URLs so the frontend can render
+      // history images without a separate media-serving endpoint.
+      const { inlineImageContent } = await import("../session-history/session-history-query.js");
+      for (const msg of result.messages) {
+        if (msg.content.includes("[image:")) {
+          msg.content = inlineImageContent(msg.content);
+        }
+      }
+
       console.log(
         `[mas4s:session.history.range] result: total=${result.total} page=${result.page}/${result.totalPages} messages=${result.messages.length} hasSummary=${result.hasSummary}`,
       );
