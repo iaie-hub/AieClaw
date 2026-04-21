@@ -58,6 +58,7 @@ function createInMemoryBridge(root: string, files: Map<string, string>): Sandbox
       files.delete(fromPath);
     },
     stat: async ({ filePath, cwd }) => readStat(resolveAbsolute(filePath, cwd)),
+    readdir: async () => [],
   };
 }
 

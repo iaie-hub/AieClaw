@@ -64,6 +64,18 @@ function createMemoryPatchSandbox(initialFiles: Record<string, string> = {}) {
         : { type: "file", size: Buffer.byteLength(contents), mtimeMs: 0 };
     },
     mkdirp: async () => {},
+    readdir: async ({ filePath: dirPath }) => {
+      const prefix = dirPath.endsWith("/") ? dirPath : `${dirPath}/`;
+      const results = new Set<string>();
+      for (const filePath of files.keys()) {
+        if (filePath.startsWith(prefix)) {
+          const relative = filePath.slice(prefix.length);
+          const name = relative.split("/")[0];
+          results.add(name);
+        }
+      }
+      return Array.from(results);
+    },
   };
   return {
     files,
@@ -481,6 +493,7 @@ describe("applyPatch", () => {
         files.delete(filePath);
       }),
       mkdirp: vi.fn(async () => {}),
+      readdir: vi.fn(async () => []),
     };
 
     const patch = `*** Begin Patch

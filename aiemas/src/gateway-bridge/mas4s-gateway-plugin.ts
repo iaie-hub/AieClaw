@@ -1,7 +1,8 @@
 import { TenantServiceError } from "../errors.js";
 import type { TenantServiceConfig } from "../index.js";
 import { createTenantService } from "../index.js";
-import { deleteSummary, deleteSessionMessages } from "../session-history/session-summary-store.js";
+import { deleteSessionMedia } from "../session-history/session-media-store.js";
+import { deleteSessionMessages } from "../session-history/session-summary-store.js";
 import { createAiemasSessionsStore } from "../store/aiemas-sessions-store.js";
 import type { SimpleHandlers, Mas4sGatewayPlugin, GatewayDispatchFn } from "./aiemas-types.js";
 import { errorShape } from "./aiemas-utils.js";
@@ -62,8 +63,8 @@ export async function createMas4sGatewayPlugin(
           const { extractUuidFromKey } = require("../utils/session-utils.js");
           const uuid = extractUuidFromKey(event.sessionKey);
           sessionStore.deleteRootSession(event.sessionKey);
-          deleteSummary(messageDb, uuid);
           deleteSessionMessages(messageDb, uuid);
+          deleteSessionMedia(messageDb, uuid);
         }
         return;
       }

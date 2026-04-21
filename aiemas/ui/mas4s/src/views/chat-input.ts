@@ -419,7 +419,7 @@ export class ChatInput extends LitElement {
           @input=${this._onInput}
           @keydown=${this._onKeyDown}
         ></textarea>
-        ${this.isChatting && !this._inputText.trim() && this._attachments.length === 0
+        ${this.isChatting
           ? html`
               <button class="abort-btn" @click=${this._onAbort} title="中止生成">
                 <svg

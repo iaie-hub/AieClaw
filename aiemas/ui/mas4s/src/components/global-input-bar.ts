@@ -22,6 +22,8 @@ export class GlobalInputBar extends LitElement {
   @property({ attribute: false }) session: MasSession | undefined = undefined;
   /** 是否正在对话中（根 Agent） */
   @property({ type: Boolean }) isChatting = false;
+  /** 正在执行中的子 Agent 集合 */
+  @property({ attribute: false }) activeAgents: Set<string> = new Set();
   /** Agent 信息列表（用于显示目标名称） */
   @property({ attribute: false })
   agents: { id: string; name?: string }[] = [];
@@ -243,7 +245,7 @@ export class GlobalInputBar extends LitElement {
           ${inputSession
             ? html`<chat-input
                 .session=${inputSession}
-                .isChatting=${isRoot ? this.isChatting : false}
+                .isChatting=${isRoot ? this.isChatting : this.activeAgents.has(this.activeTarget)}
                 @send-message=${this._onSendMessage}
                 @abort-chat=${this._onAbortChat}
               ></chat-input>`

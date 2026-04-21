@@ -1289,6 +1289,7 @@ export class MainWorkspace extends LitElement {
                         .activeTarget=${this._activeInputTarget}
                         .session=${this.session}
                         .isChatting=${this.isChatting}
+                        .activeAgents=${this.activeAgents}
                         .agents=${this.agents}
                         .rootAgentName=${rootAgentName}
                         @drawer-send-message=${this._onDrawerSendMessage}
@@ -1310,6 +1311,7 @@ export class MainWorkspace extends LitElement {
                         .activeTarget=${this._activeInputTarget}
                         .session=${this.session}
                         .isChatting=${this.isChatting}
+                        .activeAgents=${this.activeAgents}
                         .agents=${this.agents}
                         .rootAgentName=${rootAgentName}
                         @drawer-send-message=${this._onDrawerSendMessage}

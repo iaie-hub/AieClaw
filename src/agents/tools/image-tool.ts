@@ -460,6 +460,7 @@ export function createImageTool(options?: {
                 sandbox: sandboxConfig,
                 mediaPath: resolvedImage,
                 inboundFallbackDir: "media/inbound",
+                recentFallback: true,
               })
             : {
                 resolved: resolvedImage.startsWith("file://")

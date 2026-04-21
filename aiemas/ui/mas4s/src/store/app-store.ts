@@ -4,7 +4,7 @@ import type { ChatMessage } from "../types/chat-types.js";
 import type { LayoutMode } from "../types/layout-types.js";
 import type { MasSession, MasParticipant } from "../types/session-types.js";
 import type { SkillStatusReport } from "../types/skills-types.js";
-import { extractAgentNameFromKey } from "../utils/session-utils.js";
+import { extractAgentNameFromKey, extractUuidFromKey } from "../utils/session-utils.js";
 
 export type GlobalRole = "admin" | "member" | "viewer";
 
@@ -88,7 +88,11 @@ export class AppStore {
   activeSessionUuid: string | null = null;
 
   get activeSession(): MasSession | undefined {
-    return this.sessions.find((s) => s.sessionUuid === this.activeSessionUuid);
+    return this.sessions.find(
+      (s) =>
+        s.sessionUuid === this.activeSessionUuid ||
+        extractUuidFromKey(s.key) === this.activeSessionUuid,
+    );
   }
 
   /** 获取当前活跃会话的网关 sessionKey */
@@ -509,8 +513,13 @@ export class AppStore {
       this.messagesByAgent.set(sessionUuid, agentMap);
     }
     const msgs = agentMap.get(agentId) ?? [];
-    // 去重：如果末尾消息 id 相同，跳过（防止 agent + session.tool 双路径重复追加）
-    if (msg.id && msgs.length > 0 && msgs[msgs.length - 1].id === msg.id) {
+    // 去重：如果末尾消息 id 和 role 都相同，跳过（防止 agent + session.tool 双路径重复追加）
+    if (
+      msg.id &&
+      msgs.length > 0 &&
+      msgs[msgs.length - 1].id === msg.id &&
+      msgs[msgs.length - 1].role === msg.role
+    ) {
       return;
     }
     msgs.push(msg);

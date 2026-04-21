@@ -193,6 +193,22 @@ class OpenShellFsBridge implements SandboxFsBridge {
     };
   }
 
+  async readdir(params: {
+    filePath: string;
+    cwd?: string;
+    signal?: AbortSignal;
+  }): Promise<string[]> {
+    const target = this.resolveTarget(params);
+    const hostPath = this.requireHostPath(target);
+    await assertLocalPathSafety({
+      target,
+      root: target.mountHostRoot,
+      allowMissingLeaf: false,
+      allowFinalSymlinkForUnlink: false,
+    });
+    return await fsPromises.readdir(hostPath);
+  }
+
   private ensureWritable(target: ResolvedMountPath, action: string) {
     if (this.sandbox.workspaceAccess !== "rw" || !target.writable) {
       throw new Error(`Sandbox path is read-only; cannot ${action}: ${target.containerPath}`);

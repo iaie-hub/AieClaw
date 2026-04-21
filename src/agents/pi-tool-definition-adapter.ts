@@ -138,11 +138,17 @@ function buildToolExecutionErrorResult(params: {
   toolName: string;
   message: string;
 }): AgentToolResult<unknown> {
-  return jsonResult({
+  const result = jsonResult({
     status: "error",
     tool: params.toolName,
     error: params.message,
   });
+  (result as unknown as { isError?: boolean }).isError = true;
+  if (result.content[0]) {
+    // Also tag the individual content item for UI normalizers that iterate over content
+    (result.content[0] as unknown as { isError?: boolean }).isError = true;
+  }
+  return result;
 }
 
 function splitToolExecuteArgs(args: ToolExecuteArgsAny): {

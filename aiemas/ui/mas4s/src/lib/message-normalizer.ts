@@ -308,14 +308,31 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
       if ((role === "tool" || role === "toolResult") && type === "text" && text) {
         type = "tool_result";
       }
+      let isError = (item.isError as boolean | undefined) ?? (m.isError as boolean | undefined);
+      // Auto-identify error status in structured tool results if not already flagged
+      if (!isError && type === "tool_result" && text) {
+        try {
+          const parsed = JSON.parse(text) as unknown;
+          if (
+            parsed &&
+            typeof parsed === "object" &&
+            ((parsed as Record<string, unknown>).status === "error" ||
+              !!(parsed as Record<string, unknown>).error)
+          ) {
+            isError = true;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       return {
         type,
         text,
         thinking: item.thinking as string | undefined,
         name: item.name as string | undefined,
         args: item.args ?? item.arguments,
-        // Carry over isError if present
-        isError: (item.isError as boolean | undefined) ?? (m.isError as boolean | undefined),
+        isError,
       } as MessageContentItem;
     });
   } else if (typeof m.text === "string") {
