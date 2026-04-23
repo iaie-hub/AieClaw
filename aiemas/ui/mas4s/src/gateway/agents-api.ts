@@ -124,10 +124,9 @@ export async function fetchCronList(client: GatewayBrowserClient): Promise<Agent
 /** 创建智能体 */
 export async function createAgent(
   client: GatewayBrowserClient,
-  name: string,
-  workspace: string,
+  params: { name: string; agentId: string; workspace: string },
 ): Promise<AgentEntry & { ok?: true }> {
-  return client.request("agents.create", { name, workspace });
+  return client.request("agents.create", params);
 }
 
 /** 删除智能体 */

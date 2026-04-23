@@ -58,6 +58,7 @@ export const AgentsListResultSchema = Type.Object(
 export const AgentsCreateParamsSchema = Type.Object(
   {
     name: NonEmptyString,
+    agentId: Type.Optional(NonEmptyString),
     workspace: NonEmptyString,
     model: Type.Optional(NonEmptyString),
     emoji: Type.Optional(Type.String()),

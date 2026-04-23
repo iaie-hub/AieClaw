@@ -458,7 +458,7 @@ export const agentsHandlers: GatewayRequestHandlers = {
 
     const cfg = loadConfig();
     const rawName = params.name.trim();
-    const agentId = normalizeAgentId(rawName);
+    const agentId = params.agentId ? normalizeAgentId(params.agentId) : normalizeAgentId(rawName);
     if (agentId === DEFAULT_AGENT_ID) {
       respond(
         false,
