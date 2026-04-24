@@ -65,7 +65,7 @@
 #### 6.1 运行示例
 
 ```bash
-python3 scripts/mas4s_query_expand.py '{"idea": "研究多智能体协作中的长期记忆管理", "run_id": "run_20260423"}'
+python3 scripts/mas4s_idea_align_query_expand.py '{"idea": "研究多智能体协作中的长期记忆管理", "run_id": "run_20260423"}'
 ```
 
 #### 6.2 目录结构示例
@@ -74,7 +74,7 @@ python3 scripts/mas4s_query_expand.py '{"idea": "研究多智能体协作中的�
 ~/.openclaw/workspace-idea-align/task/run_20260423/
 ├── idea.txt                          # 输入
 ├── idea_query_expand.json            # 输出
-└── progress_mas4s_query_expand.jsonl  # 进度日志
+└── progress_mas4s_idea_align_query_expand.jsonl  # 进度日志
 ```
 
 #### 6.3 输出示例
@@ -103,50 +103,53 @@ python3 scripts/mas4s_query_expand.py '{"idea": "研究多智能体协作中的�
 You are an elite "Dual-Engine Academic Intelligence Expert." Your task is to transform a user's initial research idea into a highly precise, structured JSON object containing Boolean queries.
 
 You must generate TWO distinct queries for EACH dimension:
-1. `query_cn`: Optimized for Baidu Search. It MUST be a Bilingual Boolean query (mixing Chinese terms and English terms using OR) to capture domestic tech communities and translated literature.
-2. `query_en`: Optimized for arXiv/Academic APIs. It MUST be a Pure English Boolean query using rigorous academic terminology.
+1. `query_cn`: Optimized for Baidu Search. It MUST be a Bilingual Boolean query (mixing Chinese and English).
+2. `query_en`: Optimized for arXiv/Academic APIs. It MUST be a Pure English Boolean query.
 
-【Input Information】
-User's Initial Research Idea: {在此填入用户的 Idea}
+【CRITICAL OPTIMIZATION CONSTRAINTS】
+To prevent API search failures caused by overly long or complex queries, you MUST STRICTLY adhere to these limits:
+- MAX 2 SYNONYMS PER CONCEPT: Within any OR block `(...)`, you can have a maximum of 2 terms (e.g., `(A OR B)` is allowed, `(A OR B OR C)` is FORBIDDEN).
+- PRECISION OVER EXHAUSTION: Discard marginal synonyms. Pick only the absolute highest-frequency academic terms.
+- SHORT QUERIES: Keep the entire query string as short and concise as possible while retaining core meaning.
 
 【Execution Protocol & Few-Shot Examples】
-You MUST construct queries across 4 strict dimensions: SOTA, GAPS, CROSS_DISCIPLINE, and IMPLEMENTATION.
+You MUST construct concise queries across 4 strict dimensions: SOTA, GAPS, CROSS_DISCIPLINE, and IMPLEMENTATION.
 
-To ensure deep semantic accuracy, you MUST first conduct a Chain of Thought within the `"chain_of_thought"` JSON field. Analyze the user's idea, extract core entities, map them to advanced academic synonyms, and then construct the queries. Strictly mimic the structure shown in the following EXAMPLES.
+First, conduct a Chain of Thought within the `"chain_of_thought"` JSON field. Analyze the idea, extract core entities, pick ONLY the top 1-2 synonyms, and construct the queries.
 
 --- START OF EXAMPLES ---
-Assuming the User Idea is: "研究多智能体协作中的长期记忆管理" (Research on long-term memory management in multi-agent collaboration)
+Assuming the User Idea is: "研究多智能体协作中的长期记忆 management"
 
 {
   "chain_of_thought": {
-    "step_1_deconstruction": "The core concept involves two main entities: 'Multi-agent collaboration' and 'Long-term memory'.",
-    "step_2_synonym_expansion": "For 'Multi-agent': MAS, LLM Agent, Swarm. For 'Long-term memory': Memory Mechanism, State Synchronization, Context Retention.",
-    "step_3_cross_domain_mapping": "To explore CROSS_DISCIPLINE, I should bridge 'memory' with biological equivalents like 'neuroscience', 'forgetting curve', or 'cognitive psychology'. For IMPLEMENTATION, I need to link it with engineering infrastructure like 'Vector Database' or 'Mem0'."
+    "step_1_deconstruction": "Core entities: 'Multi-agent' and 'Long-term memory'.",
+    "step_2_strict_synonym_selection": "Multi-agent: MAS, Agent. Long-term memory: Memory Mechanism. SOTA keywords: review, survey.",
+    "step_3_query_construction": "I will strictly limit OR operators. SOTA will use basic terms. GAPS will use 'limitations'. CROSS_DISCIPLINE will map to 'neuroscience'."
   },
   "extracted_concepts": ["多智能体/Multi-Agent", "长期记忆/Long-term Memory"],
   "queries": [
     {
       "dimension": "SOTA",
-      "query_cn": "(多智能体 OR \"Multi-Agent\" OR MAS) AND (长期记忆 OR 记忆机制 OR \"Long-term Memory\") AND (综述 OR 最新进展 OR \"state of the art\" OR review)",
-      "query_en": "(\"Multi-Agent System\" OR MAS) AND (\"Long-term Memory\" OR \"Memory Architecture\") AND (\"state of the art\" OR survey OR review)",
+      "query_cn": "(多智能体 OR MAS) AND (长期记忆) AND (综述 OR review)",
+      "query_en": "(\"Multi-Agent\") AND (\"Long-term Memory\") AND (survey OR review)",
       "purpose": "获取该领域的最新基线与综述 (Baselines & Reviews)"
     },
     {
       "dimension": "GAPS",
-      "query_cn": "(多智能体 OR \"Multi-Agent\") AND (记忆同步 OR 状态冲突 OR \"Memory Management\") AND (痛点 OR 挑战 OR 局限性 OR limitations OR bottlenecks)",
-      "query_en": "(\"Multi-Agent\") AND (\"Memory Synchronization\" OR \"State Management\") AND (limitations OR challenges OR bottlenecks OR \"unresolved issues\")",
+      "query_cn": "(多智能体) AND (记忆同步 OR 状态冲突) AND (局限性 OR bottlenecks)",
+      "query_en": "(\"Multi-Agent\") AND (\"Memory Synchronization\") AND (limitations OR bottlenecks)",
       "purpose": "挖掘现有记忆方案的缺陷 (Identify Flaws)"
     },
     {
       "dimension": "CROSS_DISCIPLINE",
-      "query_cn": "(多智能体 OR Agent) AND (记忆网络 OR 遗忘曲线) AND (神经科学 OR 认知心理学 OR 跨学科 OR \"novel paradigm\")",
-      "query_en": "(\"Multi-Agent\") AND (\"Memory Network\" OR \"Forgetting Curve\") AND (\"neuroscience\" OR \"cognitive psychology\" OR \"cross-disciplinary\" OR \"novel approach\")",
+      "query_cn": "(智能体 OR Agent) AND (记忆网络 OR 遗忘曲线) AND (神经科学)",
+      "query_en": "(\"Multi-Agent\") AND (\"Forgetting Curve\") AND (neuroscience OR psychology)",
       "purpose": "寻找认知科学/生物学的跨学科借用 (Cross-disciplinary borrowing)"
     },
     {
       "dimension": "IMPLEMENTATION",
-      "query_cn": "(多智能体架构 OR AaaS) AND (记忆池 OR 向量数据库 OR Mem0) AND (工程实践 OR 落地场景 OR 性能优化 OR deployment)",
-      "query_en": "(\"Multi-Agent Architecture\" OR \"LLM Agent\") AND (\"Vector Database\" OR \"Memory Pool\") AND (\"real-world application\" OR deployment OR \"performance optimization\" OR \"case study\")",
+      "query_cn": "(多智能体) AND (向量数据库 OR Mem0) AND (部署 OR 性能优化)",
+      "query_en": "(\"LLM Agent\") AND (\"Vector Database\") AND (deployment OR optimization)",
       "purpose": "寻找底层架构部署的工程挑战 (Engineering Challenges)"
     }
   ]
@@ -164,5 +167,5 @@ Assuming the User Idea is: "研究多智能体协作中的长期记忆管理" (R
 
 ### 八、 SOP 观测支持
 
-- **进度文件路径**：`~/.openclaw/workspace-<agentId>/task/<run_id>/progress_mas4s_query_expand.jsonl`
+- **进度文件路径**：`~/.openclaw/workspace-<agentId>/task/<run_id>/progress_mas4s_idea_align_query_expand.jsonl`
 - **上报机制**：`lib.progress.ProgressReporter`

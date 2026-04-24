@@ -58,7 +58,7 @@
 #### 6.1 运行示例
 
 ```bash
-python3 scripts/mas4s_idea_pivot.py '{"run_id": "run_20260423", "user_feedback": "希望更侧重于底层内存管理"}'
+python3 scripts/mas4s_idea_align_idea_pivot.py '{"run_id": "run_20260423", "user_feedback": "希望更侧重于底层内存管理"}'
 ```
 
 #### 6.2 目录结构示例
@@ -68,7 +68,7 @@ python3 scripts/mas4s_idea_pivot.py '{"run_id": "run_20260423", "user_feedback":
 ├── pi_result.json                       # 输入
 ├── pivote_idea.json                     # 输出（完整 JSON）
 ├── pivote_idea.txt                     # 输出（纯文本 idea）
-└── progress_mas4s_idea_pivot.jsonl
+└── progress_mas4s_idea_align_idea_pivot.jsonl
 ```
 
 ### 七、 Prompt
@@ -114,5 +114,5 @@ You MUST output ONLY a pure, parsable JSON object. DO NOT wrap the output in Mar
 
 ### 八、 SOP 观测支持
 
-- **进度文件路径**：`~/.openclaw/workspace-<agentId>/task/<run_id>/progress_mas4s_idea_pivot.jsonl`
+- **进度文件路径**：`~/.openclaw/workspace-<agentId>/task/<run_id>/progress_mas4s_idea_align_idea_pivot.jsonl`
 - **上报机制**：`lib.progress.ProgressReporter`

@@ -55,7 +55,7 @@
 #### 6.1 运行示例
 
 ```bash
-python3 scripts/mas4s_brain_storm.py '{"run_id": "run_20260423"}'
+python3 scripts/mas4s_idea_align_brain_storm.py '{"run_id": "run_20260423"}'
 ```
 
 #### 6.2 目录结构示例
@@ -66,7 +66,7 @@ python3 scripts/mas4s_brain_storm.py '{"run_id": "run_20260423"}'
 ├── web_search_results.json             # 输入
 ├── arxiv_search_results.json           # 输入
 ├── brain_storm_result.json             # 输出
-└── progress_mas4s_brain_storm.jsonl
+└── progress_mas4s_idea_align_brain_storm.jsonl
 ```
 
 ### 七、 Prompt
@@ -150,5 +150,5 @@ Even though the instructions and JSON keys are in English, the string VALUES wit
 
 ### 八、 SOP 观测支持
 
-- **进度文件路径**：`~/.openclaw/workspace-<agentId>/task/<run_id>/progress_mas4s_brain_storm.jsonl`
+- **进度文件路径**：`~/.openclaw/workspace-<agentId>/task/<run_id>/progress_mas4s_idea_align_brain_storm.jsonl`
 - **上报机制**：`lib.progress.ProgressReporter`

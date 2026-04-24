@@ -55,7 +55,7 @@
 #### 6.1 运行示例
 
 ```bash
-python3 scripts/mas4s_principal_investigate.py '{"run_id": "run_20260423"}'
+python3 scripts/mas4s_idea_align_principal_investigate.py '{"run_id": "run_20260423"}'
 ```
 
 #### 6.2 目录结构示例
@@ -65,7 +65,7 @@ python3 scripts/mas4s_principal_investigate.py '{"run_id": "run_20260423"}'
 ├── brain_storm_result.json              # 输入
 ├── constraints.md                       # 输入（可选）
 ├── pi_result.json                       # 输出
-└── progress_mas4s_principal_investigate.jsonl
+└── progress_mas4s_idea_align_principal_investigate.jsonl
 ```
 
 ### 七、 Prompt
@@ -125,14 +125,14 @@ Please strictly populate the values for the following JSON structure. The descri
   "search_and_retrieval_strategy": {{
     "falsifiable_hypothesis": "State the precise scientific hypothesis. What exactly are we trying to prove or disprove? (If the data opposes this, it should still form a valid conclusion).",
     "literature_keywords": [
-      "keyword 1",
-      "keyword 2",
-      "List 5-8 highly targeted academic keywords or Boolean queries bridging theoretical concepts for arXiv/PubMed."
+      "keyword 1 (e.g., 'active forgetting')",
+      "keyword 2 (e.g., 'engram cells')",
+      "List 5-8 CONCISE, non-ambiguous academic keywords (1-3 words maximum per item). STRICTLY separate distinct concepts into different array items. Do NOT combine multiple concepts into a single long string. MUST BE IN ENGLISH."
     ],
     "code_keywords": [
-      "keyword 1",
-      "keyword 2",
-      "List 5-8 specific engineering/algorithmic/framework keywords optimized for GitHub/codebase retrieval."
+      "keyword 1 (e.g., 'SQLite FTS5')",
+      "keyword 2 (e.g., 'vector memory')",
+      "List 5-8 CONCISE, specific technical terms, library names, or algorithm names (1-3 words maximum per item) optimized for GitHub search. Do NOT output long phrases. MUST BE IN ENGLISH."
     ]
   }},
   "directives_for_agent_3": {{
@@ -141,12 +141,12 @@ Please strictly populate the values for the following JSON structure. The descri
 }}
 
 【Language Output Constraint】
-Even though the instructions and JSON keys are in English, the string VALUES within the JSON MUST be generated entirely in professional academic Chinese (Mandarin), keeping only necessary English academic terms in parentheses. Ensure all JSON formatting is valid.
+Even though the instructions and JSON keys are in English, the string VALUES within the JSON MUST be generated entirely in professional academic Chinese (Mandarin), keeping only necessary English academic terms in parentheses. EXCEPTIONS: The values inside the `literature_keywords` and `code_keywords` arrays MUST be output entirely in English. Ensure all JSON formatting is valid.
 ````
 
 ---
 
 ### 八、 SOP 观测支持
 
-- **进度文件路径**：`~/.openclaw/workspace-<agentId>/task/<run_id>/progress_mas4s_principal_investigate.jsonl`
+- **进度文件路径**：`~/.openclaw/workspace-<agentId>/task/<run_id>/progress_mas4s_idea_align_principal_investigate.jsonl`
 - **上报机制**：`lib.progress.ProgressReporter`

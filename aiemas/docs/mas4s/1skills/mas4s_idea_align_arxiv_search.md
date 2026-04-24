@@ -10,11 +10,12 @@
 
 #### 降级检索矩阵
 
-| 场景     | 动作         | 目的                        |
-| :------- | :----------- | :-------------------------- |
-| **首选** | 原始布尔检索 | 精确匹配。                  |
-| **次选** | 语法简化     | 移除引号和括号。            |
-| **保底** | 关键词截断   | 逐步减少关键词（8→4→2→1）。 |
+| 场景     | 动作         | 目的                         |
+| :------- | :----------- | :--------------------------- |
+| **重试** | 失败重试     | sleep 2s 重试 3 次确保稳定。 |
+| **首选** | 原始布尔检索 | 精确匹配。                   |
+| **次选** | 语法简化     | 移除引号和括号。             |
+| **保底** | 关键词截断   | 逐步减少关键词（8→4→2→1）。  |
 
 ### 三、 实现流程
 
@@ -57,7 +58,7 @@
 #### 6.1 运行示例
 
 ```bash
-python3 scripts/mas4s_arxiv_search.py '{"run_id": "run_20260423"}'
+python3 scripts/mas4s_idea_align_arxiv_search.py '{"run_id": "run_20260423"}'
 ```
 
 #### 6.2 目录结构示例
@@ -66,7 +67,7 @@ python3 scripts/mas4s_arxiv_search.py '{"run_id": "run_20260423"}'
 ~/.openclaw/workspace-idea-align/task/run_20260423/
 ├── idea_query_expand.json              # 输入
 ├── arxiv_search_results.json           # 输出
-└── progress_mas4s_arxiv_search.jsonl
+└── progress_mas4s_idea_align_arxiv_search.jsonl
 ```
 
 ### 七、 Prompt
@@ -76,5 +77,5 @@ python3 scripts/mas4s_arxiv_search.py '{"run_id": "run_20260423"}'
 
 ### 八、 SOP 观测支持
 
-- **进度文件路径**：`~/.openclaw/workspace-<agentId>/task/<run_id>/progress_mas4s_arxiv_search.jsonl`
+- **进度文件路径**：`~/.openclaw/workspace-<agentId>/task/<run_id>/progress_mas4s_idea_align_arxiv_search.jsonl`
 - **上报机制**：`lib.progress.ProgressReporter`

@@ -66,7 +66,7 @@ export function registerEventHandlers(): void {
   const store = AppStore.instance;
 
   addEventHandler((evt: GatewayEventFrame) => {
-    console.info(`[mas4s:event-handler] >> RECV event=${evt.event}`, JSON.stringify(evt.payload));
+    // console.info(`[mas4s:event-handler] >> RECV event=${evt.event}`, JSON.stringify(evt.payload));
     switch (evt.event) {
       case "chat":
         handleChatEvent(store, evt.payload);

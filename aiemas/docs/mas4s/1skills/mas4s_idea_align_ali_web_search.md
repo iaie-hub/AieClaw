@@ -51,7 +51,7 @@
 #### 6.1 运行示例
 
 ```bash
-python3 scripts/mas4s_ali_web_search.py '{"run_id": "run_20260423"}'
+python3 scripts/mas4s_idea_align_ali_web_search.py '{"run_id": "run_20260423"}'
 ```
 
 #### 6.2 目录结构示例
@@ -60,7 +60,7 @@ python3 scripts/mas4s_ali_web_search.py '{"run_id": "run_20260423"}'
 ~/.openclaw/workspace-idea-align/task/run_20260423/
 ├── idea_query_expand.json             # 输入（由 query-expand 产出）
 ├── web_search_results.json            # 输出
-└── progress_mas4s_ali_web_search.jsonl
+└── progress_mas4s_idea_align_ali_web_search.jsonl
 ```
 
 ### 七、 Prompt
@@ -70,5 +70,5 @@ python3 scripts/mas4s_ali_web_search.py '{"run_id": "run_20260423"}'
 
 ### 八、 SOP 观测支持
 
-- **进度文件路径**：`~/.openclaw/workspace-<agentId>/task/<run_id>/progress_mas4s_ali_web_search.jsonl`
+- **进度文件路径**：`~/.openclaw/workspace-<agentId>/task/<run_id>/progress_mas4s_idea_align_ali_web_search.jsonl`
 - **上报机制**：`lib.progress.ProgressReporter`
