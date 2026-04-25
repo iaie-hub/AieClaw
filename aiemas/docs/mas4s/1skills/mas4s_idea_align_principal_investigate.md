@@ -111,37 +111,43 @@ Please strictly populate the values for the following JSON structure. The descri
     "pi_cot_synthesis": "Identify 1 to 2 'Gold Nuggets' from the surviving directions. Explain your cognitive process of merging these fragments into a single, highly focused, and pragmatic research direction."
   }},
   "formal_research_topic_formulation": {{
-    "independent_variable": "Strictly name the core mechanism, algorithm, or framework you are proposing (e.g., 'Immune Dual-Stage Tolerance Mechanism').",
-    "dependent_variable": "Strictly name the precise metric, problem, or bottleneck being targeted (e.g., 'Memory Pollution and Rigidity in MAS').",
-    "title": "Rigorous, concise academic title (MAX 30 characters). MUST be synthesized DIRECTLY from the independent and dependent variables. STRICTLY FORBID grand narrative fillers, poetic phrases, or vague academic fluff. Format preference: '[Independent Variable] in/for [Dependent Variable]'.",
-    "one_sentence_formula": "Summarize the core logic using exactly this template: '用 [方法A] 解决 [问题B]，以揭示 [规律/目标C]。(Use [Method A] to solve [Problem B], to reveal [Law/Objective C])'.",
-    "innovation_breakthrough": "Categorize strictly as one or more of: [填补空白 / 修正谬误 / 技术革新 / 交叉融合]. Explain the exact point of novelty."
+    "independent_variable_en": "Strictly name the core mechanism, algorithm, or framework you are proposing in English (e.g., 'Immune Dual-Stage Tolerance Mechanism').",
+    "independent_variable_cn": "用中文严谨命名你提出的核心机制、算法或框架。",
+    "dependent_variable_en": "Strictly name the precise metric, problem, or bottleneck being targeted in English (e.g., 'Memory Pollution and Rigidity in MAS').",
+    "dependent_variable_cn": "用中文严谨命名目标指标、问题或瓶颈。",
+    "title_en": "Rigorous, concise academic title in English (MAX 30 characters). MUST be synthesized DIRECTLY from the independent and dependent variables. STRICTLY FORBID grand narrative fillers. Format preference: '[Independent Variable] in/for [Dependent Variable]'.",
+    "title_cn": "严谨且简练的学术标题（中文，最多30字）。必须直接由自变量和因变量合成。",
+    "one_sentence_formula_en": "Summarize the core logic CONCISELY (strictly under 30 words) using exactly this template: 'Using [Method A] to solve [Problem B], to reveal [Law/Objective C].'.",
+    "one_sentence_formula_cn": "极其简明扼要地使用此模板总结核心逻辑（严格限制在40字以内）：'用 [方法A] 解决 [问题B]，以揭示 [规律/目标C] 。'。",
+    "innovation_breakthrough_en": "Explain the exact point of novelty in English.",
+    "innovation_breakthrough_cn": "分类并说明创新突破点：[填补空白 / 修正谬误 / 技术革新 / 交叉融合]。"
   }},
   "strategic_value_and_necessity": {{
-    "theoretical_value": "How does this advance human understanding or provide a new paradigm? (Address the 'So what?')",
-    "applied_or_social_value": "What industry pain point, engineering bottleneck, or societal issue will this ultimately resolve?",
-    "necessity": "Explain why this specific problem MUST be solved NOW."
+    "theoretical_value_en": "How does this advance the theoretical framework of the specific domain you are targeting? (Address the 'So what?' STRICTLY within the context of your proposed [Independent Variable] and [Dependent Variable], avoiding pure biological or cross-disciplinary drift).",
+    "theoretical_value_cn": "理论价值：这如何推动目标领域的理论框架或提供新范式？（必须紧扣你提出的自变量与因变量，严禁过度发散到纯生物或交叉学科隐喻）。",
+    "applied_or_social_value_en": "What specific industry pain point or engineering bottleneck in your targeted domain will this ultimately resolve (English)?",
+    "applied_or_social_value_cn": "应用价值：最终解决目标领域中的什么具体工程瓶颈或行业痛点？",
+    "necessity_en": "Explain why this specific problem MUST be solved NOW (English).",
+    "necessity_cn": "必要性：说明为什么必须现在解决这个具体问题。"
   }},
   "search_and_retrieval_strategy": {{
-    "falsifiable_hypothesis": "State the precise scientific hypothesis. What exactly are we trying to prove or disprove? (If the data opposes this, it should still form a valid conclusion).",
+    "falsifiable_hypothesis_en": "State the precise scientific hypothesis in English. The hypothesis MUST strictly center on the computational/engineering mechanisms of your proposed [Independent Variable] and [Dependent Variable]. What exactly are we trying to prove or disprove?",
+    "falsifiable_hypothesis_cn": "陈述精准的科学假设（中文）。假设必须严格围绕你提出的核心计算或工程机制展开，严防偏题到纯理论。",
     "literature_keywords": [
-      "keyword 1 (e.g., 'active forgetting')",
-      "keyword 2 (e.g., 'engram cells')",
-      "List 5-8 CONCISE, non-ambiguous academic keywords (1-3 words maximum per item). STRICTLY separate distinct concepts into different array items. Do NOT combine multiple concepts into a single long string. MUST BE IN ENGLISH."
+      "List 5-8 CONCISE academic keywords (1-3 words max). MUST BE IN ENGLISH. MUST tightly couple with your formulated title/hypothesis and strictly reflect the core computational concepts. Do NOT use pure biology or metaphor terms."
     ],
     "code_keywords": [
-      "keyword 1 (e.g., 'SQLite FTS5')",
-      "keyword 2 (e.g., 'vector memory')",
-      "List 5-8 CONCISE, specific technical terms, library names, or algorithm names (1-3 words maximum per item) optimized for GitHub search. Do NOT output long phrases. MUST BE IN ENGLISH."
+      "List 5-8 CONCISE technical terms or algorithm names (1-3 words max) optimized for GitHub search. MUST BE IN ENGLISH. MUST tightly relate to the specific engineering implementation of your proposed solution."
     ]
   }},
   "directives_for_agent_3": {{
-    "mandate": "Explicitly state the exact tasks for Agent 3. (e.g., 'Based on the [Falsifiable Hypothesis], understanding my reasoning in pi_cot_synthesis, and utilizing the provided keywords for deep-dive research, Agent 3 MUST output a detailed feasibility report and execution blueprint... strictly adhering to the {reality_constraints}.')"
+    "mandate_en": "Explicitly state the exact tasks for Agent 3 in English (e.g., 'Based on the [Falsifiable Hypothesis]... Agent 3 MUST output a detailed feasibility report... strictly adhering to the {reality_constraints}.')",
+    "mandate_cn": "明确说明给 Agent 3 的任务（中文）。"
   }}
 }}
 
 【Language Output Constraint】
-Even though the instructions and JSON keys are in English, the string VALUES within the JSON MUST be generated entirely in professional academic Chinese (Mandarin), keeping only necessary English academic terms in parentheses. EXCEPTIONS: The values inside the `literature_keywords` and `code_keywords` arrays MUST be output entirely in English. Ensure all JSON formatting is valid.
+You MUST provide both English and Chinese versions for the descriptive string fields as specified in the JSON keys (using `_en` and `_cn` suffixes). Use professional academic tone for both. The `literature_keywords` and `code_keywords` MUST be entirely in English as they are for search engines. Ensure all JSON formatting is valid.
 ````
 
 ---

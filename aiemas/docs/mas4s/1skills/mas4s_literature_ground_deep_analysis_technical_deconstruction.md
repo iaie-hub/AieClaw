@@ -1,3 +1,87 @@
+## 硬核解构引擎 Skill (Technical Deconstruction Skill) 设计方案
+
+### 一、 设计理念
+
+1.  **客观还原**：剥离文献中的所有修辞，仅保留算法逻辑、实验配置与量化结果。
+2.  **因果一致性**：确保提取出的算法改动与观察到的实验结果之间存在逻辑上的闭环。
+3.  **标准化度量**：将零散的实验结论转化为可对比的 SOTA 状态与提升百分比，为知识图谱提供结构化数据。
+
+### 二、 设计方案
+
+该 Skill 专注于深层逻辑链，从 Methodology、Experiments 和 Results 章节中提取硬核细节。
+
+| 负责字段 | 说明 | 认知深度 |
+| :--- | :--- | :--- |
+| **algorithm** | 核心机制、数学突破与技术依赖 | 深层逻辑 |
+| **experiment_methodology** | 数据集、基准模型与评价指标 | 实验复现层 |
+| **experiment_results** | SOTA 状态、量化提升与潜在代价 | 事实量化层 |
+
+### 三、 实现流程
+
+| 步骤 | 动作 | 说明 |
+| :--- | :--- | :--- |
+| 1 | 数据加载 | 读取 `parsed_papers.json` 及 PI 核心假说。 |
+| 2 | 硬核解构 | 针对每篇论文的 Markdown 全文进行技术细节解构。 |
+| 3 | 结果落盘 | 在论文 arXiv ID 目录下生成 `paper_technical_details.json`。 |
+
+### 四、 输入参数
+
+| 参数名 | 类型 | 必填 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| **run_id** | String | 是 | - | 执行 ID。 |
+| **agent_id** | String | 否 | "literature-ground" | 当前 Agent ID。 |
+
+**输入文件**：`~/.openclaw/workspace-literature-ground/task/{run_id}/parsed_papers.json`
+
+### 五、 输出参数
+
+**输出文件**：`~/.openclaw/workspace-literature-ground/task/{run_id}/papers/{arxiv_id}/paper_technical_details.json`
+
+| 字段名 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| **algorithm** | Object | 算法核心与数学逻辑。 |
+| **experiment_methodology** | Object | 实验设计与配置。 |
+| **experiment_results** | Object | 量化结果与改进度。 |
+
+### 六、 示例
+
+#### 6.1 运行示例
+
+```bash
+python3 scripts/mas4s_literature_ground_deep_analysis_technical_deconstruction.py '{"run_id": "run_222"}'
+```
+
+#### 6.2 输出示例 (`paper_technical_details.json`)
+
+```json
+{
+  "chain_of_thought": {
+    "step_1_algorithm_isolation": "...",
+    "step_2_experimental_mapping": "...",
+    "step_3_causal_verification": "..."
+  },
+  "technical_details": {
+    "algorithm": {
+      "core_mechanism": "引入海马体索引（Hippocampal Indexing）理论，通过向量索引管理长短期记忆。",
+      "math_or_logic_breakthrough": "定义了基于 Ebbinghaus 遗忘曲线的动态权重衰减函数 $W(t) = e^{-t/S}$。",
+      "dependencies": ["PyTorch", "Milvus", "Llama-3-70B"]
+    },
+    "experiment_methodology": {
+      "datasets": ["GAIA Benchmark", "LongBench"],
+      "baselines": ["Vanilla RAG", "MemGPT"],
+      "metrics": ["Recall@K", "Latency", "VRAM Usage"]
+    },
+    "experiment_results": {
+      "sota_status": "Yes",
+      "quantified_improvement": "在长文本召回准确率上比 MemGPT 提升 12.4%，延迟降低 45ms。",
+      "anomalies_or_tradeoffs": "计算初始权重时增加了约 5% 的预处理 CPU 开销。"
+    }
+  }
+}
+```
+
+### 七、 Prompt
+
 【Role Definition】
 You are an elite "Technical Deconstruction Engine" (硬核解构引擎). Your mission is to dissect full-text academic papers like a surgeon, extracting the exact algorithmic mechanics, experimental methodologies, and quantified results. You are completely immune to academic fluff and marketing language; you care ONLY about math, code logic, data, and absolute metrics.
 
@@ -50,3 +134,8 @@ Please strictly populate the values for the following JSON structure:
 
 【Language Output Constraint】
 All string VALUES within the JSON MUST be generated entirely in professional academic Chinese (Mandarin), keeping English technical terms in parentheses where appropriate.
+
+### 八、 SOP 观测支持
+
+- **进度上报**：按论文逐篇上报 `item`。
+- **进度文件路径**：`~/.openclaw/workspace-<agentId>/task/<run_id>/progress_mas4s_technical_deconstruction.jsonl`

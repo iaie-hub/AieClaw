@@ -54,7 +54,7 @@ Agent 严格遵循以下七步 SOP 流程执行任务：
 
 #### Skill A：宏观态势探针 (Macro Probe Skill)
 
-- **技能调用**：[`mas4s-literature-ground-macro-probe`](file:///Users/admin/clawd/skills/mas4s-literature-ground-macro-probe/SKILL.md) (参考：[技能文档](../1skills/mas4s_literature_ground_macro_probe.md))
+- **技能调用**：[`mas4s-literature-ground-deep-analysis-macro-probe`](file:///Users/admin/clawd/skills/mas4s-literature-ground-deep-analysis-macro-probe/SKILL.md) (参考：[技能文档](../1skills/mas4s_literature_ground_deep_analysis_macro_probe.md))
 - **负责字段**：`一句话公式描述`、`摘要（提炼版）`
 - **认知深度**：浅层抽象。快速抓取核心定位，作为防御"课题被抢发"的先头部队。两个字段均属高度概括，天然共享同一认知上下文。
 - **输出**：`paper_macro_feature.json`（含 `one_sentence_formula`、`summary` 两个字段）
@@ -66,7 +66,7 @@ Agent 严格遵循以下七步 SOP 流程执行任务：
 
 #### Skill B：硬核解构引擎 (Technical Deconstruction Skill)
 
-- **技能调用**：[`mas4s-literature-ground-technical-deconstruction`](file:///Users/admin/clawd/skills/mas4s-literature-ground-technical-deconstruction/SKILL.md) (参考：[技能文档](../1skills/mas4s_literature_ground_technical_deconstruction.md))
+- **技能调用**：[`mas4s-literature-ground-deep-analysis-technical-deconstruction`](file:///Users/admin/clawd/skills/mas4s-literature-ground-deep-analysis-technical-deconstruction/SKILL.md) (参考：[技能文档](../1skills/mas4s_literature_ground_deep_analysis_technical_deconstruction.md))
 - **负责字段**：`算法提取`、`实验方法提取`、`实验结果提取`
 - **认知深度**：深层逻辑链。三者构成严密的因果链（采用 A 算法 → 设计 B 实验 → 得到 C 结果），必须由同一大模型在同一 Context 下处理，以确保内部逻辑自洽，避免算法与结果"牛头不对马嘴"。
 - **输出**：`paper_technical_details.json`（含 `algorithm`、`experiment_method`、`experiment_result` 三个字段）
@@ -79,7 +79,7 @@ Agent 严格遵循以下七步 SOP 流程执行任务：
 
 #### Skill C：价值批判专家 (Critical Review Skill)
 
-- **技能调用**：[`mas4s-literature-ground-critical-review`](file:///Users/admin/clawd/skills/mas4s-literature-ground-critical-review/SKILL.md) (参考：[技能文档](../1skills/mas4s_literature_ground_critical_review.md))
+- **技能调用**：[`mas4s-literature-ground-deep-analysis-critical-review`](file:///Users/admin/clawd/skills/mas4s-literature-ground-deep-analysis-critical-review/SKILL.md) (参考：[技能文档](../1skills/mas4s_literature_ground_deep_analysis_critical_review.md))
 - **负责字段**：`精读（Pros/Cons/局限性）`
 - **认知深度**：深度评价与批判。剥离 Skill B 的客观事实抽取，专注于主观评价：判断该文献对 PI 假说的启发价值，以及其致命缺陷是否可作为课题突破口。
 - **输出**：`paper_critical_review.json`（含 `pros`、`cons`、`limitations`、`relevance_to_pi` 四个字段）
