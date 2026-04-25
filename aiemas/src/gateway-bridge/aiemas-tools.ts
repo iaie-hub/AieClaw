@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { TSchema } from "@sinclair/typebox";
-import { Type } from "@sinclair/typebox";
+import type { TSchema } from "typebox";
+import { Type } from "typebox";
 import type { SessionTranscriptStore } from "../session-history/session-transcript-store.js";
 import { createAiemasSessionsStore } from "../store/aiemas-sessions-store.js";
 import {

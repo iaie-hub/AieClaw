@@ -1,6 +1,6 @@
-import { hasPotentialConfiguredChannels } from "../channels/config-presence.js";
 import { withProgress } from "../cli/progress.js";
-import { buildPluginCompatibilityNotices } from "../plugins/status.js";
+import { hasConfiguredChannelsForReadOnlyScope } from "../plugins/channel-plugin-ids.js";
+import { buildPluginCompatibilitySnapshotNotices } from "../plugins/status.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { executeStatusScanFromOverview } from "./status.scan-execute.ts";
 import { resolveStatusMemoryStatusSnapshot } from "./status.scan-memory.ts";
@@ -25,18 +25,12 @@ export async function scanStatus(
       _runtime,
       {
         commandName: "status --json",
-        resolveHasConfiguredChannels: (cfg) => hasPotentialConfiguredChannels(cfg),
-        resolveMemory: async ({
-          cfg,
-          agentStatus,
-          memoryPlugin,
-        }: {
-          cfg: import("../config/types.js").OpenClawConfig;
-          agentStatus: Awaited<
-            ReturnType<typeof import("./status.agent-local.js").getAgentLocalStatuses>
-          >;
-          memoryPlugin: import("./status.scan.shared.js").MemoryPluginStatus;
-        }) =>
+        resolveHasConfiguredChannels: (cfg, sourceConfig) =>
+          hasConfiguredChannelsForReadOnlyScope({
+            config: cfg,
+            activationSourceConfig: sourceConfig,
+          }),
+        resolveMemory: async ({ cfg, agentStatus, memoryPlugin }) =>
           await resolveStatusMemoryStatusSnapshot({
             cfg,
             agentStatus,
@@ -69,7 +63,7 @@ export async function scanStatus(
       });
 
       progress.setLabel("Checking plugins…");
-      const pluginCompatibility = buildPluginCompatibilityNotices({ config: overview.cfg });
+      const pluginCompatibility = buildPluginCompatibilitySnapshotNotices({ config: overview.cfg });
       progress.tick();
 
       progress.setLabel("Checking memory and sessions…");
