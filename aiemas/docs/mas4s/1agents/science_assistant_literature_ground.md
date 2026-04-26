@@ -8,7 +8,17 @@
 
 ## 2. 核心 SOP 流程 (Standard Operating Procedure)
 
-Agent 严格遵循以下七步 SOP 流程执行任务：
+Agent 严格遵循以下“检索-清洗-解构-合成”的闭环 SOP 流程执行任务：
+
+1.  **文献底座输入**：接收 PI 假说与关键词。
+2.  **学术检索**：基于关键词在 arXiv 数据库进行精准抓取。
+3.  **智能降噪**：基于摘要过滤无关文献，保留高相关核心论文。
+4.  **PDF 下载与转换**：并发下载全文并转换为结构化 Markdown。
+5.  **逐篇深度解析**：并行执行宏观态势探针、技术解构引擎与价值批判专家三个维度的深度分析。
+6.  **图谱聚合与审计**：将多维数据流合成全景知识图谱。
+7.  **风险与盲区检测**：执行抢发风险探测（Scooped Check）与知识盲区审计。
+
+### 详细步骤说明：
 
 ### 步骤 1：文献底座输入 (Literature Ground Ingest)
 
@@ -91,7 +101,7 @@ Agent 严格遵循以下七步 SOP 流程执行任务：
 - **作用**：扮演“文献全景合成建筑师”与“情报分发中枢”角色。将所有论文的 6 维结构化数据流聚合为统一的高密度知识图谱，并为后续阶段（可行性推演、实验设计、溯源成文）准备结构化数据 Feed。执行以下核心审计：
   - **图谱拓扑构建**：生成符合可视化标准的 `nodes` 和 `edges`，描述技术流派的演进、继承与对抗关系。
   - **多维对撞分析**：提取全文献范围内的“共识（Consensus）”与“冲突（Controversy）”，定位技术战场（War Zone）。
-  - **下游情报分发**：输出双语（中英）JSON，包含为阶段 3/4/5 定制的情报包（如基准 Baseline、评估指标、核心论据池）。
+  - **下游情报分发**：输出双语（中英）JSON，包含为阶段 3 定制的情报包 `literature_graph.json`（供可行性推演使用）以及后续阶段 4/5 的评估指标与论据池。
   - **抢发风险探测 (Scooped Check)**：对比 PI 假说与合成图谱，检测是否存在已完全覆盖的研究，并给出避坑或 Pivot 建议。
 - **输出**：`literature_graph.json`（双语知识图谱与分发 Feed）及 `literature_ground_report.md`（人类可读的文献全景审计报告）。
 - **Feedback 循环**：若图谱存在明显知识盲区，携带补充关键词**回滚至步骤 2**重新扩展检索，直至底座完整。
@@ -125,4 +135,5 @@ Agent 的执行过程在 AIEMAS 平台中是透明可观测的：
 - [Agent 工作区](../../../docs/concepts/agent-workspace.md)
 - [技能文档索引](../1skills/)
 - [阶段 1：Idea Align Agent](./science_assistant_idea_align.md)
+- [阶段 3：Feasibility Deduction Agent](./science_assistant_feasibility_deduction.md)
 - [双锚点科研 SOP 总览](./science_assistant.md)
