@@ -21,7 +21,7 @@ Agent 严格遵循以下七步 SOP 流程执行任务：
 - **输入**：从 `pi_result.json` 中提取的文献检索关键词。
 - **作用**：以 PI 假说为锚点，在 arXiv 学术数据库中进行精准检索，获取与课题方向强相关的最新论文列表及摘要（`arxiv_search_results.json`）。
 - **输出**：`arxiv_search_results.json`（含论文标题、摘要、arXiv ID、PDF 链接）。
-- **注意**：若步骤 7 图谱审查后存在知识盲区，可携带补充关键词**回滚至本步骤**重新检索，形成闭环迭代。
+- **注意**：若步骤 7 文献底座审计后存在知识盲区，可携带补充关键词**回滚至本步骤**重新检索，形成闭环迭代。
 
 ### 步骤 3：智能降噪 (Intelligent Noise Reduction)
 
@@ -46,11 +46,11 @@ Agent 严格遵循以下七步 SOP 流程执行任务：
 
 ### 步骤 6：逐篇深度解析 (Per-Paper Deep Analysis)
 
-> 按"认知上下文"将 6 个目标字段拆分为 3 个独立 Skill 并行执行，每个 Skill 独立落盘，最后由步骤 7 图谱聚合节点进行 Merge。
+> 按"认知上下文"将 6 个目标字段拆分为 3 个独立 Skill 并行执行，每个 Skill 独立落盘，最后由步骤 7 图谱聚合与全景审计节点进行 Merge。
 
 **输入（三个 Skill 共用）**：步骤 5 产出的单篇 Markdown 文本及 PI 核心假说。
 
-**逐篇执行**：三个 Skill 对每篇论文**并发**独立触发，每篇三个输出文件（JSON）均实时保存至该论文的专用子目录：`~/.openclaw/workspace-<agentId>/task/<run_id>/papers/<arXiv.ID>/`。
+**逐篇执行**：三个 Skill 对每篇论文**并发**独立触发（默认并发数为 16），每篇三个输出文件（JSON）均实时保存至该论文的专用子目录：`~/.openclaw/workspace-<agentId>/task/<run_id>/papers/<arXiv.ID>/`。
 
 #### Skill A：宏观态势探针 (Macro Probe Skill)
 
@@ -84,20 +84,19 @@ Agent 严格遵循以下七步 SOP 流程执行任务：
 - **认知深度**：深度评价与批判。剥离 Skill B 的客观事实抽取，专注于主观评价：判断该文献对 PI 假说的启发价值，以及其致命缺陷是否可作为课题突破口。
 - **输出**：`paper_critical_review.json`（含 `pros`、`cons`、`limitations`、`relevance_to_pi` 四个字段）
 
-### 步骤 7：图谱聚合与审查 (Knowledge Graph Aggregation & Review)
+### 步骤 7：图谱聚合与全景审计 (Knowledge Graph Aggregation & Panorama Audit)
 
-- **技能调用**：[`mas4s-literature-ground-knowledge-graph`](file:///Users/admin/clawd/skills/mas4s-literature-ground-knowledge-graph/SKILL.md) (参考：[技能文档](../1skills/mas4s_literature_ground_knowledge_graph.md))
+- **技能调用**：[`mas4s-literature-ground-literature-graph`](file:///Users/admin/clawd/skills/mas4s-literature-ground-literature-graph/SKILL.md) (参考：[技能文档](../1skills/mas4s_literature_ground_knowledge_graph.md))
 - **输入**：步骤 6 三个 Skill 产出的每篇论文的 `paper_macro_feature.json`、`paper_technical_details.json`、`paper_critical_review.json`，以及 PI 核心假说。
-- **作用**：将所有论文的结构化知识条目聚合为统一的文献知识图谱（`literature_graph.json`），执行以下审查：
-  - 识别支撑 PI 假说的正向证据链与反驳证据。
-  - 标记知识空白区域，生成补充检索建议。
-  - 检测是否存在已完全覆盖 PI 假说的论文（**课题被抢发 Scooped** 检测）。
-- **输出**：`literature_graph.json`（知识图谱）及 `literature_ground_report.md`（人类可读的文献底座报告）。
+- **作用**：扮演“文献全景合成建筑师”与“情报分发中枢”角色。将所有论文的 6 维结构化数据流聚合为统一的高密度知识图谱，并为后续阶段（可行性推演、实验设计、溯源成文）准备结构化数据 Feed。执行以下核心审计：
+  - **图谱拓扑构建**：生成符合可视化标准的 `nodes` 和 `edges`，描述技术流派的演进、继承与对抗关系。
+  - **多维对撞分析**：提取全文献范围内的“共识（Consensus）”与“冲突（Controversy）”，定位技术战场（War Zone）。
+  - **下游情报分发**：输出双语（中英）JSON，包含为阶段 3/4/5 定制的情报包（如基准 Baseline、评估指标、核心论据池）。
+  - **抢发风险探测 (Scooped Check)**：对比 PI 假说与合成图谱，检测是否存在已完全覆盖的研究，并给出避坑或 Pivot 建议。
+- **输出**：`literature_graph.json`（双语知识图谱与分发 Feed）及 `literature_ground_report.md`（人类可读的文献全景审计报告）。
 - **Feedback 循环**：若图谱存在明显知识盲区，携带补充关键词**回滚至步骤 2**重新扩展检索，直至底座完整。
 
-> **人类锚点：课题被抢发 (Scooped)**
->
-> 若在图谱审查中发现已有论文完全覆盖 PI 假说的核心贡献，Agent 将立即触发 `SCOOPED` 警报并暂停流程，将该发现连同"避坑指南"上报用户，由用户决定是否**回滚至阶段 1**重新选题，或调整方向后继续。
+> 若在图谱审计中发现已有论文完全覆盖 PI 假说的核心贡献，Agent 将立即触发 `SCOOPED` 警报并暂停流程，将该发现连同“避坑指南”及“转向建议 (Pivot Suggestion)”上报用户，由用户决定是否**回滚至阶段 1**重新选题，或调整方向后继续。
 
 ## 3. SOP 观测方案 (Observation)
 
@@ -118,11 +117,12 @@ Agent 的执行过程在 AIEMAS 平台中是透明可观测的：
   - **参考**：参见 [`pdf_to_markdown` 技能定义](file:///Users/admin/clawd/skills/pdf_to_markdown/SKILL.md) 中的 `run_id` 参数规范。
 - **标准化进度行**：上报的 JSONL 行必须包含正确的 `type` (start/item/log/done) 及 `skill` 字段，确保后端 `ProgressWatcher` 能够正确解析并广播。
 - **逐篇进度上报 (步骤 6 专项)**：步骤 6 三个 Skill（Macro Probe、Technical Deconstruction、Critical Review）须各自在每篇论文处理开始与完成时上报进度行，`item` 字段包含论文 arXiv ID，`skill` 字段区分来源 Skill，支持前端实时展示逐篇、分 Skill 的处理进度。
+- **支持增量执行与强制重新执行 (仅限分析类技能)**：除步骤 7 的图谱聚合技能外，所有论文处理类 Skill 必须支持通过 `force` 参数控制执行逻辑。如果目标 JSON 结果文件已存在且 `force` 为 `false`，则跳过分析（增量模式）；如果 `force` 为 `true`，则强制重新分析并覆盖原文件。步骤 7 技能由于逻辑复杂，暂不要求增量支持，每次运行均全量重新合成。
 
 ## 4. 相关文档 (Related Docs)
 
 - [Agent 定义](../../../docs/concepts/agent.md)
 - [Agent 工作区](../../../docs/concepts/agent-workspace.md)
 - [技能文档索引](../1skills/)
-- [阶段 1：Idea Align Agent](./science_assistant_literature_ground.md)
+- [阶段 1：Idea Align Agent](./science_assistant_idea_align.md)
 - [双锚点科研 SOP 总览](./science_assistant.md)
