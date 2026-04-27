@@ -41,6 +41,7 @@ export function buildChatSendParams(opts: {
   message: string;
   clientRunId?: string;
   idempotencyKey?: string;
+  attachments?: unknown[];
 }): Record<string, unknown> {
   const finalId = opts.clientRunId ?? crypto.randomUUID();
   return {
@@ -48,5 +49,6 @@ export function buildChatSendParams(opts: {
     message: opts.message,
     clientRunId: finalId,
     idempotencyKey: opts.idempotencyKey ?? finalId,
+    attachments: opts.attachments,
   };
 }

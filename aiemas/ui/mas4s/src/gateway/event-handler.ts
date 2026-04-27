@@ -66,7 +66,7 @@ export function registerEventHandlers(): void {
   const store = AppStore.instance;
 
   addEventHandler((evt: GatewayEventFrame) => {
-    debugLog(`[mas4s:event-handler] event=${evt.event}`, evt.payload);
+    // console.info(`[mas4s:event-handler] >> RECV event=${evt.event}`, JSON.stringify(evt.payload));
     switch (evt.event) {
       case "chat":
         handleChatEvent(store, evt.payload);
@@ -153,16 +153,26 @@ export function registerEventHandlers(): void {
         break;
       }
       case "sessions.changed": {
-        // When a session is patched or reset, re-sync label from aiemas DB
-        // in case the gateway's sessions.json lost the label.
-        const { sessionKey: changedKey, reason: changedReason } = evt.payload as {
+        const payload = evt.payload as {
           sessionKey?: string;
           reason?: string;
+          phase?: string;
+          status?: string;
+          runId?: string;
         };
-        if (
-          changedKey &&
-          (changedReason === "patch" || changedReason === "new" || changedReason === "reset")
-        ) {
+        const { sessionKey: changedKey, reason: changedReason, phase, runId } = payload;
+
+        if (!changedKey) {
+          break;
+        }
+
+        const sessionUuid = extractUuidFromKey(changedKey);
+        const agentId = extractAgentNameFromKey(changedKey);
+        const { isRootAgent } = resolveMessageTarget(store, changedKey);
+
+        // 1. 同步会话名称 (原有逻辑)
+        // 当发生 patch（标签修改）、new 或 reset 时，从 aiemas DB 重新同步标签
+        if (changedReason === "patch" || changedReason === "new" || changedReason === "reset") {
           void (async () => {
             try {
               const { getClient } = await import("./client.js");
@@ -177,6 +187,34 @@ export function registerEventHandlers(): void {
               // Non-critical: label sync failure should not surface as an error
             }
           })();
+        }
+
+        // 2. 状态同步：基于生命周期阶段 (phase) 或特定原因 (reason) 更新 busy 状态
+        // 结束标记：出现 end/error/abort phase，或者会话被重置/新建/删除
+        const isTerminal =
+          phase === "end" ||
+          phase === "error" ||
+          phase === "abort" ||
+          changedReason === "new" ||
+          changedReason === "reset" ||
+          changedReason === "delete";
+
+        if (isTerminal) {
+          // 重置主忙碌状态，即使没有收到 chat final 事件
+          store.setIsChatting(sessionUuid, false);
+          // 清理子 Agent 活跃状态（如果适用）
+          if (!isRootAgent) {
+            store.clearAgentActive(sessionUuid, agentId);
+            store.markAgentCompleted(sessionUuid, agentId);
+          }
+        } else if (phase === "start") {
+          // 同步设置正在聊天，确保输入框显示中止按钮
+          if (!store.isChattingBySession.get(sessionUuid)) {
+            store.setIsChatting(sessionUuid, true, runId);
+          }
+          if (!isRootAgent) {
+            store.markAgentActive(sessionUuid, agentId);
+          }
         }
         break;
       }
@@ -293,6 +331,25 @@ function handleChatEvent(store: AppStore, payload: unknown): void {
     return;
   }
 
+  // run 结束时的状态清理必须在 message 检查之前执行，
+  // 因为 chat final 事件的 message 可能为 undefined（例如模型回复被抑制时），
+  // 但 isChatting / thinking 缓存等 UI 状态仍需正确重置。
+  if (state === "final" && runId) {
+    _thinkingByRun.delete(runId);
+    store.setIsChatting(sessionUuid, false);
+
+    // 子 Agent run 结束，清除活跃状态，标记为已完成
+    if (!isRootAgent) {
+      store.clearAgentActive(sessionUuid, agentId);
+      store.markAgentCompleted(sessionUuid, agentId);
+    }
+  } else if (state === "delta" && runId) {
+    // 收到 delta 表示正在聊天，确保 UI 状态同步（即便不是由当前客户端发起的 run）
+    if (!store.isChattingBySession.get(sessionUuid)) {
+      store.setIsChatting(sessionUuid, true, runId);
+    }
+  }
+
   if (!message) {
     return;
   }
@@ -314,80 +371,13 @@ function handleChatEvent(store: AppStore, payload: unknown): void {
     subType: senderLabel ? ("colleague" as const) : undefined,
   };
 
-  // assistant delta 由 event:"agent" stream:"assistant" 负责流式渲染，
-  // 此处跳过，避免与 agent 事件重复追加。
-  // user 消息和 final 状态（最终确认）仍由此处处理。
+  // 忽略助理角色的流式 delta 消息（助理流由 handleAgentEvent 专门负责，
+  // 避免 chat 事件与 agent 流事件竞争导致内容闪烁或覆盖）。
   if (normalized.role === "assistant" && state === "delta") {
     return;
   }
 
-  // run 结束，清理 thinking 缓存
-  if (state === "final" && runId) {
-    _thinkingByRun.delete(runId);
-    store.setIsChatting(sessionUuid, false);
-
-    // 子 Agent run 结束，清除活跃状态，标记为已完成
-    if (!isRootAgent) {
-      store.clearAgentActive(sessionUuid, agentId);
-      store.markAgentCompleted(sessionUuid, agentId);
-    }
-
-    // ── 碎片修复：Root_Agent run 结束后用 History_Range_API 替换 streaming 碎片 ──
-    if (isRootAgent && runId) {
-      void (async () => {
-        try {
-          const { getClient } = await import("./client.js");
-          const { fetchSessionHistoryRange } = await import("./session-manager.js");
-          const client = getClient();
-          const result = await fetchSessionHistoryRange(client, sessionKey);
-          const completeMessages = result.messages;
-
-          // 保留 user 和 approval(pending) 消息，用完整消息替换 assistant + tool 碎片
-          const currentMsgs = store.messagesBySession.get(sessionUuid) ?? [];
-          const preserved = currentMsgs.filter((m) => m.role === "user" || m.subType === "pending");
-
-          // 合并：保留的消息 + API 返回的完整消息（过滤掉 user、pending，且仅保留根 Agent 消息）
-          const rootAgentId = extractAgentNameFromKey(sessionKey);
-          const apiNonUserMsgs = completeMessages.filter((m) => {
-            if (m.role === "user" || m.subType === "pending") {
-              return false;
-            }
-            // 仅保留根 Agent 的消息，过滤子 Agent 消息
-            if (m.sessionKey) {
-              return extractAgentNameFromKey(m.sessionKey) === rootAgentId;
-            }
-            // 无 sessionKey 的消息：仅保留非 agent 角色的消息（兼容），
-            // agent/assistant 角色的消息若无 sessionKey 则无法确定归属，跳过
-            if (m.role === "assistant" || m.role === "Agent") {
-              return false;
-            }
-            return true; // 其他角色（system 等）保留
-          });
-
-          // 按时间戳排序合并
-          const merged = [...preserved, ...apiNonUserMsgs].toSorted(
-            (a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0),
-          );
-
-          store.messagesBySession.set(sessionUuid, merged);
-          // 同步更新 messagesByAgent 中根 Agent 的消息（Primary_Panel 数据源）
-          const agentMap = store.messagesByAgent.get(sessionUuid);
-          if (agentMap) {
-            agentMap.set(rootAgentId, merged);
-          }
-          store.notify();
-        } catch (err) {
-          console.error("[mas4s:event-handler] fragment repair failed:", err);
-          // 失败时保留现有消息不做替换
-        }
-      })();
-    }
-  } else if (state === "delta" && runId) {
-    // 收到 delta 表示正在聊天，确保 UI 状态同步（即便不是由当前客户端发起的 run）
-    if (!store.isChattingBySession.get(sessionUuid)) {
-      store.setIsChatting(sessionUuid, true, runId);
-    }
-  }
+  // 若存在正在进行的思考过程，且当前消息内容中尚未包含 thinking 块，则将其注入
 
   // 所有消息路由到 messagesByAgent（无论视图模式）
   updateAgentChatStream(store, sessionUuid, agentId, chatMsg, state === "final");
@@ -433,14 +423,23 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
       subType: normalized.subType as ChatMessage["subType"],
     };
     debugLog(
-      `[mas4s:event-handler] Appending manual prompt message (role=${chatMsg.role})`,
+      `[mas4s:event-handler] Updating/Appending manual prompt message (role=${chatMsg.role})`,
       chatMsg,
     );
+
+    // 若存在正在进行的思考过程，且当前消息内容中尚未包含 thinking 块，则将其注入
+    if (chatMsg.role === "assistant" && runId) {
+      const thinkingText = _thinkingByRun.get(runId);
+      if (thinkingText && !chatMsg.content.some((c) => c.type === "thinking")) {
+        chatMsg.content = [{ type: "thinking", thinking: thinkingText }, ...chatMsg.content];
+      }
+    }
+
     // 路由到 messagesByAgent
-    store.appendAgentMessage(sessionUuid, agentId, chatMsg);
+    updateAgentChatStream(store, sessionUuid, agentId, chatMsg, false);
     // Root_Agent 同时写入 messagesBySession（向后兼容）
     if (isRootAgent) {
-      store.appendMessage(sessionUuid, chatMsg);
+      updateChatStream(store, sessionUuid, chatMsg, false);
     }
 
     // Sub_Agent 收到 prompt 消息时标记活跃状态、自动切换 Tab 和未读标记
@@ -477,12 +476,21 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
       subType: undefined,
     };
     debugLog(
-      `[mas4s:event-handler] Appending A2A agent input message (role=${chatMsg.role})`,
+      `[mas4s:event-handler] Updating/Appending A2A agent input message (role=${chatMsg.role})`,
       chatMsg,
     );
-    store.appendAgentMessage(sessionUuid, agentId, chatMsg);
+
+    // 若存在正在进行的思考过程，且当前消息内容中尚未包含 thinking 块，则将其注入
+    if (chatMsg.role === "assistant" && runId) {
+      const thinkingText = _thinkingByRun.get(runId);
+      if (thinkingText && !chatMsg.content.some((c) => c.type === "thinking")) {
+        chatMsg.content = [{ type: "thinking", thinking: thinkingText }, ...chatMsg.content];
+      }
+    }
+
+    updateAgentChatStream(store, sessionUuid, agentId, chatMsg, false);
     if (isRootAgent) {
-      store.appendMessage(sessionUuid, chatMsg);
+      updateChatStream(store, sessionUuid, chatMsg, false);
     }
 
     // Sub_Agent 收到 A2A 消息时标记活跃状态、自动切换 Tab 和未读标记
@@ -498,6 +506,15 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
       }
     }
     return;
+  }
+
+  // ── 同步 isChatting 状态 ──────────────────────────────────────────
+  // agent 事件（tool / assistant / thinking）表示 run 正在进行中，
+  // 但 isChatting 只在 handleChatEvent 的 delta 状态中被设置。
+  // 对于协作者视角、页面刷新恢复、或 chat delta 尚未到达的场景，
+  // 需要在此处同步设置 isChatting，确保输入框显示中止按钮。
+  if (runId && !store.isChattingBySession.get(sessionUuid)) {
+    store.setIsChatting(sessionUuid, true, runId);
   }
 
   if (stream === "assistant" && data?.text !== undefined && runId) {
@@ -575,22 +592,23 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
     // When a tool execution finishes (phase="result"), append a dedicated toolResult message
     // to the chat flow so it is rendered by MsgToolResult/MsgToolCard.
     if (phase === "result" && data.result !== undefined) {
+      const isError = !!(
+        (data as { isError?: boolean }).isError ||
+        (data.result &&
+          typeof data.result === "object" &&
+          ((data.result as Record<string, unknown>).status === "error" ||
+            !!(data.result as Record<string, unknown>).error))
+      );
       const toolMsg: ChatMessage = {
         role: "toolResult",
-        content: [{ type: "tool_result", text: formatToolOutput(data.result) }],
+        content: [{ type: "tool_result", text: formatToolOutput(data.result), isError }],
         timestamp: Date.now(),
         id: `${toolCallId}-result`,
         sessionKey, // 需求 9.1
         senderLabel: null,
         toolCallId,
         toolName: name,
-        isError: !!(
-          (data as { isError?: boolean }).isError ||
-          (data.result &&
-            typeof data.result === "object" &&
-            ((data.result as Record<string, unknown>).status === "error" ||
-              !!(data.result as Record<string, unknown>).error))
-        ),
+        isError,
       };
       debugLog(`[mas4s:event-handler] Appending manual toolResult message for ${name}`, toolMsg);
 
@@ -672,10 +690,25 @@ export function updateChatStream(
   isFinal: boolean,
 ): void {
   const msgs = store.messagesBySession.get(sessionUuid) ?? [];
-
-  // 只在最后一条消息 ID 匹配时执行原地更新，避免跨越工具调用或协作消息进行原地覆盖
   const last = msgs[msgs.length - 1];
+  // 只在最后一条消息 ID 匹配时执行原地更新，避免跨越工具调用或协作消息进行原地覆盖
   if (msg.id && last && last.id === msg.id && last.role === msg.role) {
+    // 长度保护（仅针对非最终状态的助理消息）：
+    // 若收到的消息内容短于已有的累计内容，则忽略，防止竞争导致的旧 delta 覆盖新全量。
+    if (!isFinal && msg.role === "assistant") {
+      const msgLen = msg.content.reduce(
+        (sum, c) => sum + (c.text?.length ?? 0) + (c.thinking?.length ?? 0),
+        0,
+      );
+      const lastLen = last.content.reduce(
+        (sum, c) => sum + (c.text?.length ?? 0) + (c.thinking?.length ?? 0),
+        0,
+      );
+      if (msgLen < lastLen) {
+        return;
+      }
+    }
+
     let mergedContent = msg.content;
     if (isFinal) {
       // chat final 只携带 text，需保留已有的 thinking 内容
@@ -710,6 +743,20 @@ export function updateAgentChatStream(
   const msgs = store.getAgentMessages(sessionUuid, agentId);
   const last = msgs[msgs.length - 1];
   if (msg.id && last && last.id === msg.id && last.role === msg.role) {
+    if (!isFinal && msg.role === "assistant") {
+      const msgLen = msg.content.reduce(
+        (sum, c) => sum + (c.text?.length ?? 0) + (c.thinking?.length ?? 0),
+        0,
+      );
+      const lastLen = last.content.reduce(
+        (sum, c) => sum + (c.text?.length ?? 0) + (c.thinking?.length ?? 0),
+        0,
+      );
+      if (msgLen < lastLen) {
+        return;
+      }
+    }
+
     let mergedContent = msg.content;
     if (isFinal) {
       const existingThinking = last.content.filter((c) => c.type === "thinking");

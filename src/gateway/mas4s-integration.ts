@@ -190,7 +190,10 @@ export async function initMas4sIntegration(
       llm.apiKey = await resolveLlmKey(config, llm.apiKey);
     }
 
-    const plugin = await createMas4sGatewayPlugin({ llm });
+    // Pass jwtSecret from gateway config so Proxy and Gateway share the same JWT secret
+    const jwtSecret = config?.gateway?.jwtSecret;
+
+    const plugin = await createMas4sGatewayPlugin({ llm, jwtSecret });
     log.info("mas4s multi-tenant plugin loaded");
 
     // ── Shared reference to the live clients set ──────────────────────────

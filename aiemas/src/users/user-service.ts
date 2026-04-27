@@ -220,10 +220,9 @@ export function listUsers(
          WHERE u.tenantId = ?`,
       )
       .all(tenantId) as unknown as UserWithPresenceRow[];
-    return rows.map((r) => ({
-      ...r,
-      isOnline: r.isOnline === 1,
-    }));
+    return rows.map(
+      (r) => Object.assign(r, { isOnline: r.isOnline === 1 }) as unknown as PublicUser,
+    );
   }
 
   // member/viewer: only approved users, without status field

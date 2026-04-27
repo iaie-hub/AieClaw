@@ -21,3 +21,15 @@ export function buildStatPlan(
     allowFailure: true,
   };
 }
+
+export function buildReaddirPlan(
+  target: SandboxResolvedFsPath,
+  anchoredTarget: AnchoredSandboxEntry,
+): SandboxFsCommandPlan {
+  return {
+    checks: [{ target, options: { action: "list directories", allowedType: "directory" } }],
+    script: 'set -eu\ncd -- "$1"\nls -1 -- "$2"',
+    args: [anchoredTarget.canonicalParentPath, anchoredTarget.basename],
+    allowFailure: true,
+  };
+}

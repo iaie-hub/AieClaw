@@ -40,11 +40,17 @@ function enqueueSessionFollowup(sessionKey: string, fn: () => Promise<void>): Pr
     .then(() => fn());
   sessionFollowupChains.set(sessionKey, next);
   // Clean up the reference once the chain settles to avoid memory leaks.
-  void next.finally(() => {
-    if (sessionFollowupChains.get(sessionKey) === next) {
-      sessionFollowupChains.delete(sessionKey);
-    }
-  });
+  // Guard: next.finally() forks a new promise from `next`. If `next` rejects,
+  // the caller handles that rejection via `await`, but this `.finally()` branch
+  // is a separate chain—without `.catch()` it becomes an unhandled rejection
+  // that crashes the process.
+  void next
+    .finally(() => {
+      if (sessionFollowupChains.get(sessionKey) === next) {
+        sessionFollowupChains.delete(sessionKey);
+      }
+    })
+    .catch(() => {});
   return next;
 }
 

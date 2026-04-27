@@ -13,6 +13,7 @@ minimumReleaseAgeExclude:
   - "basic-ftp"
   - "hono"
   - "openclaw"
+  - "protobufjs"
   - "@buape/carbon"
   - "vite"
   - "@cloudflare/workers-types"
@@ -21,6 +22,7 @@ minimumReleaseAgeExclude:
   - "@typescript/native-preview*"
   - "@types/node"
   - "@rolldown/*"
+  - "@aws-sdk/*"
   - "@oxlint/*"
   - "@oxfmt/*"
   - "axios@1.15.0"
@@ -30,7 +32,6 @@ minimumReleaseAgeExclude:
   - "sqlite-vec-*"
 
 onlyBuiltDependencies:
-  - "@discordjs/opus"
   - "@lydell/node-pty"
   - "@matrix-org/matrix-sdk-crypto-nodejs"
   - "@napi-rs/canvas"

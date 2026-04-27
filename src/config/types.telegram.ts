@@ -152,6 +152,8 @@ export type TelegramAccountConfig = {
   mediaMaxMb?: number;
   /** Telegram API client timeout in seconds (grammY ApiClientOptions). */
   timeoutSeconds?: number;
+  /** Telegram polling watchdog threshold in milliseconds. Default: 120000. */
+  pollingStallThresholdMs?: number;
   /** Retry policy for outbound Telegram API calls. */
   retry?: OutboundRetryConfig;
   /** Network transport overrides for Telegram. */
@@ -302,6 +304,8 @@ export type TelegramDirectConfig = {
   errorCooldownMs?: number;
   /** Auto-rename DM forum topics on first message using LLM. Default: true. */
   autoTopicLabel?: AutoTopicLabelConfig;
+  /** If true, skip automatic voice-note transcription for mention detection in this DM. */
+  disableAudioPreflight?: boolean;
 };
 
 export type TelegramConfig = {

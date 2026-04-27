@@ -148,6 +148,30 @@ export class MsgUser extends LitElement {
       flex-shrink: 0;
       background: #f1f5f9;
     }
+
+    .message-image-container {
+      margin-top: 8px;
+      max-width: 300px;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      display: flex;
+    }
+
+    .message-image {
+      width: 100%;
+      height: auto;
+      max-height: 400px;
+      object-fit: contain;
+      display: block;
+      cursor: pointer;
+      transition: filter 0.2s;
+    }
+
+    .message-image:hover {
+      filter: brightness(0.9);
+    }
   `;
 
   render() {
@@ -183,6 +207,27 @@ export class MsgUser extends LitElement {
                 </div>
               `
             : nothing}
+          ${this.message.content
+            .filter((c) => c.type === "image" || c.type === "image_url")
+            .map(
+              (c) => html`
+                <div class="message-image-container">
+                  <img
+                    class="message-image"
+                    src=${c.args?.["url"] ?? c.args?.["dataUrl"] ?? ""}
+                    alt="Image"
+                    @click=${() =>
+                      this.dispatchEvent(
+                        new CustomEvent("preview-image", {
+                          detail: { url: c.args?.["url"] ?? c.args?.["dataUrl"] },
+                          bubbles: true,
+                          composed: true,
+                        }),
+                      )}
+                  />
+                </div>
+              `,
+            )}
         </div>
         <div class="message-avatar">
           <svg

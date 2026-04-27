@@ -12,7 +12,11 @@ import {
   buildPinnedWritePlan,
 } from "./fs-bridge-mutation-helper.js";
 import { SandboxFsPathGuard } from "./fs-bridge-path-safety.js";
-import { buildStatPlan, type SandboxFsCommandPlan } from "./fs-bridge-shell-command-plans.js";
+import {
+  buildReaddirPlan,
+  buildStatPlan,
+  type SandboxFsCommandPlan,
+} from "./fs-bridge-shell-command-plans.js";
 import type { SandboxFsBridge, SandboxFsStat, SandboxResolvedPath } from "./fs-bridge.types.js";
 import {
   buildSandboxFsMounts,
@@ -216,6 +220,46 @@ class SandboxFsBridgeImpl implements SandboxFsBridge {
     };
   }
 
+  async readdir(params: {
+    filePath: string;
+    cwd?: string;
+    signal?: AbortSignal;
+  }): Promise<string[]> {
+    const target = this.resolveResolvedPath(params);
+    if (target.hostPath) {
+      try {
+        return fs.readdirSync(target.hostPath);
+      } catch (err) {
+        if (isMissingPathError(err)) {
+          throw err;
+        }
+        // Fall back to shell command if readdirSync fails (e.g. permission issue on host)
+      }
+    }
+
+    const anchoredTarget = await this.pathGuard.resolveAnchoredSandboxEntry(
+      target,
+      "list directories",
+    );
+    const result = await this.runPlannedCommand(
+      buildReaddirPlan(target, anchoredTarget),
+      params.signal,
+    );
+    if (result.code !== 0) {
+      const stderr = result.stderr.toString("utf8");
+      if (stderr.includes("No such file or directory")) {
+        throw new Error(`readdir: No such directory: ${target.containerPath}`);
+      }
+      const message = stderr.trim() || `ls failed with code ${result.code}`;
+      throw new Error(`readdir failed for ${target.containerPath}: ${message}`);
+    }
+    return result.stdout
+      .toString("utf8")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }
+
   private async runCommand(
     script: string,
     options: RunCommandOptions = {},
@@ -304,4 +348,13 @@ function coerceStatType(typeRaw?: string): "file" | "directory" | "other" {
     return "file";
   }
   return "other";
+}
+
+function isMissingPathError(err: unknown): err is NodeJS.ErrnoException {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as unknown as { code?: string }).code === "ENOENT"
+  );
 }

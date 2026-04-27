@@ -311,4 +311,26 @@ export function ensureMessageSchema(db: DatabaseSync): void {
   } catch {
     // Already exists
   }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS session_media (
+      id          TEXT    PRIMARY KEY,
+      sessionUuid TEXT    NOT NULL,
+      sessionKey  TEXT    NOT NULL,
+      mediaPath   TEXT    NOT NULL,
+      mimeType    TEXT    NULL,
+      createdAt   INTEGER NOT NULL,
+      parentSessionUuid TEXT NULL
+    );
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_session_media_uuid
+    ON session_media(sessionUuid);
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_session_media_parent_uuid
+    ON session_media(parentSessionUuid);
+  `);
 }

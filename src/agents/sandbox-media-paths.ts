@@ -1,6 +1,6 @@
 import path from "node:path";
 import { assertSandboxPath } from "./sandbox-paths.js";
-import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
+import type { SandboxFsBridge, SandboxResolvedPath } from "./sandbox/fs-bridge.js";
 
 export type SandboxedBridgeMediaPathConfig = {
   root: string;
@@ -22,6 +22,7 @@ export async function resolveSandboxedBridgeMediaPath(params: {
   sandbox: SandboxedBridgeMediaPathConfig;
   mediaPath: string;
   inboundFallbackDir?: string;
+  recentFallback?: boolean;
 }): Promise<{ resolved: string; rewrittenFrom?: string }> {
   const normalizeFileUrl = (rawPath: string) =>
     rawPath.startsWith("file://") ? rawPath.slice("file://".length) : rawPath;
@@ -53,22 +54,64 @@ export async function resolveSandboxedBridgeMediaPath(params: {
     if (!fallbackDir) {
       throw err;
     }
-    const fallbackPath = path.join(fallbackDir, path.basename(filePath));
+
+    const baseName = path.basename(filePath);
+    let fallbackPath = path.join(fallbackDir, baseName);
+    let resolvedFallback: SandboxResolvedPath | null = null;
+
     try {
       const stat = await params.sandbox.bridge.stat({
         filePath: fallbackPath,
         cwd: params.sandbox.root,
       });
-      if (!stat) {
-        throw err;
+      if (stat) {
+        resolvedFallback = params.sandbox.bridge.resolvePath({
+          filePath: fallbackPath,
+          cwd: params.sandbox.root,
+        });
       }
     } catch {
+      // Not found, check recent fallback if enabled
+    }
+
+    const isGenericHandle = baseName === "image" || baseName.startsWith("image-");
+    if (!resolvedFallback && params.recentFallback && isGenericHandle) {
+      try {
+        const files = await params.sandbox.bridge.readdir({
+          filePath: fallbackDir,
+          cwd: params.sandbox.root,
+        });
+        const imageFiles = files.filter((f) => /\.(png|jpg|jpeg|webp|gif|bmp|heic|heif)$/i.test(f));
+        if (imageFiles.length > 0) {
+          const stats = await Promise.all(
+            imageFiles.map(async (f) => ({
+              name: f,
+              stat: await params.sandbox.bridge.stat({
+                filePath: path.join(fallbackDir, f),
+                cwd: params.sandbox.root,
+              }),
+            })),
+          );
+          const sorted = stats
+            .filter((s) => s.stat !== null)
+            .toSorted((a, b) => (b.stat?.mtimeMs ?? 0) - (a.stat?.mtimeMs ?? 0));
+          if (sorted[0]) {
+            fallbackPath = path.join(fallbackDir, sorted[0].name);
+            resolvedFallback = params.sandbox.bridge.resolvePath({
+              filePath: fallbackPath,
+              cwd: params.sandbox.root,
+            });
+          }
+        }
+      } catch {
+        // readdir/stat failed, ignore and throw original err
+      }
+    }
+
+    if (!resolvedFallback) {
       throw err;
     }
-    const resolvedFallback = params.sandbox.bridge.resolvePath({
-      filePath: fallbackPath,
-      cwd: params.sandbox.root,
-    });
+
     if (resolvedFallback.hostPath) {
       await enforceWorkspaceBoundary(resolvedFallback.hostPath);
     }

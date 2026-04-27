@@ -138,11 +138,17 @@ function buildToolExecutionErrorResult(params: {
   toolName: string;
   message: string;
 }): AgentToolResult<unknown> {
-  return jsonResult({
+  const result = jsonResult({
     status: "error",
     tool: params.toolName,
     error: params.message,
   });
+  (result as unknown as { isError?: boolean }).isError = true;
+  if (result.content[0]) {
+    // Also tag the individual content item for UI normalizers that iterate over content
+    (result.content[0] as unknown as { isError?: boolean }).isError = true;
+  }
+  return result;
 }
 
 function splitToolExecuteArgs(args: ToolExecuteArgsAny): {
@@ -167,6 +173,50 @@ function splitToolExecuteArgs(args: ToolExecuteArgsAny): {
     onUpdate,
     signal,
   };
+}
+
+export const CLIENT_TOOL_NAME_CONFLICT_PREFIX = "client tool name conflict:";
+
+export function findClientToolNameConflicts(params: {
+  tools: ClientToolDefinition[];
+  existingToolNames?: Iterable<string>;
+}): string[] {
+  const existingNormalized = new Set<string>();
+  for (const name of params.existingToolNames ?? []) {
+    const trimmed = name.trim();
+    if (trimmed) {
+      existingNormalized.add(normalizeToolName(trimmed));
+    }
+  }
+
+  const conflicts = new Set<string>();
+  const seenClientNames = new Map<string, string>();
+  for (const tool of params.tools) {
+    const rawName = (tool.function?.name ?? "").trim();
+    if (!rawName) {
+      continue;
+    }
+    const normalizedName = normalizeToolName(rawName);
+    if (existingNormalized.has(normalizedName)) {
+      conflicts.add(rawName);
+    }
+    const priorClientName = seenClientNames.get(normalizedName);
+    if (priorClientName) {
+      conflicts.add(priorClientName);
+      conflicts.add(rawName);
+      continue;
+    }
+    seenClientNames.set(normalizedName, rawName);
+  }
+  return Array.from(conflicts);
+}
+
+export function createClientToolNameConflictError(conflicts: string[]): Error {
+  return new Error(`${CLIENT_TOOL_NAME_CONFLICT_PREFIX} ${conflicts.join(", ")}`);
+}
+
+export function isClientToolNameConflictError(err: unknown): err is Error {
+  return err instanceof Error && err.message.startsWith(CLIENT_TOOL_NAME_CONFLICT_PREFIX);
 }
 
 export function toToolDefinitions(tools: AnyAgentTool[]): ToolDefinition[] {

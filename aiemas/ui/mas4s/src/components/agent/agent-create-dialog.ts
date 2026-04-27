@@ -7,8 +7,11 @@ import { customElement, state } from "lit/decorators.js";
  */
 @customElement("agent-create-dialog")
 export class AgentCreateDialog extends LitElement {
+  @state() private _name = "";
   @state() private _agentId = "";
   @state() private _workspace = "";
+  /** 用户是否手动修改过智能体ID */
+  private _agentIdEdited = false;
   /** 用户是否手动修改过工作区目录 */
   private _workspaceEdited = false;
 
@@ -158,9 +161,28 @@ export class AgentCreateDialog extends LitElement {
     return AgentCreateDialog.ID_PATTERN.test(this._agentId.trim());
   }
 
+  private _onNameInput = (e: Event) => {
+    const val = (e.target as HTMLInputElement).value;
+    this._name = val;
+    // 若用户未手动编辑智能体ID，则自动同步
+    if (!this._agentIdEdited) {
+      const suggestedId = val
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      this._agentId = suggestedId;
+      // 同步更新工作区目录
+      if (!this._workspaceEdited) {
+        this._workspace = suggestedId ? `~/.openclaw/workspace-${suggestedId}` : "";
+      }
+    }
+  };
+
   private _onAgentIdInput = (e: Event) => {
     const raw = (e.target as HTMLInputElement).value;
     this._agentId = raw;
+    this._agentIdEdited = true;
     // 若用户未手动编辑工作区目录，则自动同步默认值
     if (!this._workspaceEdited) {
       this._workspace = raw.trim() ? `~/.openclaw/workspace-${raw.trim()}` : "";
@@ -173,12 +195,16 @@ export class AgentCreateDialog extends LitElement {
   };
 
   private _onConfirm = () => {
-    if (!this._agentIdValid || !this._workspace.trim()) {
+    if (!this._name.trim() || !this._agentIdValid || !this._workspace.trim()) {
       return;
     }
     this.dispatchEvent(
       new CustomEvent("confirm", {
-        detail: { agentId: this._agentId.trim(), workspace: this._workspace.trim() },
+        detail: {
+          name: this._name.trim(),
+          agentId: this._agentId.trim(),
+          workspace: this._workspace.trim(),
+        },
         bubbles: true,
         composed: true,
       }),
@@ -205,6 +231,16 @@ export class AgentCreateDialog extends LitElement {
         <div class="dialog-card" role="dialog" aria-modal="true" aria-labelledby="create-title">
           <h3 id="create-title">创建智能体</h3>
           <div class="field">
+            <label for="agent-name">智能体名称 <span aria-hidden="true">*</span></label>
+            <input
+              id="agent-name"
+              type="text"
+              placeholder="例如：我的助手、Research Assistant"
+              .value=${this._name}
+              @input=${this._onNameInput}
+            />
+          </div>
+          <div class="field">
             <label for="agent-id">智能体ID <span aria-hidden="true">*</span></label>
             <input
               id="agent-id"
@@ -216,7 +252,7 @@ export class AgentCreateDialog extends LitElement {
             />
             ${idInvalid
               ? html`<p class="hint error">只能包含英文字母、数字、连字符（-）和下划线（_）</p>`
-              : html`<p class="hint">例如：my-agent、agent_01</p>`}
+              : html`<p class="hint">用于配置文件名，建议与名称对应</p>`}
           </div>
           <div class="field">
             <label for="agent-workspace">工作区目录 <span aria-hidden="true">*</span></label>

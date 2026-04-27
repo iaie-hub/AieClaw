@@ -3,6 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { onSessionTranscriptUpdate } from "../../../src/sessions/transcript-events.js";
 import type { SessionTranscriptUpdate } from "../../../src/sessions/transcript-events.js";
 import { extractUuidFromKey } from "../utils/session-utils.js";
+import { upsertSessionMedia } from "./session-media-store.js";
 import { upsertSummary } from "./session-summary-store.js";
 
 const debugLog = (...args: unknown[]) => {
@@ -716,7 +717,8 @@ export class SessionTranscriptStore {
 
       // content 可能是字符串（user 消息）或数组（assistant/tool 消息）
       // 数组格式：[{ type: "text", text: "..." }, ...]
-      const content = extractContent(msg["content"]);
+      let content = extractContent(msg["content"]);
+
       const timestamp = typeof msg["timestamp"] === "number" ? msg["timestamp"] : Date.now();
       // gateway 的 message 对象不含 sessionId 字段，从 sessionKey 推导
       const sessionId =
@@ -728,6 +730,44 @@ export class SessionTranscriptStore {
       const parentSessionUuid = update.parentSessionKey
         ? extractUuidFromKey(update.parentSessionKey)
         : null;
+
+      // ── 图片元数据提取 ────────────────────────────────────────────────────
+      // gateway transcript 消息将图片路径存储在顶层 MediaPaths/MediaTypes 字段中，
+      // extractContent 只处理 content 字段，这里将图片信息序列化为 [image:<mime>] <path>
+      // 行前缀追加到 content，使其随消息一起持久化到 session_messages。
+      const mediaPaths = msg["MediaPaths"];
+      const mediaTypes = msg["MediaTypes"];
+      if (Array.isArray(mediaPaths) && mediaPaths.length > 0) {
+        const imageLines: string[] = [];
+        for (let i = 0; i < mediaPaths.length; i++) {
+          const p = mediaPaths[i];
+          if (typeof p === "string" && p) {
+            const mime =
+              Array.isArray(mediaTypes) && typeof mediaTypes[i] === "string"
+                ? (mediaTypes[i] as string)
+                : "image/png";
+            imageLines.push(`[image:${mime}] ${p}`);
+            // Persist to session_media table for synchronized deletion
+            try {
+              upsertSessionMedia(this.db, {
+                sessionUuid,
+                sessionKey,
+                mediaPath: p,
+                mimeType: mime,
+                createdAt: timestamp,
+                parentSessionUuid,
+              });
+            } catch (mediaErr) {
+              console.warn(
+                `[mas4s:transcript-store] Failed to upsert session media for ${sessionKey}: ${String(mediaErr)}`,
+              );
+            }
+          }
+        }
+        if (imageLines.length > 0) {
+          content = content ? `${content}\n${imageLines.join("\n")}` : imageLines.join("\n");
+        }
+      }
 
       const role = normaliseRole(rawRole);
       // Skip gateway-injected inbound metadata messages (second transcript event
@@ -899,7 +939,7 @@ export class SessionTranscriptStore {
         return;
       }
       // Drain the buffer atomically.
-      const msgs = this.buffer.splice(0, this.buffer.length);
+      const msgs = this.buffer.splice(0);
       this.persistBatch(msgs);
     } catch (err) {
       console.error("[mas4s:transcript-store] flush error:", err);

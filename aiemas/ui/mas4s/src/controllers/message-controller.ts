@@ -1,6 +1,8 @@
 import { getClient } from "../gateway/client.js";
+import type { ChatAttachment, MessageContentItem } from "../lib/chat-types.js";
 import { GatewayRequestError } from "../lib/gateway.js";
 import { AppStore } from "../store/app-store.js";
+import type { ChatMessage } from "../types/chat-types.js";
 import { buildChatSendParams } from "../utils/message-format.js";
 import { extractAgentNameFromKey } from "../utils/session-utils.js";
 
@@ -12,12 +14,14 @@ import { extractAgentNameFromKey } from "../utils/session-utils.js";
 export class MessageController {
   constructor(private readonly store: AppStore) {}
 
-  onSendMessage = async (e: CustomEvent<{ text: string }>) => {
+  onSendMessage = async (e: CustomEvent<{ text: string; attachments?: ChatAttachment[] }>) => {
     const session = this.store.activeSession;
+    const attachments = e.detail.attachments ?? [];
     console.debug(
-      "[mas4s:message] send → sessionKey=%s text.length=%d",
+      "[mas4s:message] send → sessionKey=%s text.length=%d attachments=%d",
       session?.key,
       e.detail.text.length,
+      attachments.length,
     );
     if (!session) {
       console.warn("[mas4s:message] send ← no active session, aborting");
@@ -34,9 +38,24 @@ export class MessageController {
       await this.onAbortChat();
     }
 
+    const content: MessageContentItem[] = [];
+    if (rawText.trim()) {
+      content.push({ type: "text", text: rawText });
+    }
+
+    // Add images to local content for immediate rendering
+    for (const att of attachments) {
+      if (att.dataUrl) {
+        content.push({
+          type: "image",
+          args: { url: att.dataUrl },
+        } as MessageContentItem);
+      }
+    }
+
     const msg: ChatMessage = {
       role: "user",
-      content: [{ type: "text", text: rawText }],
+      content,
       timestamp: Date.now(),
       id: clientRunId,
       senderLabel: displayName,
@@ -55,12 +74,30 @@ export class MessageController {
 
     const client = getClient();
     try {
+      const apiAttachments = attachments
+        .map((att) => {
+          if (!att.dataUrl) {
+            return null;
+          }
+          const match = /^data:([^;]+);base64,(.+)$/.exec(att.dataUrl);
+          if (!match) {
+            return null;
+          }
+          return {
+            type: "image",
+            mimeType: match[1],
+            content: match[2],
+          };
+        })
+        .filter((a) => a !== null);
+
       await client.request(
         "chat.send",
         buildChatSendParams({
           sessionKey: session.key,
           message: rawText,
-          clientRunId: clientRunId, // Pass clientRunId to params
+          clientRunId: clientRunId,
+          attachments: apiAttachments.length > 0 ? apiAttachments : undefined,
         }),
       );
       console.debug("[mas4s:message] send ← chat.send ok");

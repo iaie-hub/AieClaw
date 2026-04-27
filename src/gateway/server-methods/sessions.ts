@@ -74,6 +74,7 @@ import {
   loadSessionEntry,
   migrateAndPruneGatewaySessionStoreKey,
   readSessionPreviewItemsFromTranscript,
+  resolveDeletedAgentIdFromSessionKey,
   resolveFreshestSessionEntryFromStoreKeys,
   resolveGatewaySessionStoreTarget,
   resolveSessionModelRef,
@@ -96,6 +97,14 @@ import type {
 import { assertValidParams } from "./validation.js";
 
 const log = createSubsystemLogger("gateway/sessions");
+
+import * as sessionsRuntimeModule from "./sessions.runtime.js";
+
+type SessionsRuntimeModule = typeof sessionsRuntimeModule;
+
+function loadSessionsRuntimeModule(): Promise<SessionsRuntimeModule> {
+  return Promise.resolve(sessionsRuntimeModule);
+}
 
 function requireSessionKey(key: unknown, respond: RespondFn): string | null {
   const raw =
@@ -217,7 +226,7 @@ function emitSessionsChanged(
 }
 
 function rejectWebchatSessionMutation(params: {
-  action: "patch" | "delete";
+  action: "patch" | "delete" | "compact" | "restore";
   client: GatewayClient | null;
   isWebchatConnect: (params: GatewayClient["connect"] | null | undefined) => boolean;
   respond: RespondFn;
@@ -467,7 +476,20 @@ async function handleSessionSend(params: {
   if (!key) {
     return;
   }
-  const { entry, canonicalKey, storePath } = loadSessionEntry(key);
+  const { cfg, entry, canonicalKey, storePath } = loadSessionEntry(key);
+  // Reject sends/steers targeting sessions whose owning agent was deleted (#65524).
+  const deletedAgentId = resolveDeletedAgentIdFromSessionKey(cfg, canonicalKey);
+  if (deletedAgentId !== null) {
+    params.respond(
+      false,
+      undefined,
+      errorShape(
+        ErrorCodes.INVALID_REQUEST,
+        `Agent "${deletedAgentId}" no longer exists in configuration`,
+      ),
+    );
+    return;
+  }
   if (!entry?.sessionId) {
     params.respond(
       false,
@@ -1139,6 +1161,9 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     if (!key) {
       return;
     }
+    if (rejectWebchatSessionMutation({ action: "restore", client, isWebchatConnect, respond })) {
+      return;
+    }
     const checkpointId =
       typeof p.checkpointId === "string" && p.checkpointId.trim() ? p.checkpointId.trim() : "";
     if (!checkpointId) {
@@ -1408,7 +1433,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     }
 
     const reason = p.reason === "new" ? "new" : "reset";
-    const { performGatewaySessionReset } = await import("./sessions.runtime.js");
+    const { performGatewaySessionReset } = await loadSessionsRuntimeModule();
     const result = await performGatewaySessionReset({
       key,
       reason,
@@ -1464,7 +1489,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       cleanupSessionBeforeMutation,
       emitGatewaySessionEndPluginHook,
       emitSessionUnboundLifecycleEvent,
-    } = await import("./sessions.runtime.js");
+    } = await loadSessionsRuntimeModule();
 
     const { entry, legacyKey, canonicalKey } = loadSessionEntry(key);
     const mutationCleanupError = await cleanupSessionBeforeMutation({
@@ -1564,6 +1589,9 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     if (!key) {
       return;
     }
+    if (rejectWebchatSessionMutation({ action: "compact", client, isWebchatConnect, respond })) {
+      return;
+    }
 
     const maxLines =
       typeof p.maxLines === "number" && Number.isFinite(p.maxLines)
@@ -1640,6 +1668,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
         config: cfg,
         provider: resolvedModel.provider,
         model: resolvedModel.model,
+        agentHarnessId: entry?.sessionId === sessionId ? entry.agentHarnessId : undefined,
         thinkLevel: normalizeThinkLevel(entry?.thinkingLevel),
         reasoningLevel: normalizeReasoningLevel(entry?.reasoningLevel),
         bashElevated: {

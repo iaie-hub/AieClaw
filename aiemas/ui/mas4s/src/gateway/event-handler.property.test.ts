@@ -72,7 +72,7 @@ const arbTwoDistinctAgentIds = fc.tuple(arbAgentId, arbAgentId).filter(([a, b]) 
 /** Multiple distinct agentIds (2-5) */
 const arbMultipleDistinctAgentIds = fc
   .array(arbAgentId, { minLength: 2, maxLength: 5 })
-  .map((ids) => [...new Set(ids)])
+  .map((ids) => Array.from(new Set(ids)))
   .filter((ids) => ids.length >= 2);
 
 /** Minimal ChatMessage for testing */

@@ -282,11 +282,13 @@ export class AgentsView extends LitElement {
 
   // ── Create ────────────────────────────────────────────────────────────────
 
-  private _onCreateConfirm = async (e: CustomEvent<{ agentId: string; workspace: string }>) => {
+  private _onCreateConfirm = async (
+    e: CustomEvent<{ name: string; agentId: string; workspace: string }>,
+  ) => {
     this._dialog = { kind: "none" };
     try {
       const client = getClient();
-      await createAgent(client, e.detail.agentId, e.detail.workspace);
+      await createAgent(client, e.detail);
       this._showToast("智能体创建成功");
       await this._fetch();
     } catch (err: unknown) {

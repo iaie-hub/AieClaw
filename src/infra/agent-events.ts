@@ -69,6 +69,7 @@ export type AgentApprovalEventData = {
   command?: string;
   host?: string;
   reason?: string;
+  scope?: "turn" | "session";
   message?: string;
 };
 

@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { NonEmptyString } from "./primitives.js";
 
 export const ModelChoiceSchema = Type.Object(
@@ -58,6 +58,7 @@ export const AgentsListResultSchema = Type.Object(
 export const AgentsCreateParamsSchema = Type.Object(
   {
     name: NonEmptyString,
+    agentId: Type.Optional(NonEmptyString),
     workspace: NonEmptyString,
     model: Type.Optional(NonEmptyString),
     emoji: Type.Optional(Type.String()),
