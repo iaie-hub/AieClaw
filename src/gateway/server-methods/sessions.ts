@@ -104,12 +104,51 @@ import { assertValidParams } from "./validation.js";
 
 const log = createSubsystemLogger("gateway/sessions");
 
-import * as sessionsRuntimeModule from "./sessions.runtime.js";
+import type * as sessionsRuntimeModuleType from "./sessions.runtime.js";
 
-type SessionsRuntimeModule = typeof sessionsRuntimeModule;
+type SessionsRuntimeModule = typeof sessionsRuntimeModuleType;
+
+let sessionsRuntimeModulePromise: Promise<SessionsRuntimeModule> | undefined;
+let loggedSlowSessionsListCatalog = false;
+
+const SESSIONS_LIST_MODEL_CATALOG_TIMEOUT_MS = 750;
 
 function loadSessionsRuntimeModule(): Promise<SessionsRuntimeModule> {
-  return Promise.resolve(sessionsRuntimeModule);
+  if (!sessionsRuntimeModulePromise) {
+    sessionsRuntimeModulePromise = import("./sessions.runtime.js");
+  }
+  return sessionsRuntimeModulePromise;
+}
+
+async function loadOptionalSessionsListModelCatalog(
+  context: GatewayRequestContext,
+): Promise<Awaited<ReturnType<GatewayRequestContext["loadGatewayModelCatalog"]>> | undefined> {
+  let timeout: NodeJS.Timeout | undefined;
+  const timedOut = Symbol("sessions-list-model-catalog-timeout");
+  const timeoutPromise = new Promise<typeof timedOut>((resolve) => {
+    timeout = setTimeout(() => resolve(timedOut), SESSIONS_LIST_MODEL_CATALOG_TIMEOUT_MS);
+    timeout.unref?.();
+  });
+  try {
+    const result = await Promise.race([
+      context.loadGatewayModelCatalog().catch(() => undefined),
+      timeoutPromise,
+    ]);
+    if (result === timedOut) {
+      if (!loggedSlowSessionsListCatalog) {
+        loggedSlowSessionsListCatalog = true;
+        context.logGateway.debug(
+          `sessions.list continuing without model catalog after ${SESSIONS_LIST_MODEL_CATALOG_TIMEOUT_MS}ms`,
+        );
+      }
+      return undefined;
+    }
+    return Array.isArray(result) ? result : undefined;
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 function requireSessionKey(key: unknown, respond: RespondFn): string | null {
@@ -627,8 +666,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const p = params;
     const cfg = context.getRuntimeConfig();
     const { storePath, store } = loadCombinedSessionStoreForGateway(cfg);
-    const loadedCatalog = await context.loadGatewayModelCatalog().catch(() => undefined);
-    const modelCatalog = Array.isArray(loadedCatalog) ? loadedCatalog : undefined;
+    const modelCatalog = await loadOptionalSessionsListModelCatalog(context);
     const result = listSessionsFromStore({
       cfg,
       storePath,

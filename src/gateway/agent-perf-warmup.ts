@@ -35,22 +35,26 @@ export async function warmupAgentCaches(config?: OpenClawConfig): Promise<void> 
 
     // 串行处理每个 agent，每个 agent 之间 yield 让出 event loop
     for (const agentId of agentIds) {
-      // Yield to the event loop between agents so WebSocket frames,
-      // HTTP requests, and timers can be processed during warmup.
+      const agentStarted = Date.now();
+      // Yield to the event loop before each agent
       await new Promise<void>((resolve) => setImmediate(resolve));
 
       try {
         const agentDir = resolveAgentDir(config!, agentId);
 
         // 1. 预热 ensureOpenClawModelsJson 的所有缓存层
+        // This can be VERY slow if there are many providers/models
         await ensureOpenClawModelsJson(config, agentDir);
 
-        // Yield again after the heaviest synchronous work
+        // Yield again after model config normalization
         await new Promise<void>((resolve) => setImmediate(resolve));
 
         // 2. 预热 discoverAuthStorage + discoverModels 缓存
         const authStorage = discoverAuthStorage(agentDir);
         const modelRegistry = discoverModels(authStorage, agentDir);
+
+        // Yield before the potentially heavy resolveModelAsync
+        await new Promise<void>((resolve) => setImmediate(resolve));
 
         // 3. 预热 resolveModelAsync（normalizeResolvedModel 缓存 + provider runtime hook）
         const defaultModel = resolveDefaultModelForAgent({ cfg: config!, agentId });
@@ -58,8 +62,10 @@ export async function warmupAgentCaches(config?: OpenClawConfig): Promise<void> 
           authStorage,
           modelRegistry,
         });
-      } catch {
-        // 单个 agent 预热失败不影响其他
+
+        console.log(`[perf:warmup] agent "${agentId}" warmed in ${Date.now() - agentStarted}ms`);
+      } catch (err) {
+        console.warn(`[perf:warmup] agent "${agentId}" warmup failed: ${String(err)}`);
       }
     }
 
