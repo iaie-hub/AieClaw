@@ -10,26 +10,26 @@
 
 该 Skill 专注于浅层抽象，从 Title、Abstract 和 Introduction 中提取核心逻辑。
 
-| 负责字段 | 说明 | 认知深度 |
-| :--- | :--- | :--- |
+| 负责字段                 | 说明                                           | 认知深度 |
+| :----------------------- | :--------------------------------------------- | :------- |
 | **one_sentence_formula** | "用 [方法A] 解决 [问题B]，以揭示 [规律/目标C]" | 极简抽象 |
-| **refined_abstract** | 3 句话精简摘要（背景/Gap -> 方案 -> 结论） | 中层概括 |
+| **refined_abstract**     | 3 句话精简摘要（背景/Gap -> 方案 -> 结论）     | 中层概括 |
 
 ### 三、 实现流程
 
-| 步骤 | 动作 | 说明 |
-| :--- | :--- | :--- |
-| 1 | 数据加载 | 读取 `parsed_papers.json` 及 PI 核心假说。 |
-| 2 | 逐篇精炼 | 针对每篇论文的 Markdown 全文进行宏观特征提取。 |
-| 3 | 结果落盘 | 在论文 arXiv ID 目录下生成 `paper_macro_feature.json`。 |
+| 步骤 | 动作     | 说明                                                    |
+| :--- | :------- | :------------------------------------------------------ |
+| 1    | 数据加载 | 读取 `parsed_papers.json` 及 PI 核心假说。              |
+| 2    | 逐篇精炼 | 针对每篇论文的 Markdown 全文进行宏观特征提取。          |
+| 3    | 结果落盘 | 在论文 arXiv ID 目录下生成 `paper_macro_feature.json`。 |
 
 ### 四、 输入参数
 
-| 参数名 | 类型 | 必填 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- | :--- |
-| **run_id** | String | 是 | - | 执行 ID。 |
-| **agent_id** | String | 否 | "literature-ground" | 当前 Agent ID。 |
-| **input_agent_id** | String | 否 | "idea-align" | 阶段 1 Agent ID。 |
+| 参数名             | 类型   | 必填 | 默认值              | 说明              |
+| :----------------- | :----- | :--- | :------------------ | :---------------- |
+| **run_id**         | String | 是   | -                   | 执行 ID。         |
+| **agent_id**       | String | 否   | "literature-ground" | 当前 Agent ID。   |
+| **input_agent_id** | String | 否   | "idea-align"        | 阶段 1 Agent ID。 |
 
 **输入文件 1**：`~/.openclaw/workspace-idea-align/task/{run_id}/pi_result.json`
 **输入文件 2**：`~/.openclaw/workspace-literature-ground/task/{run_id}/parsed_papers.json`
@@ -38,11 +38,11 @@
 
 **输出文件**：`~/.openclaw/workspace-literature-ground/task/{run_id}/papers/{arxiv_id}/paper_macro_feature.json`
 
-| 字段名 | 类型 | 说明 |
-| :--- | :--- | :--- |
-| **one_sentence_formula** | String | 一句话公式描述。 |
-| **refined_abstract** | String | 提炼后的精简摘要（中文）。 |
-| **chain_of_thought** | Object | 三步思维链推演。 |
+| 字段名                   | 类型   | 说明                       |
+| :----------------------- | :----- | :------------------------- |
+| **one_sentence_formula** | String | 一句话公式描述。           |
+| **refined_abstract**     | String | 提炼后的精简摘要（中文）。 |
+| **chain_of_thought**     | Object | 三步思维链推演。           |
 
 ### 六、 示例
 

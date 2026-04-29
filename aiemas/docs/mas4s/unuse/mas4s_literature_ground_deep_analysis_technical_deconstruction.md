@@ -10,26 +10,26 @@
 
 该 Skill 专注于深层逻辑链，从 Methodology、Experiments 和 Results 章节中提取硬核细节。
 
-| 负责字段 | 说明 | 认知深度 |
-| :--- | :--- | :--- |
-| **algorithm** | 核心机制、数学突破与技术依赖 | 深层逻辑 |
-| **experiment_methodology** | 数据集、基准模型与评价指标 | 实验复现层 |
-| **experiment_results** | SOTA 状态、量化提升与潜在代价 | 事实量化层 |
+| 负责字段                   | 说明                          | 认知深度   |
+| :------------------------- | :---------------------------- | :--------- |
+| **algorithm**              | 核心机制、数学突破与技术依赖  | 深层逻辑   |
+| **experiment_methodology** | 数据集、基准模型与评价指标    | 实验复现层 |
+| **experiment_results**     | SOTA 状态、量化提升与潜在代价 | 事实量化层 |
 
 ### 三、 实现流程
 
-| 步骤 | 动作 | 说明 |
-| :--- | :--- | :--- |
-| 1 | 数据加载 | 读取 `parsed_papers.json` 及 PI 核心假说。 |
-| 2 | 硬核解构 | 针对每篇论文的 Markdown 全文进行技术细节解构。 |
-| 3 | 结果落盘 | 在论文 arXiv ID 目录下生成 `paper_technical_details.json`。 |
+| 步骤 | 动作     | 说明                                                        |
+| :--- | :------- | :---------------------------------------------------------- |
+| 1    | 数据加载 | 读取 `parsed_papers.json` 及 PI 核心假说。                  |
+| 2    | 硬核解构 | 针对每篇论文的 Markdown 全文进行技术细节解构。              |
+| 3    | 结果落盘 | 在论文 arXiv ID 目录下生成 `paper_technical_details.json`。 |
 
 ### 四、 输入参数
 
-| 参数名 | 类型 | 必填 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- | :--- |
-| **run_id** | String | 是 | - | 执行 ID。 |
-| **agent_id** | String | 否 | "literature-ground" | 当前 Agent ID。 |
+| 参数名       | 类型   | 必填 | 默认值              | 说明            |
+| :----------- | :----- | :--- | :------------------ | :-------------- |
+| **run_id**   | String | 是   | -                   | 执行 ID。       |
+| **agent_id** | String | 否   | "literature-ground" | 当前 Agent ID。 |
 
 **输入文件**：`~/.openclaw/workspace-literature-ground/task/{run_id}/parsed_papers.json`
 
@@ -37,11 +37,11 @@
 
 **输出文件**：`~/.openclaw/workspace-literature-ground/task/{run_id}/papers/{arxiv_id}/paper_technical_details.json`
 
-| 字段名 | 类型 | 说明 |
-| :--- | :--- | :--- |
-| **algorithm** | Object | 算法核心与数学逻辑。 |
-| **experiment_methodology** | Object | 实验设计与配置。 |
-| **experiment_results** | Object | 量化结果与改进度。 |
+| 字段名                     | 类型   | 说明                 |
+| :------------------------- | :----- | :------------------- |
+| **algorithm**              | Object | 算法核心与数学逻辑。 |
+| **experiment_methodology** | Object | 实验设计与配置。     |
+| **experiment_results**     | Object | 量化结果与改进度。   |
 
 ### 六、 示例
 

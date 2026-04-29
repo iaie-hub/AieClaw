@@ -10,27 +10,27 @@
 
 该 Skill 专注于主观评价与启发价值，从 Discussion、Limitations 和 Conclusion 章节中提取批判性见解。
 
-| 负责字段 | 说明 | 认知深度 |
-| :--- | :--- | :--- |
-| **pros_and_strengths** | 真正的核心优势（非广告语） | 深度评价 |
-| **cons_and_weaknesses** | 根本性缺陷或存疑的假设 | 批判层 |
-| **boundary_limitations** | 技术失效的特定边界条件 | 风险层 |
-| **heuristic_value** | 对我方研究的直接参考价值 | 战略层 |
+| 负责字段                 | 说明                       | 认知深度 |
+| :----------------------- | :------------------------- | :------- |
+| **pros_and_strengths**   | 真正的核心优势（非广告语） | 深度评价 |
+| **cons_and_weaknesses**  | 根本性缺陷或存疑的假设     | 批判层   |
+| **boundary_limitations** | 技术失效的特定边界条件     | 风险层   |
+| **heuristic_value**      | 对我方研究的直接参考价值   | 战略层   |
 
 ### 三、 实现流程
 
-| 步骤 | 动作 | 说明 |
-| :--- | :--- | :--- |
-| 1 | 数据加载 | 读取 `parsed_papers.json` 及 PI 核心假说。 |
-| 2 | 价值审计 | 针对每篇论文的 Markdown 全文进行批判性审计。 |
-| 3 | 结果落盘 | 在论文 arXiv ID 目录下生成 `paper_critical_review.json`。 |
+| 步骤 | 动作     | 说明                                                      |
+| :--- | :------- | :-------------------------------------------------------- |
+| 1    | 数据加载 | 读取 `parsed_papers.json` 及 PI 核心假说。                |
+| 2    | 价值审计 | 针对每篇论文的 Markdown 全文进行批判性审计。              |
+| 3    | 结果落盘 | 在论文 arXiv ID 目录下生成 `paper_critical_review.json`。 |
 
 ### 四、 输入参数
 
-| 参数名 | 类型 | 必填 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- | :--- |
-| **run_id** | String | 是 | - | 执行 ID。 |
-| **agent_id** | String | 否 | "literature-ground" | 当前 Agent ID。 |
+| 参数名       | 类型   | 必填 | 默认值              | 说明            |
+| :----------- | :----- | :--- | :------------------ | :-------------- |
+| **run_id**   | String | 是   | -                   | 执行 ID。       |
+| **agent_id** | String | 否   | "literature-ground" | 当前 Agent ID。 |
 
 **输入文件**：`~/.openclaw/workspace-literature-ground/task/{run_id}/parsed_papers.json`
 
@@ -38,12 +38,12 @@
 
 **输出文件**：`~/.openclaw/workspace-literature-ground/task/{run_id}/papers/{arxiv_id}/paper_critical_review.json`
 
-| 字段名 | 类型 | 说明 |
-| :--- | :--- | :--- |
-| **pros_and_strengths** | String | 文献核心优点。 |
-| **cons_and_weaknesses** | String | 文献核心缺点。 |
+| 字段名                   | 类型   | 说明             |
+| :----------------------- | :----- | :--------------- |
+| **pros_and_strengths**   | String | 文献核心优点。   |
+| **cons_and_weaknesses**  | String | 文献核心缺点。   |
 | **boundary_limitations** | String | 技术边界与局限。 |
-| **heuristic_value** | String | 启发价值。 |
+| **heuristic_value**      | String | 启发价值。       |
 
 ### 六、 示例
 

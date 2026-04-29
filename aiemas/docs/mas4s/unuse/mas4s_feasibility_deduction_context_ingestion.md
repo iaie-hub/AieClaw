@@ -32,10 +32,10 @@
 | **run_id**      | String | 是   | -                       | 执行 ID。                 |
 | **agent_id**    | String | 否   | "feasibility-deduction" | 当前 Agent ID (Phase 3)。 |
 | **pi_agent_id** | String | 否   | "idea-align"            | 阶段 1 Agent ID。         |
-| **lg_agent_id** | String | 否   | "evidence"              | 阶段 2 Agent ID。         |
+| **lg_agent_id** | String | 否   | "literature-ground"     | 阶段 2 Agent ID。         |
 
 **输入文件 1**：`~/.openclaw/workspace-idea-align/task/{run_id}/pi_result.json`
-**输入文件 2**：`~/.openclaw/workspace-evidence/task/{run_id}/literature_graph.json`
+**输入文件 2**：`~/.openclaw/workspace-literature-ground/task/{run_id}/literature_graph.json`
 
 ### 五、 输出参数
 
@@ -59,7 +59,7 @@ python3 scripts/mas4s_feasibility_deduction_context_ingestion.py '{"run_id": "ru
 ```
 # 输入来源
 ~/.openclaw/workspace-idea-align/task/run_20260426/pi_result.json
-~/.openclaw/workspace-evidence/task/run_20260426/literature_graph.json
+~/.openclaw/workspace-literature-ground/task/run_20260426/literature_graph.json
 
 # 当前输出
 ~/.openclaw/workspace-feasibility-deduction/task/run_20260426/
