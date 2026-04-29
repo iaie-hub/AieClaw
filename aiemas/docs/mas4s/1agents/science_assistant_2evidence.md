@@ -64,47 +64,65 @@ Agent 严格遵循以下“检索-清洗-解构-合成”的闭环 SOP 流程执
 
 #### Skill A：宏观态势探针 (Macro Probe Skill)
 
-- **技能调用**：[`mas4s-evidence-deep-analysis-macro-probe`](file:///Users/admin/clawd/skills/mas4s-evidence-deep-analysis-macro-probe/SKILL.md) (参考：[技能文档](../1skills/mas4s_2evidence_deep_analysis_macro_probe.md))
-- **负责字段**：`一句话公式描述`、`摘要（提炼版）`
-- **认知深度**：浅层抽象。快速抓取核心定位，作为防御"课题被抢发"的先头部队。两个字段均属高度概括，天然共享同一认知上下文。
-- **输出**：`paper_macro_feature.json`（含 `one_sentence_formula`、`summary` 两个字段）
+#### Skill A：宏观态势探针 (Macro Probe Skill)
 
-  | 字段                     | 格式说明                                             |
-  | :----------------------- | :--------------------------------------------------- |
-  | **one_sentence_formula** | "用 \[方法A\] 解决 \[问题B\]，以揭示 \[规律/目标C\]" |
-  | **summary**              | 提炼论文核心贡献、数据集、评价指标与结论的精简摘要。 |
+- **技能调用**：[`mas4s-evidence-deep-analysis-macro-probe`](file:///Users/admin/clawd/skills/mas4s-evidence-deep-analysis-macro-probe/SKILL.md) (参考：[技能文档](../1skills/mas4s_2evidence_deep_analysis_macro_probe.md))
+- **负责字段**：`发表元信息`、`理论基础`、`一句话公式`、`提纯摘要`
+- **认知深度**：浅层抽象。快速抓取核心定位与理论脉络，作为防御“课题被抢发”的先头部队。
+- **输出**：`paper_macro_feature.json`（含 `is_published`, `research_objective`, `theoretical_basis`, `one_sentence_formula`, `refined_abstract`）
+
+  | 字段                     | 说明                                                          |
+  | :----------------------- | :------------------------------------------------------------ |
+  | **is_published**         | 标记该预印本是否经过正式发表（期刊/会议），用于特征表元信息。 |
+  | **research_objective**   | 一句话总结研究目标，用于拼凑领域全景。                        |
+  | **theoretical_basis**    | 识别文章借用的经典理论或视角，作为综述主干。                  |
+  | **one_sentence_formula** | “用 [方法A] 解决 [问题B]，以揭示 [规律/目标C]”的硬核逻辑。    |
+  | **refined_abstract**     | 提炼核心贡献、数据集、指标与结论的 3 句话逻辑链。             |
 
 #### Skill B：硬核解构引擎 (Technical Deconstruction Skill)
 
 - **技能调用**：[`mas4s-evidence-deep-analysis-technical-deconstruction`](file:///Users/admin/clawd/skills/mas4s-evidence-deep-analysis-technical-deconstruction/SKILL.md) (参考：[技能文档](../1skills/mas4s_2evidence_deep_analysis_technical_deconstruction.md))
-- **负责字段**：`算法提取`、`实验方法提取`、`实验结果提取`
-- **认知深度**：深层逻辑链。三者构成严密的因果链（采用 A 算法 → 设计 B 实验 → 得到 C 结果），必须由同一大模型在同一 Context 下处理，以确保内部逻辑自洽，避免算法与结果"牛头不对马嘴"。
-- **输出**：`paper_technical_details.json`（含 `algorithm`、`experiment_method`、`experiment_result` 三个字段）
+- **负责字段**：`核心构念`、`实验范式`、`测量工具`、`量化结果`、`算法细节`
+- **认知深度**：深层逻辑链。将论文解构为可复用的实验组件与量化证据，指导我方变量设计。
+- **输出**：`paper_technical_details.json`（含 `core_constructs`, `empirical_design`, `measurement_tools`, `key_findings`, `algorithm`）
 
-  | 字段                  | 说明                                                                |
-  | :-------------------- | :------------------------------------------------------------------ |
-  | **algorithm**         | 提取论文中提出或使用的核心算法、模型架构及关键超参数。              |
-  | **experiment_method** | 提取实验设计、数据集、评价指标及对照组配置。                        |
-  | **experiment_result** | 提取关键量化结果（含 SOTA 对比数据）及其对 PI 假说的支撑/反驳关系。 |
+  | 字段                  | 说明                                                  |
+  | :-------------------- | :---------------------------------------------------- |
+  | **core_constructs**   | 提取自变量、因变量、中介/调节变量及其操作化定义。     |
+  | **empirical_design**  | 提取实验/模拟范式、被试特征、样本量、因子设计。       |
+  | **measurement_tools** | 提取量表、行为指标、信效度及关键测量工具。            |
+  | **key_findings**      | 提取统计显著结果、效应大小（Effect Size）及意外发现。 |
+  | **algorithm**         | 提取论文提出或使用的核心算法、模型架构及关键超参数。  |
 
 #### Skill C：价值批判专家 (Critical Review Skill)
 
 - **技能调用**：[`mas4s-evidence-deep-analysis-critical-review`](file:///Users/admin/clawd/skills/mas4s-evidence-deep-analysis-critical-review/SKILL.md) (参考：[技能文档](../1skills/mas4s_2evidence_deep_analysis_critical_review.md))
-- **负责字段**：`精读（Pros/Cons/局限性）`
-- **认知深度**：深度评价与批判。剥离 Skill B 的客观事实抽取，专注于主观评价：判断该文献对 PI 假说的启发价值，以及其致命缺陷是否可作为课题突破口。
-- **输出**：`paper_critical_review.json`（含 `pros`、`cons`、`limitations`、`relevance_to_pi` 四个字段）
+- **负责字段**：`设计启示`、`局限审计`、`优劣势分析`、`技术边界`
+- **认知深度**：深度评价与批判。专注于主观启发价值：判断该文献是否可为课题突破口，以及其致命缺陷是否代表了研究机会。
+- **输出**：`paper_critical_review.json`（含 `direct_inspiration`, `limitations_and_future_work`, `pros_and_strengths`, `cons_and_weaknesses`, `boundary_limitations`）
 
-### 步骤 7：图谱聚合与全景审计 (Knowledge Graph Aggregation & Panorama Audit)
+  | 字段                            | 说明                                                   |
+  | :------------------------------ | :----------------------------------------------------- |
+  | **direct_inspiration**          | 具体产出：可复用的范式、需控制的变量、改进的刺激材料。 |
+  | **limitations_and_future_work** | 作者承认的不足或发现的逻辑漏洞，标记研究的创新切入点。 |
+  | **pros_and_strengths**          | 识别文献真正的核心优势（非广告语）。                   |
+  | **cons_and_weaknesses**         | 挖掘根本性缺陷或存疑的假设。                           |
+  | **boundary_limitations**        | 探测技术失效的特定边界条件，为可行性推演提供风险基准。 |
 
-- **技能调用**：[`mas4s-evidence-literature-graph`](file:///Users/admin/clawd/skills/mas4s-evidence-literature-graph/SKILL.md) (参考：[技能文档](../1skills/mas4s_2evidence_knowledge_graph.md))
-- **输入**：步骤 6 三个 Skill 产出的每篇论文的 `paper_macro_feature.json`、`paper_technical_details.json`、`paper_critical_review.json`，以及 PI 核心假说。
-- **作用**：扮演“文献全景合成建筑师”与“情报分发中枢”角色。将所有论文的 6 维结构化数据流聚合为统一的高密度知识图谱，并为后续阶段（可行性推演、实验设计、溯源成文）准备结构化数据 Feed。执行以下核心审计：
-  - **图谱拓扑构建**：生成符合可视化标准的 `nodes` 和 `edges`，描述技术流派的演进、继承与对抗关系。
-  - **多维对撞分析**：提取全文献范围内的“共识（Consensus）”与“冲突（Controversy）”，定位技术战场（War Zone）。
-  - **下游情报分发**：输出双语（中英）JSON，包含为阶段 3 定制的情报包 `literature_graph.json`（供可行性推演使用）以及后续阶段 4/5 的评估指标与论据池。
-  - **抢发风险探测 (Scooped Check)**：对比 PI 假说与合成图谱，检测是否存在已完全覆盖的研究，并给出避坑或 Pivot 建议。
-- **输出**：`literature_graph.json`（双语知识图谱与分发 Feed）及 `evidence_report.md`（人类可读的文献全景审计报告）。
-- **Feedback 循环**：若图谱存在明显知识盲区，携带补充关键词**回滚至步骤 2**重新扩展检索，直至底座完整。
+### 步骤 7：文献全景合成与图谱构建中枢 (Evidence Base Synthesizer) (Map-Reduce 增强版)
+
+- **技能调用**：[`mas4s-evidence-synthesizer`](file:///Users/admin/clawd/skills/mas4s-evidence-synthesizer/SKILL.md) (参考：[技能文档](../1skills/mas4s_2evidence_synthesizer.md))
+- **输入**：步骤 6 三个 Skill 产出的每篇论文的结构化 JSON 集，以及 PI 核心假说。
+- **作用**：扮演“文献全景合成建筑师”与“情报分发中枢”角色。采用 **Map-Reduce 架构** 处理大规模文献，产出“三位一体”交付物：
+  - **可视化图谱 (Graph)**：构建符合前端标准的 `nodes` 和 `edges`，呈现技术流派的演进、继承与对抗关系。
+  - **理论框架 (Framework)**：提炼技术流派 (Lineages) 与冲突焦点 (War Zone)，定位 PI 假说的生态位合理性。
+  - **机器数据源 (Feeds)**：输出强类型 JSON，为阶段 3 推演提供基准 (Baselines) 与工程瓶颈数组。
+  - **文献特征表 (Synthesis Table)**：生成纵向对比的学术台账 `literature_synthesis_table.md`，供人类 PI 审计。
+- **核心审计与探测**：
+  - **抢发风险探测 (Scooped Check)**：对比 PI 假说与图谱，若发现 100% 撞车，触发 `SCOOPED` 警报并提供 Pivot 建议。
+  - **双语双轨落盘**：严格输出 `literature_graph_en.json` (驱动后续阶段) 与 `_cn.json` (前端展示)。
+- **输出**：`literature_graph.json` (完整包)、`literature_synthesis_table.md` (特征表) 及人机共读审计报告。
+- **HITL 机制**：生成的全景将挂起状态机，等待人类 PI 进行 `[Approve/Retry/Rollback]` 决策。
 
 > 若在图谱审计中发现已有论文完全覆盖 PI 假说的核心贡献，Agent 将立即触发 `SCOOPED` 警报并暂停流程，将该发现连同“避坑指南”及“转向建议 (Pivot Suggestion)”上报用户，由用户决定是否**回滚至阶段 1**重新选题，或调整方向后继续。
 

@@ -20,6 +20,10 @@ export type ExecToolDefaults = {
   agentId?: string;
   backgroundMs?: number;
   timeoutSec?: number;
+  approvalWarningText?: string;
+  approvalFollowupText?: string;
+  approvalFollowup?: ExecApprovalFollowupFactory;
+  approvalFollowupMode?: "agent" | "direct";
   approvalRunningNoticeMs?: number;
   sandbox?: BashSandboxConfig;
   elevated?: ExecElevatedDefaults;
@@ -38,6 +42,25 @@ export type ExecToolDefaults = {
   /** Input provenance for the current run — used to detect A2A context and block exec during approval instead of returning pendingResult. */
   inputProvenance?: InputProvenance;
 };
+
+export type ExecApprovalFollowupOutcome = {
+  status: "completed" | "failed";
+  exitCode: number | null;
+  timedOut: boolean;
+  aggregated: string;
+  reason?: string;
+};
+
+export type ExecApprovalFollowupContext = {
+  approvalId: string;
+  sessionId: string;
+  trigger?: string;
+  outcome: ExecApprovalFollowupOutcome;
+};
+
+export type ExecApprovalFollowupFactory = (
+  context: ExecApprovalFollowupContext,
+) => string | undefined | Promise<string | undefined>;
 
 export type ExecElevatedDefaults = {
   enabled: boolean;

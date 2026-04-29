@@ -142,12 +142,25 @@ export class GatewayBrowserClient {
     if (this.closed) {
       return;
     }
+    const connectStartMs = Date.now();
+    console.log(
+      `[gateway] ws.connect: opening ${this.opts.url} (attempt=${this.reconnectAttempts})`,
+    );
     this.ws = new WebSocket(this.opts.url);
-    this.ws.addEventListener("open", () => this.queueConnect());
+    this.ws.addEventListener("open", () => {
+      console.log(`[gateway] ws.open: connected in ${Date.now() - connectStartMs}ms`);
+      this.queueConnect();
+    });
     this.ws.addEventListener("message", (ev) => this.handleMessage(String(ev.data ?? "")));
     this.ws.addEventListener("close", (ev) => {
       const reason = ev.reason ?? "";
       const connectError = this.pendingConnectError;
+      const elapsed = Date.now() - connectStartMs;
+      console.warn(
+        `[gateway] ws.close: code=${ev.code} reason=${reason || "(empty)"} elapsed=${elapsed}ms` +
+          ` connectSent=${this.connectSent} helloReceived=${this._helloReceived}` +
+          (connectError ? ` connectError=${connectError.code}: ${connectError.message}` : ""),
+      );
       this.pendingConnectError = undefined;
       this.ws = null;
       this.flushPending(new Error(`gateway closed (${ev.code}): ${reason}`));
@@ -156,7 +169,8 @@ export class GatewayBrowserClient {
         this.scheduleReconnect();
       }
     });
-    this.ws.addEventListener("error", () => {
+    this.ws.addEventListener("error", (ev) => {
+      console.warn(`[gateway] ws.error: elapsed=${Date.now() - connectStartMs}ms`, ev);
       // ignored; close handler will fire
     });
   }
@@ -197,6 +211,8 @@ export class GatewayBrowserClient {
       this.connectTimer = null;
     }
 
+    console.log("[gateway] sendConnect: building connect params...");
+
     const params = {
       minProtocol: 3,
       maxProtocol: 3,
@@ -220,6 +236,11 @@ export class GatewayBrowserClient {
 
     void this.request<GatewayHelloOk>("connect", params)
       .then((hello) => {
+        console.log("[gateway] sendConnect: hello-ok received", {
+          protocol: hello.protocol,
+          connId: hello.server?.connId,
+          role: hello.auth?.role,
+        });
         this.backoffMs = 800;
         this.reconnectAttempts = 0;
         this._helloReceived = true;
@@ -231,6 +252,7 @@ export class GatewayBrowserClient {
         this.opts.onHello?.(hello);
       })
       .catch((err: unknown) => {
+        console.error("[gateway] sendConnect: connect request failed", err);
         if (err instanceof GatewayRequestError) {
           this.pendingConnectError = {
             code: err.gatewayCode,
@@ -252,12 +274,17 @@ export class GatewayBrowserClient {
       return;
     }
 
-    console.debug(parsed);
+    console.debug("[gateway] ws.message:", parsed);
 
     const frame = parsed as { type?: unknown };
 
     if (frame.type === "event") {
       const evt = parsed as GatewayEventFrame;
+      if (evt.event === "connect.challenge") {
+        console.log(
+          "[gateway] received connect.challenge — mas4s simplified client ignores nonce, sendConnect will fire from queueConnect timer",
+        );
+      }
       // mas4s 简化版不处理带有配对 nonce 的设备签名挑战 (connect.challenge)，在此已移除死代码
       const seq = typeof evt.seq === "number" ? evt.seq : null;
       if (seq !== null) {
