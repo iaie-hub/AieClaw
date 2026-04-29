@@ -33,13 +33,20 @@ export async function warmupAgentCaches(config?: OpenClawConfig): Promise<void> 
   try {
     const agentIds = config ? listAgentIds(config) : [];
 
-    // 串行处理每个 agent，避免并发 CPU 密集操作阻塞 event loop
+    // 串行处理每个 agent，每个 agent 之间 yield 让出 event loop
     for (const agentId of agentIds) {
+      // Yield to the event loop between agents so WebSocket frames,
+      // HTTP requests, and timers can be processed during warmup.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
       try {
         const agentDir = resolveAgentDir(config!, agentId);
 
         // 1. 预热 ensureOpenClawModelsJson 的所有缓存层
         await ensureOpenClawModelsJson(config, agentDir);
+
+        // Yield again after the heaviest synchronous work
+        await new Promise<void>((resolve) => setImmediate(resolve));
 
         // 2. 预热 discoverAuthStorage + discoverModels 缓存
         const authStorage = discoverAuthStorage(agentDir);
