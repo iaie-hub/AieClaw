@@ -1,20 +1,20 @@
 /**
- * 多 Agent 消息链路性能优化 — 集中封装模块
+ * Background agent cache warmup module.
  *
- * 方案 4+6：gateway 启动时阻塞式预热 agent 缓存。
- * 在 gateway 接受用户请求前完成预热，消除预热与请求的 event loop 竞争。
+ * Runs AFTER the gateway HTTP server is listening, as a non-blocking background
+ * task. Pre-warms model discovery, auth storage, and provider caches so that
+ * the first chat request per agent doesn't pay the cold-start penalty.
  *
- * 设计原则：
- * - 阻塞式执行（await），确保预热完成后再接受请求
- * - 串行处理每个 agent，避免并发 CPU 密集操作阻塞 event loop
- * - 失败不影响 gateway 启动
- * - 对上游文件零侵入（通过 public API 调用）
+ * Design:
+ * - Non-blocking: runs via `void import(...).then(...)` after startListening()
+ * - Serial per agent with event-loop yields between steps
+ * - Failures are non-fatal and logged as warnings
+ * - Zero invasiveness on upstream files (uses public API only)
  *
- * 预热策略：
- * 对每个已知 agent 串行执行完整初始化路径，填充所有缓存层：
- * - ensureOpenClawModelsJson → provider discovery 缓存 + targetPath 缓存 + normalizeProviders 缓存
- * - discoverAuthStorage + discoverModels → auth storage mtime 缓存
- * - resolveModelAsync → normalizeResolvedModel 缓存 + provider runtime hook 初始化
+ * Warmup per agent:
+ * - ensureOpenClawModelsJson → provider discovery + targetPath + normalizeProviders caches
+ * - discoverAuthStorage + discoverModels → auth storage mtime cache
+ * - resolveModelAsync → normalizeResolvedModel cache + provider runtime hook init
  */
 
 import { listAgentIds, resolveAgentDir } from "../agents/agent-scope.js";
@@ -25,38 +25,33 @@ import { discoverAuthStorage, discoverModels } from "../agents/pi-model-discover
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 
 /**
- * 阻塞式预热所有已知 agent 的缓存。
- * 调用方式：`await warmupAgentCaches(config)` — 在 gateway 接受请求前完成。
+ * Background-warm all known agent caches.
+ * Must be called AFTER the gateway is listening (non-blocking).
  */
 export async function warmupAgentCaches(config?: OpenClawConfig): Promise<void> {
   const started = Date.now();
   try {
     const agentIds = config ? listAgentIds(config) : [];
 
-    // 串行处理每个 agent，每个 agent 之间 yield 让出 event loop
     for (const agentId of agentIds) {
       const agentStarted = Date.now();
-      // Yield to the event loop before each agent
+      // Yield to the event loop before each agent so WebSocket frames,
+      // HTTP requests, and timers can be processed during warmup.
       await new Promise<void>((resolve) => setImmediate(resolve));
 
       try {
         const agentDir = resolveAgentDir(config!, agentId);
 
-        // 1. 预热 ensureOpenClawModelsJson 的所有缓存层
-        // This can be VERY slow if there are many providers/models
+        // 1. Model config normalization (can be CPU-heavy with many providers)
         await ensureOpenClawModelsJson(config, agentDir);
-
-        // Yield again after model config normalization
         await new Promise<void>((resolve) => setImmediate(resolve));
 
-        // 2. 预热 discoverAuthStorage + discoverModels 缓存
+        // 2. Auth storage + model discovery caches
         const authStorage = discoverAuthStorage(agentDir);
         const modelRegistry = discoverModels(authStorage, agentDir);
-
-        // Yield before the potentially heavy resolveModelAsync
         await new Promise<void>((resolve) => setImmediate(resolve));
 
-        // 3. 预热 resolveModelAsync（normalizeResolvedModel 缓存 + provider runtime hook）
+        // 3. Model resolution (provider runtime hook init)
         const defaultModel = resolveDefaultModelForAgent({ cfg: config!, agentId });
         await resolveModelAsync(defaultModel.provider, defaultModel.model, agentDir, config, {
           authStorage,
@@ -70,7 +65,7 @@ export async function warmupAgentCaches(config?: OpenClawConfig): Promise<void> 
     }
 
     console.log(
-      `[perf:warmup] agent caches warmed in ${Date.now() - started}ms (agents=${agentIds.length})`,
+      `[perf:warmup] all agent caches warmed in ${Date.now() - started}ms (agents=${agentIds.length})`,
     );
   } catch (err) {
     console.warn(`[perf:warmup] agent cache warmup failed (non-fatal): ${String(err)}`);
