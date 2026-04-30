@@ -6,7 +6,7 @@ import {
 } from "./server/ws-connection.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
 
-type GatewayWsRuntimeParams = GatewayWsSharedHandlerParams & {
+type GatewayWsRuntimeParams = Omit<GatewayWsSharedHandlerParams, "refreshHealthSnapshot"> & {
   logGateway: ReturnType<typeof createSubsystemLogger>;
   logHealth: ReturnType<typeof createSubsystemLogger>;
   logWsControl: ReturnType<typeof createSubsystemLogger>;
@@ -39,8 +39,11 @@ export function attachGatewayWsHandlers(params: GatewayWsRuntimeParams) {
     getRequiredSharedGatewaySessionGeneration: params.getRequiredSharedGatewaySessionGeneration,
     rateLimiter: params.rateLimiter,
     browserRateLimiter: params.browserRateLimiter,
+    preauthHandshakeTimeoutMs: params.preauthHandshakeTimeoutMs,
+    isStartupPending: params.isStartupPending,
     gatewayMethods: params.gatewayMethods,
     events: params.events,
+    refreshHealthSnapshot: params.context.refreshHealthSnapshot,
     logGateway: params.logGateway,
     logHealth: params.logHealth,
     logWsControl: params.logWsControl,

@@ -247,9 +247,6 @@ export class AuthController {
       this.cb.setAuthState("init");
     } else if (localStorage.getItem("mas4s_auth_token")) {
       if (!this.store.currentUser) {
-        console.warn(
-          "[mas4s:auth] onGatewayConnect → token present but currentUser lost, redirecting to login",
-        );
         localStorage.removeItem("mas4s_auth_token");
         this.cb.setAuthState("login");
       } else {

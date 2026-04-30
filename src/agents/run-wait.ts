@@ -23,6 +23,9 @@ export type AgentWaitResult = {
   startedAt?: number;
   endedAt?: number;
   approvalId?: string;
+  stopReason?: string;
+  livenessState?: string;
+  yielded?: boolean;
 };
 
 export type AgentRunsDrainResult = {
@@ -37,6 +40,9 @@ type RawAgentWaitResponse = {
   startedAt?: unknown;
   endedAt?: unknown;
   approvalId?: string;
+  stopReason?: unknown;
+  livenessState?: unknown;
+  yielded?: unknown;
 };
 
 function normalizeAgentWaitResult(
@@ -49,7 +55,32 @@ function normalizeAgentWaitResult(
     startedAt: typeof wait?.startedAt === "number" ? wait.startedAt : undefined,
     endedAt: typeof wait?.endedAt === "number" ? wait.endedAt : undefined,
     approvalId: wait?.approvalId,
+    stopReason: typeof wait?.stopReason === "string" ? wait.stopReason : undefined,
+    livenessState: typeof wait?.livenessState === "string" ? wait.livenessState : undefined,
+    yielded: wait?.yielded === true ? true : undefined,
   };
+}
+
+const RECOVERABLE_AGENT_WAIT_ERROR_PATTERNS: readonly RegExp[] = [
+  /gateway closed \(1006/i,
+  /transport close/i,
+  /connection loss/i,
+  /connection closed/i,
+  /gateway not connected/i,
+  /no active .* listener/i,
+  /socket hang up/i,
+  /\b(ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EHOSTUNREACH|ENETUNREACH)\b/i,
+];
+
+export function isRecoverableAgentWaitError(error: string | undefined): boolean {
+  const message = error?.trim();
+  if (!message) {
+    return false;
+  }
+  if (message.includes("gateway timeout")) {
+    return false;
+  }
+  return RECOVERABLE_AGENT_WAIT_ERROR_PATTERNS.some((pattern) => pattern.test(message));
 }
 
 function normalizePendingRunIds(runIds: Iterable<string>): string[] {

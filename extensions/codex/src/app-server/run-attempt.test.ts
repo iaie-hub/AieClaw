@@ -7,13 +7,19 @@ import {
   queueAgentHarnessMessage,
   type EmbeddedRunAttemptParams,
 } from "openclaw/plugin-sdk/agent-harness";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __testing as nativeHookRelayTesting } from "../../../../src/agents/harness/native-hook-relay.js";
+import {
+  buildAgentRuntimePlan,
+  nativeHookRelayTesting,
+  onAgentEvent,
+  resetAgentEventsForTest,
+  type AgentEventPayload,
+} from "openclaw/plugin-sdk/agent-harness-runtime";
 import {
   initializeGlobalHookRunner,
   resetGlobalHookRunner,
-} from "../../../../src/plugins/hook-runner-global.js";
-import { createMockPluginRegistry } from "../../../../src/plugins/hooks.test-helpers.js";
+} from "openclaw/plugin-sdk/hook-runtime";
+import { createMockPluginRegistry } from "openclaw/plugin-sdk/plugin-test-runtime";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CODEX_GPT5_BEHAVIOR_CONTRACT } from "../../prompt-overlay.js";
 import * as elicitationBridge from "./elicitation-bridge.js";
 import type { CodexServerNotification } from "./protocol.js";
@@ -47,6 +53,28 @@ function createParams(sessionFile: string, workspaceDir: string): EmbeddedRunAtt
   } as EmbeddedRunAttemptParams;
 }
 
+function createParamsWithRuntimePlan(
+  sessionFile: string,
+  workspaceDir: string,
+): EmbeddedRunAttemptParams {
+  const params = createParams(sessionFile, workspaceDir);
+  return {
+    ...params,
+    runtimePlan: buildAgentRuntimePlan({
+      provider: params.provider,
+      modelId: params.modelId,
+      model: params.model,
+      modelApi: params.model.api,
+      harnessId: "codex",
+      harnessRuntime: "codex",
+      config: params.config,
+      workspaceDir,
+      agentDir: tempDir,
+      thinkingLevel: params.thinkLevel,
+    }),
+  } as EmbeddedRunAttemptParams;
+}
+
 function threadStartResult(threadId = "thread-1") {
   return {
     thread: {
@@ -60,7 +88,7 @@ function threadStartResult(threadId = "thread-1") {
       status: { type: "idle" },
       path: null,
       cwd: tempDir || "/tmp/openclaw-codex-test",
-      cliVersion: "0.118.0",
+      cliVersion: "0.125.0",
       source: "unknown",
       agentNickname: null,
       agentRole: null,
@@ -117,7 +145,9 @@ function assistantMessage(text: string, timestamp: number) {
 
 function createAppServerHarness(
   requestImpl: (method: string, params: unknown) => Promise<unknown>,
-  options: { onStart?: (authProfileId: string | undefined) => void } = {},
+  options: {
+    onStart?: (authProfileId: string | undefined, agentDir: string | undefined) => void;
+  } = {},
 ) {
   const requests: Array<{ method: string; params: unknown }> = [];
   let notify: (notification: CodexServerNotification) => Promise<void> = async () => undefined;
@@ -126,25 +156,37 @@ function createAppServerHarness(
     return requestImpl(method, params);
   });
 
-  __testing.setCodexAppServerClientFactoryForTests(async (_startOptions, authProfileId) => {
-    options.onStart?.(authProfileId);
-    return {
-      request,
-      addNotificationHandler: (handler: typeof notify) => {
-        notify = handler;
-        return () => undefined;
-      },
-      addRequestHandler: () => () => undefined,
-    } as never;
-  });
+  __testing.setCodexAppServerClientFactoryForTests(
+    async (_startOptions, authProfileId, agentDir) => {
+      options.onStart?.(authProfileId, agentDir);
+      return {
+        request,
+        addNotificationHandler: (handler: typeof notify) => {
+          notify = handler;
+          return () => undefined;
+        },
+        addRequestHandler: () => () => undefined,
+      } as never;
+    },
+  );
 
   return {
     request,
     requests,
     async waitForMethod(method: string) {
-      await vi.waitFor(() => expect(requests.some((entry) => entry.method === method)).toBe(true), {
-        interval: 1,
-      });
+      await vi.waitFor(
+        () => {
+          if (!requests.some((entry) => entry.method === method)) {
+            const mockMethods = request.mock.calls.map((call) => call[0]);
+            throw new Error(
+              `expected app-server method ${method}; saw ${requests
+                .map((entry) => entry.method)
+                .join(", ")}; mock saw ${mockMethods.join(", ")}`,
+            );
+          }
+        },
+        { interval: 1, timeout: 30_000 },
+      );
     },
     async notify(notification: CodexServerNotification) {
       await notify(notification);
@@ -164,7 +206,9 @@ function createAppServerHarness(
 
 function createStartedThreadHarness(
   requestImpl: (method: string, params: unknown) => Promise<unknown> = async () => undefined,
-  options: { onStart?: (authProfileId: string | undefined) => void } = {},
+  options: {
+    onStart?: (authProfileId: string | undefined, agentDir: string | undefined) => void;
+  } = {},
 ) {
   return createAppServerHarness(async (method, params) => {
     const override = await requestImpl(method, params);
@@ -276,12 +320,14 @@ function extractRelayIdFromThreadRequest(params: unknown): string {
 
 describe("runCodexAppServerAttempt", () => {
   beforeEach(async () => {
+    resetAgentEventsForTest();
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-codex-run-"));
   });
 
   afterEach(async () => {
     __testing.resetCodexAppServerClientFactoryForTests();
     nativeHookRelayTesting.clearNativeHookRelaysForTests();
+    resetAgentEventsForTest();
     resetGlobalHookRunner();
     vi.restoreAllMocks();
     await fs.rm(tempDir, { recursive: true, force: true });
@@ -341,6 +387,9 @@ describe("runCodexAppServerAttempt", () => {
     const llmInput = vi.fn();
     const llmOutput = vi.fn();
     const agentEnd = vi.fn();
+    const onRunAgentEvent = vi.fn();
+    const globalAgentEvents: AgentEventPayload[] = [];
+    onAgentEvent((event) => globalAgentEvents.push(event));
     initializeGlobalHookRunner(
       createMockPluginRegistry([
         { hookName: "llm_input", handler: llmInput },
@@ -354,7 +403,9 @@ describe("runCodexAppServerAttempt", () => {
     sessionManager.appendMessage(assistantMessage("existing context", Date.now()));
     const harness = createStartedThreadHarness();
 
-    const run = runCodexAppServerAttempt(createParams(sessionFile, workspaceDir));
+    const params = createParamsWithRuntimePlan(sessionFile, workspaceDir);
+    params.onAgentEvent = onRunAgentEvent;
+    const run = runCodexAppServerAttempt(params);
     await harness.waitForMethod("turn/start");
     await vi.waitFor(() => expect(llmInput).toHaveBeenCalledTimes(1), { interval: 1 });
 
@@ -391,6 +442,56 @@ describe("runCodexAppServerAttempt", () => {
     expect(result.assistantTexts).toEqual(["hello back"]);
     await vi.waitFor(() => expect(llmOutput).toHaveBeenCalledTimes(1), { interval: 1 });
     await vi.waitFor(() => expect(agentEnd).toHaveBeenCalledTimes(1), { interval: 1 });
+    const agentEvents = onRunAgentEvent.mock.calls.map(([event]) => event);
+    expect(agentEvents).toEqual(
+      expect.arrayContaining([
+        {
+          stream: "lifecycle",
+          data: expect.objectContaining({
+            phase: "start",
+            startedAt: expect.any(Number),
+          }),
+        },
+        {
+          stream: "assistant",
+          data: { text: "hello back" },
+        },
+        {
+          stream: "lifecycle",
+          data: expect.objectContaining({
+            phase: "end",
+            startedAt: expect.any(Number),
+            endedAt: expect.any(Number),
+          }),
+        },
+      ]),
+    );
+    const startIndex = agentEvents.findIndex(
+      (event) => event.stream === "lifecycle" && event.data.phase === "start",
+    );
+    const assistantIndex = agentEvents.findIndex((event) => event.stream === "assistant");
+    const endIndex = agentEvents.findIndex(
+      (event) => event.stream === "lifecycle" && event.data.phase === "end",
+    );
+    expect(startIndex).toBeGreaterThanOrEqual(0);
+    expect(assistantIndex).toBeGreaterThan(startIndex);
+    expect(endIndex).toBeGreaterThan(assistantIndex);
+    expect(globalAgentEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          runId: "run-1",
+          sessionKey: "agent:main:session-1",
+          stream: "assistant",
+          data: { text: "hello back" },
+        }),
+        expect.objectContaining({
+          runId: "run-1",
+          sessionKey: "agent:main:session-1",
+          stream: "lifecycle",
+          data: expect.objectContaining({ phase: "end" }),
+        }),
+      ]),
+    );
 
     expect(llmOutput).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -398,6 +499,8 @@ describe("runCodexAppServerAttempt", () => {
         sessionId: "session-1",
         provider: "codex",
         model: "gpt-5.4-codex",
+        resolvedRef: "codex/gpt-5.4-codex",
+        harnessId: "codex",
         assistantTexts: ["hello back"],
         lastAssistant: expect.objectContaining({
           role: "assistant",
@@ -483,6 +586,7 @@ describe("runCodexAppServerAttempt", () => {
           "hooks.PreToolUse": [],
           "hooks.PostToolUse": [],
           "hooks.PermissionRequest": [],
+          "hooks.Stop": [],
         },
       }),
     );
@@ -530,6 +634,7 @@ describe("runCodexAppServerAttempt", () => {
 
   it("fires agent_end with failure metadata when the codex turn fails", async () => {
     const agentEnd = vi.fn();
+    const onRunAgentEvent = vi.fn();
     initializeGlobalHookRunner(
       createMockPluginRegistry([{ hookName: "agent_end", handler: agentEnd }]),
     );
@@ -537,7 +642,9 @@ describe("runCodexAppServerAttempt", () => {
     const workspaceDir = path.join(tempDir, "workspace");
     const harness = createStartedThreadHarness();
 
-    const run = runCodexAppServerAttempt(createParams(sessionFile, workspaceDir));
+    const params = createParams(sessionFile, workspaceDir);
+    params.onAgentEvent = onRunAgentEvent;
+    const run = runCodexAppServerAttempt(params);
     await harness.waitForMethod("turn/start");
     await harness.notify({
       method: "turn/completed",
@@ -556,6 +663,25 @@ describe("runCodexAppServerAttempt", () => {
 
     expect(result.promptError).toBe("codex exploded");
     await vi.waitFor(() => expect(agentEnd).toHaveBeenCalledTimes(1), { interval: 1 });
+    const agentEvents = onRunAgentEvent.mock.calls.map(([event]) => event);
+    expect(agentEvents).toEqual(
+      expect.arrayContaining([
+        {
+          stream: "lifecycle",
+          data: expect.objectContaining({ phase: "start", startedAt: expect.any(Number) }),
+        },
+        {
+          stream: "lifecycle",
+          data: expect.objectContaining({
+            phase: "error",
+            startedAt: expect.any(Number),
+            endedAt: expect.any(Number),
+            error: "codex exploded",
+          }),
+        },
+      ]),
+    );
+    expect(agentEvents.some((event) => event.stream === "assistant")).toBe(false);
     expect(agentEnd).toHaveBeenCalledWith(
       expect.objectContaining({
         success: false,
@@ -591,9 +717,9 @@ describe("runCodexAppServerAttempt", () => {
       return undefined;
     });
 
-    await expect(runCodexAppServerAttempt(createParams(sessionFile, workspaceDir))).rejects.toThrow(
-      "turn start exploded",
-    );
+    await expect(
+      runCodexAppServerAttempt(createParamsWithRuntimePlan(sessionFile, workspaceDir)),
+    ).rejects.toThrow("turn start exploded");
 
     await vi.waitFor(() => expect(llmInput).toHaveBeenCalledTimes(1), { interval: 1 });
     await vi.waitFor(() => expect(llmOutput).toHaveBeenCalledTimes(1), { interval: 1 });
@@ -603,6 +729,8 @@ describe("runCodexAppServerAttempt", () => {
         assistantTexts: [],
         model: "gpt-5.4-codex",
         provider: "codex",
+        resolvedRef: "codex/gpt-5.4-codex",
+        harnessId: "codex",
         runId: "run-1",
         sessionId: "session-1",
       }),
@@ -1178,14 +1306,19 @@ describe("runCodexAppServerAttempt", () => {
 
   it("passes the selected auth profile into app-server startup", async () => {
     const seenAuthProfileIds: Array<string | undefined> = [];
+    const seenAgentDirs: Array<string | undefined> = [];
     const { requests, waitForMethod, completeTurn } = createStartedThreadHarness(undefined, {
-      onStart: (authProfileId) => seenAuthProfileIds.push(authProfileId),
+      onStart: (authProfileId, agentDir) => {
+        seenAuthProfileIds.push(authProfileId);
+        seenAgentDirs.push(agentDir);
+      },
     });
     const params = createParams(
       path.join(tempDir, "session.jsonl"),
       path.join(tempDir, "workspace"),
     );
     params.authProfileId = "openai-codex:work";
+    params.agentDir = path.join(tempDir, "agent");
 
     const run = runCodexAppServerAttempt(params);
     await vi.waitFor(() => expect(seenAuthProfileIds).toEqual(["openai-codex:work"]), {
@@ -1197,6 +1330,7 @@ describe("runCodexAppServerAttempt", () => {
     await run;
 
     expect(seenAuthProfileIds).toEqual(["openai-codex:work"]);
+    expect(seenAgentDirs).toEqual([path.join(tempDir, "agent")]);
     expect(requests.map((entry) => entry.method)).toContain("turn/start");
   });
 
@@ -1500,6 +1634,7 @@ describe("runCodexAppServerAttempt", () => {
     });
     const params = createParams(sessionFile, workspaceDir);
     delete params.authProfileId;
+    params.agentDir = path.join(tempDir, "agent");
 
     const binding = await startOrResumeThread({
       client: {
@@ -1538,6 +1673,7 @@ describe("runCodexAppServerAttempt", () => {
       dynamicToolsFingerprint: "[]",
     });
     const seenAuthProfileIds: Array<string | undefined> = [];
+    const seenAgentDirs: Array<string | undefined> = [];
     const { requests, waitForMethod, completeTurn } = createAppServerHarness(
       async (method: string) => {
         if (method === "thread/resume") {
@@ -1548,10 +1684,16 @@ describe("runCodexAppServerAttempt", () => {
         }
         throw new Error(`unexpected method: ${method}`);
       },
-      { onStart: (authProfileId) => seenAuthProfileIds.push(authProfileId) },
+      {
+        onStart: (authProfileId, agentDir) => {
+          seenAuthProfileIds.push(authProfileId);
+          seenAgentDirs.push(agentDir);
+        },
+      },
     );
     const params = createParams(sessionFile, workspaceDir);
     delete params.authProfileId;
+    params.agentDir = path.join(tempDir, "agent");
 
     const run = runCodexAppServerAttempt(params);
     await vi.waitFor(() => expect(seenAuthProfileIds).toEqual(["openai-codex:bound"]), {
@@ -1563,6 +1705,7 @@ describe("runCodexAppServerAttempt", () => {
     await run;
 
     expect(seenAuthProfileIds).toEqual(["openai-codex:bound"]);
+    expect(seenAgentDirs).toEqual([path.join(tempDir, "agent")]);
     expect(requests.map((entry) => entry.method)).toContain("turn/start");
   });
 });

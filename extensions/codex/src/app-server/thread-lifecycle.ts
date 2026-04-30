@@ -3,6 +3,7 @@ import {
   type EmbeddedRunAttemptParams,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { renderCodexPromptOverlay } from "../../prompt-overlay.js";
+import { isModernCodexModel } from "../../provider.js";
 import type { CodexAppServerClient } from "./client.js";
 import { codexSandboxPolicyForTurn, type CodexAppServerRuntimeOptions } from "./config.js";
 import {
@@ -178,7 +179,7 @@ export function buildTurnStartParams(
     sandboxPolicy: codexSandboxPolicyForTurn(options.appServer.sandbox, options.cwd),
     model: params.modelId,
     ...(options.appServer.serviceTier ? { serviceTier: options.appServer.serviceTier } : {}),
-    effort: resolveReasoningEffort(params.thinkLevel),
+    effort: resolveReasoningEffort(params.thinkLevel, params.modelId),
   };
 }
 
@@ -219,14 +220,43 @@ function stabilizeJsonValue(value: JsonValue): JsonValue {
 }
 
 export function buildDeveloperInstructions(params: EmbeddedRunAttemptParams): string {
+  const promptOverlay = renderCodexRuntimePromptOverlay(params);
   const sections = [
     "You are running inside OpenClaw. Use OpenClaw dynamic tools for messaging, cron, sessions, and host actions when available.",
     "Preserve the user's existing channel/session context. If sending a channel reply, use the OpenClaw messaging tool instead of describing that you would reply.",
-    renderCodexPromptOverlay({ modelId: params.modelId }),
+    promptOverlay,
     params.extraSystemPrompt,
     params.skillsSnapshot?.prompt,
   ];
   return sections.filter((section) => typeof section === "string" && section.trim()).join("\n\n");
+}
+
+function renderCodexRuntimePromptOverlay(params: EmbeddedRunAttemptParams): string | undefined {
+  const contribution = params.runtimePlan?.prompt.resolveSystemPromptContribution({
+    config: params.config,
+    agentDir: params.agentDir,
+    workspaceDir: params.workspaceDir,
+    provider: params.provider,
+    modelId: params.modelId,
+    promptMode: "full",
+    agentId: params.agentId,
+  });
+  if (!contribution) {
+    return renderCodexPromptOverlay({
+      config: params.config,
+      providerId: params.provider,
+      modelId: params.modelId,
+    });
+  }
+  return [
+    contribution.stablePrefix,
+    ...Object.values(contribution.sectionOverrides ?? {}),
+    contribution.dynamicSuffix,
+  ]
+    .filter(
+      (section): section is string => typeof section === "string" && section.trim().length > 0,
+    )
+    .join("\n\n");
 }
 
 function buildUserInput(
@@ -254,11 +284,22 @@ function resolveCodexAppServerModelProvider(provider: string): string | undefine
   return normalized === "openai-codex" ? "openai" : normalized;
 }
 
-function resolveReasoningEffort(
+// Modern Codex models (gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.2) use the
+// none/low/medium/high/xhigh effort enum and reject "minimal". The CLI
+// defaults thinkLevel to "minimal", so without translation EVERY agent turn
+// on those models pays a wasted first request + retry-with-low fallback in
+// pi-embedded-runner. Map "minimal" -> "low" upfront for modern models so the
+// first request is accepted. Older Codex models still accept "minimal"
+// directly. (#71946)
+// Exported for unit-test coverage of the model-aware translation path.
+export function resolveReasoningEffort(
   thinkLevel: EmbeddedRunAttemptParams["thinkLevel"],
+  modelId: string,
 ): "minimal" | "low" | "medium" | "high" | "xhigh" | null {
+  if (thinkLevel === "minimal") {
+    return isModernCodexModel(modelId) ? "low" : "minimal";
+  }
   if (
-    thinkLevel === "minimal" ||
     thinkLevel === "low" ||
     thinkLevel === "medium" ||
     thinkLevel === "high" ||
