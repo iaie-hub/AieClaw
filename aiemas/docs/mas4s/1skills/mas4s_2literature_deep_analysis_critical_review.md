@@ -34,11 +34,11 @@
 | **run_id**   | String | 是   | -          | 执行 ID。       |
 | **agent_id** | String | 否   | "evidence" | 当前 Agent ID。 |
 
-**输入文件**：`~/.openclaw/workspace-evidence/task/{run_id}/parsed_papers.json`
+**输入文件**：`~/.openclaw/workspace-literature/task/{run_id}/parsed_papers.json`
 
 ### 五、 输出参数
 
-**输出文件**：`~/.openclaw/workspace-evidence/task/{run_id}/papers/{arxiv_id}/paper_critical_review.json`
+**输出文件**：`~/.openclaw/workspace-literature/task/{run_id}/papers/{arxiv_id}/paper_critical_review.json`
 
 | 字段名                          | 类型   | 说明                                 |
 | :------------------------------ | :----- | :----------------------------------- |

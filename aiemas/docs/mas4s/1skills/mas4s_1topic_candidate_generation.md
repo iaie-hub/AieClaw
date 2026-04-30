@@ -60,7 +60,7 @@ python3 scripts/mas4s_question_candidate_generation.py '{"run_id": "run_20260423
 #### 6.2 目录结构示例
 
 ```
-~/.openclaw/workspace-question/task/run_20260423/
+~/.openclaw/workspace-topic/task/run_20260423/
 ├── idea.txt                            # 输入
 ├── web_search_results.json             # 输入
 ├── arxiv_search_results.json           # 输入

@@ -35,7 +35,7 @@
 | **input_agent_id** | String | 否   | "idea-align" | 阶段 1 Agent ID，用于寻找 PI 假说。 |
 
 **输入文件 1 (锚点)**：`~/.openclaw/workspace-idea-align/task/{run_id}/pi_result.json`
-**输入文件 2 (原文)**：`~/.openclaw/workspace-evidence/task/{run_id}/arxiv_search_results.json`
+**输入文件 2 (原文)**：`~/.openclaw/workspace-literature/task/{run_id}/arxiv_search_results.json`
 
 ### 五、 输出参数
 
@@ -64,7 +64,7 @@ python3 scripts/mas4s_evidence_noise_reduction.py '{"run_id": "run_20260424"}'
 ~/.openclaw/workspace-idea-align/task/run_20260424/pi_result.json
 
 # 当前输出
-~/.openclaw/workspace-evidence/task/run_20260424/
+~/.openclaw/workspace-literature/task/run_20260424/
 ├── arxiv_search_results.json           # 输入
 ├── denoising_report.json               # 输出：审计报告
 ├── filtered_papers.json                # 输出：过滤后的文献

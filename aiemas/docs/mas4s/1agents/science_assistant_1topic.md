@@ -1,10 +1,10 @@
-# 问题锁定 Agent (Science Assistant: Question)
+# 课题锁定 Agent (Science Assistant: Topic)
 
 ## 1. 概述 (Overview)
 
-**Science Assistant: Question** 是一款专门用于科研课题打磨与对齐的智能 Agent。其核心目标是接收用户初步的科研构想（`user_idea`），通过系统化的 SOP 流程，将其转化为边界清晰、有创新潜力、可证伪的科学问题。
+**Science Assistant: Topic** 是一款专门用于科研课题打磨与对齐的智能 Agent。其核心目标是接收用户初步的科研构想（`user_idea`），通过系统化的 SOP 流程，将其转化为边界清晰、有创新潜力、可证伪的科学问题。
 
-该 Agent 融合了“检索增强”的工程实践与“FINER+PICO”的科研规范，确保课题既有学术前沿性又符合科学方法论，为后续的证据底座构建（阶段 2）提供精准的目标导向。
+该 Agent 融合了“检索增强”的工程实践与“FINER+PICO”的科研规范，确保课题既有学术前沿性又符合科学方法论，为后续的文献底座构建（阶段 2）提供精准的目标导向。
 
 ## 2. 核心 SOP 流程 (Standard Operating Procedure)
 
@@ -12,7 +12,7 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 
 ### 步骤 1：检索增强 (Query Expansion)
 
-- **技能调用**：[`mas4s-question-query-expand`](file:///Users/admin/clawd/skills/mas4s-question-query-expand/SKILL.md)
+- **技能调用**：[`mas4s-topic-query-expand`](file:///Users/admin/clawd/skills/mas4s-topic-query-expand/SKILL.md)
 - **输入**：用户初始科研构想纯文本（`idea.txt`）。
 - **动作**：将模糊构想扩展为多维度的检索词矩阵，确保对领域现状及学术边界的全面覆盖。
 - **输出**：`idea_query_expand.json`。
@@ -21,24 +21,24 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 
 - **人类锚点**：检索条件确认。
 - **Web 检索**：
-  - **技能调用**：[`mas4s-question-web-search`](file:///Users/admin/clawd/skills/mas4s-question-web-search/SKILL.md)
+  - **技能调用**：[`mas4s-topic-web-search`](file:///Users/admin/clawd/skills/mas4s-topic-web-search/SKILL.md)
   - **输出**：`web_search_results.json` (含行业痛点、工程实践、商业现状)。
 - **学术检索**：
-  - **技能调用**：[`mas4s-question-arxiv-search`](file:///Users/admin/clawd/skills/mas4s-question-arxiv-search/SKILL.md)
+  - **技能调用**：[`mas4s-topic-arxiv-search`](file:///Users/admin/clawd/skills/mas4s-topic-arxiv-search/SKILL.md)
   - **输出**：`arxiv_search_results.json` (含最新论文摘要、SOTA 算法、理论框架)。
 - **现实锚点**：基于双轨检索结果，识别研究重叠度，排除已被充分研究的“红海”课题。
 
-### 步骤 3：候选问题发散 (Candidate Question Generation)
+### 步骤 3：候选问题发散 (Candidate Topic Generation)
 
-- **技能调用**：[`mas4s-question-candidate-generation`](file:///Users/admin/clawd/skills/mas4s-question-candidate-generation/SKILL.md)
+- **技能调用**：[`mas4s-topic-candidate-generation`](file:///Users/admin/clawd/skills/mas4s-topic-candidate-generation/SKILL.md)
 - **输入**：`web_search_results.json` 及 `arxiv_search_results.json`。
 - **动作**：基于解耦后的现实与学术双维上下文，多角度发散推演 5 个具有创新潜力的候选研究问题。
 - **人类锚点**：研究方向引导。
-- **输出**：`candidate_questions.json`。
+- **输出**：`candidate_topics.json`。
 
 ### 步骤 4：评分排序与框架构建 (Ranking & Framework Framing)
 
-- **技能调用**：[`mas4s-question-finer-framing`](file:///Users/admin/clawd/skills/mas4s-question-finer-framing/SKILL.md)
+- **技能调用**：[`mas4s-topic-finer-framing`](file:///Users/admin/clawd/skills/mas4s-topic-finer-framing/SKILL.md)
 - **动作**：
   1. **评分排序**：按 FINER + 可证伪性框架对候选问题进行评分。
   2. **框架构建**：为胜出项构建完整 PICO/PEOS 框架，并撰写明确的假设声明（H₀/H₁）。
@@ -46,20 +46,20 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 
 ### 步骤 5：首席审计与课题定型 (Principal Investigation & Convergence)
 
-- **技能调用**：[`mas4s-question-principal-investigate`](file:///Users/admin/clawd/skills/mas4s-question-principal-investigate/SKILL.md)
+- **技能调用**：[`mas4s-topic-principal-investigate`](file:///Users/admin/clawd/skills/mas4s-topic-principal-investigate/SKILL.md)
 - **输入**：`ranked_framed_hypothesis.json`、`idea_query_expand.json` (来自步骤 1)。
 - **人类锚点**：研究方向决策。
 - **输出**：
   - `innovation_assessment_brief.md`：创新性评估简报（含证据差距声明）。
-  - `pi_result.json`：最终科研课题定义书（Principal Investigation Result）。
+  - `pi_result.json`：最终科研课题 definition 书（Principal Investigation Result）。
 
 ---
 
-### 辅助步骤：课题重构 (Idea Pivot)
+### 辅助步骤：课题重构 (Topic Pivot)
 
 > **触发条件**：当发生 `[Rollback]`（下游打回）或用户在评审阶段提出否定反馈（Feedback）时触发。
 
-- **技能调用**：[`mas4s-question-pivot`](file:///Users/admin/clawd/skills/mas4s-question-pivot/SKILL.md)
+- **技能调用**：[`mas4s-topic-pivot`](file:///Users/admin/clawd/skills/mas4s-topic-pivot/SKILL.md)
 - **输入**：`pi_result.json` 及 `user_feedback`。
 - **作用**：解析失败逻辑，吸收反馈约束，执行"旧逻辑拆解 → 冲突与对齐 → 概念修剪 → 新种子孕育"，产出修正后的 `idea.txt`。
 - **流转**：重回步骤 1。
@@ -82,5 +82,5 @@ Agent 的执行过程在 AIEMAS 平台中是透明可观测的：
 
 - [Agent 定义](../../../docs/concepts/agent.md)
 - [双锚点科研 SOP 总览](./science_assistant.md)
-- [阶段 2：Evidence Agent](./science_assistant_2evidence.md)
+- [阶段 2：Literature Agent](./science_assistant_2literature.md)
 - [阶段 3：Architecture Agent](./science_assistant_3architecture.md)

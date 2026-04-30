@@ -93,5 +93,5 @@ Agent 的执行过程在 AIEMAS 平台中是透明可观测的：
 
 - [Agent 定义](../../../docs/concepts/agent.md)
 - [双锚点科研 SOP 总览](./science_assistant.md)
-- [阶段 2：Evidence Agent](./science_assistant_2evidence.md)
+- [阶段 2：Evidence Agent](./science_assistant_2literature.md)
 - [阶段 4：Validation Agent](./science_assistant_validation.md)

@@ -65,7 +65,7 @@ python3 scripts/mas4s_question_pivot.py '{"run_id": "run_20260423", "user_feedba
 #### 6.2 目录结构示例
 
 ```
-~/.openclaw/workspace-question/task/run_20260423/
+~/.openclaw/workspace-topic/task/run_20260423/
 ├── pi_result.json                       # 输入
 ├── pivoted_idea.json                    # 输出（完整 JSON）
 ├── idea.txt                             # 输出（纯文本 idea，供 Step 1 复用）

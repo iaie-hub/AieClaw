@@ -1,8 +1,8 @@
-# Skill: mas4s-evidence-pdf-download
+# Skill: mas4s-literature-pdf-download
 
 ## 设计理念 (Design Philosophy)
 
-在科学研究生命周期中，获取原始文献全文是深度分析的基础。`mas4s-evidence-pdf-download` 技能专门负责从 arXiv 等学术平台自动化、高可靠地获取 PDF 文件。
+在科学研究生命周期中，获取原始文献全文是深度分析的基础。`mas4s-literature-pdf-download` 技能专门负责从 arXiv 等学术平台自动化、高可靠地获取 PDF 文件。
 
 由于学术服务器（如 arXiv）可能存在不稳定性或请求频率限制，本技能内置了**双轮指数级重试机制**与**并发下载能力**，确保在复杂网络环境下最大限度地提高下载成功率。
 
@@ -25,7 +25,7 @@
 
 ### 输出 (Output)
 
-- **物理文件**：`~/.openclaw/workspace-evidence/task/<run_id>/papers/<arXiv.ID>/paper.pdf`
+- **物理文件**：`~/.openclaw/workspace-literature/task/<run_id>/papers/<arXiv.ID>/paper.pdf`
 - **结果清单**：`downloaded_papers.json`（复制输入文件并增加 `pdf_dir` 字段）。
 
 ## 任务执行 SOP (Standard Operating Procedure)

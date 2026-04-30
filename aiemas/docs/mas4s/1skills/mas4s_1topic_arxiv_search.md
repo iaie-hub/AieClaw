@@ -59,7 +59,7 @@ python3 scripts/mas4s_question_arxiv_search.py '{"run_id": "run_20260423"}'
 #### 6.2 目录结构示例
 
 ```
-~/.openclaw/workspace-question/task/run_20260423/
+~/.openclaw/workspace-topic/task/run_20260423/
 ├── idea_query_expand.json              # 输入（由 query-expand 产出）
 ├── arxiv_search_results.json           # 输出
 └── progress_mas4s_question_arxiv_search.jsonl

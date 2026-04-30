@@ -60,7 +60,7 @@ python3 scripts/mas4s_question_finer_framing.py '{"run_id": "run_20260423"}'
 #### 6.2 目录结构示例
 
 ```
-~/.openclaw/workspace-question/task/run_20260423/
+~/.openclaw/workspace-topic/task/run_20260423/
 ├── candidate_questions.json            # 输入（由 Step 3 产出）
 ├── ranked_framed_hypothesis.json       # 完整输出
 ├── ranked_framed_hypothesis_en.json    # 英文输出

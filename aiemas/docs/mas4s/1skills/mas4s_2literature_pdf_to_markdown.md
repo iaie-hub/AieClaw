@@ -1,8 +1,8 @@
-# Skill: mas4s-evidence-pdf-to-markdown
+# Skill: mas4s-literature-pdf-to-markdown
 
 ## 设计理念 (Design Philosophy)
 
-学术论文通常采用复杂的多栏排版，并包含大量的数学公式、图表和引用，传统的 OCR 或规则解析方法难以保证语义的完整性。`mas4s-evidence-pdf-to-markdown` 技能通过引入**多模态大模型 (VLM)** 视觉解析能力，将 PDF 逐页转换为高保真的 Markdown 文献。
+学术论文通常采用复杂的多栏排版，并包含大量的数学公式、图表和引用，传统的 OCR 或规则解析方法难以保证语义的完整性。`mas4s-literature-pdf-to-markdown` 技能通过引入**多模态大模型 (VLM)** 视觉解析能力，将 PDF 逐页转换为高保真的 Markdown 文献。
 
 本技能通过 300 DPI 的高清晰度图像渲染与深度视觉推理（Chain of Thought），精准处理公式提取与版面识别，并内置了针对 VLM 调用波动的**双轮鲁棒重试机制**。
 

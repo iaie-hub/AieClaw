@@ -36,11 +36,11 @@
 | **input_agent_id** | String | 否   | "idea-align" | 阶段 1 Agent ID。 |
 
 **输入文件 1**：`~/.openclaw/workspace-idea-align/task/{run_id}/pi_result.json`
-**输入文件 2**：`~/.openclaw/workspace-evidence/task/{run_id}/parsed_papers.json`
+**输入文件 2**：`~/.openclaw/workspace-literature/task/{run_id}/parsed_papers.json`
 
 ### 五、 输出参数
 
-**输出文件**：`~/.openclaw/workspace-evidence/task/{run_id}/papers/{arxiv_id}/paper_macro_feature.json`
+**输出文件**：`~/.openclaw/workspace-literature/task/{run_id}/papers/{arxiv_id}/paper_macro_feature.json`
 
 | 字段名                   | 类型   | 说明                                                           |
 | :----------------------- | :----- | :------------------------------------------------------------- |

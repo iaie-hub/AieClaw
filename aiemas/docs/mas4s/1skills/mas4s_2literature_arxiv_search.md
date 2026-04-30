@@ -70,7 +70,7 @@ python3 scripts/mas4s_evidence_arxiv_search.py '{"run_id": "run_20260424"}'
 └── pi_result.json
 
 # 阶段 2 目录 (输出)
-~/.openclaw/workspace-evidence/task/run_20260424/
+~/.openclaw/workspace-literature/task/run_20260424/
 ├── arxiv_search_results.json
 └── progress_mas4s_evidence_arxiv_search.jsonl
 ```
