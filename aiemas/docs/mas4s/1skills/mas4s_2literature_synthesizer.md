@@ -54,9 +54,11 @@
 
 **固定输出文件**：
 
-- `literature_graph.json`（完整原始大 JSON）
-- `literature_graph_en.json`（纯英文版引擎驱动数据）
-- `literature_graph_cn.json`（纯中文版前端渲染数据）
+- `literature_graph.json`（完整原始大 JSON，已剪裁掉可视化图谱以优化体积）
+- `literature_graph_en.json`（纯英文版引擎驱动数据，不含可视化图谱）
+- `literature_graph_cn.json`（纯中文版数据，不含可视化图谱）
+- `literature_visualization_graph_en.json`（独立分发的英文可视化图谱数据）
+- `literature_visualization_graph_cn.json`（独立分发的中文可视化图谱数据）
 - `literature_synthesis_table_cn.md` / `_en.md` / `_cn.json` / `_en.json`（文献综合特征表4份）
 - `literature_graph_cn.md` / `_en.md`（人机共读审计报告）
 

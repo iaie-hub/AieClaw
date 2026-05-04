@@ -27,7 +27,7 @@ Agent 严格遵循以下“检索-清洗-解构-合成”的闭环 SOP 流程执
 
 ### 步骤 2：学术检索 (arXiv Search)
 
-- **技能调用**：[`mas4s-literature-arxiv-search`](file:///Users/admin/clawd/skills/mas4s-literature-arxiv-search/SKILL.md)
+- **技能调用**：[`mas4s-literature-search`](file:///Users/admin/clawd/skills/mas4s-literature-search/SKILL.md)
 - **输入**：从 `pi_result.json` 中提取的文献检索关键词。
 - **作用**：以 PI 假说为锚点，在 arXiv 学术数据库中进行精准检索，获取与课题方向强相关的最新论文列表及摘要（`arxiv_search_results.json`）。
 - **输出**：`arxiv_search_results.json`（含论文标题、摘要、arXiv ID、PDF 链接）。
@@ -35,21 +35,21 @@ Agent 严格遵循以下“检索-清洗-解构-合成”的闭环 SOP 流程执
 
 ### 步骤 3：智能降噪 (Intelligent Noise Reduction)
 
-- **技能调用**：[`mas4s-literature-noise-reduction`](file:///Users/admin/clawd/skills/mas4s-literature-noise-reduction/SKILL.md)
+- **技能调用**：[`mas4s-literature-filter`](file:///Users/admin/clawd/skills/mas4s-literature-filter/SKILL.md)
 - **输入**：`arxiv_search_results.json`（摘要列表）及 PI 核心假说。
 - **作用**：基于摘要对每篇论文与 PI 假说的相关性进行初步评估，自动剔除不相关的边缘文献，合并反复啰嗦的同类研究。保留通过相关性阈值的高质量候选文献列表。
 - **输出**：`filtered_papers.json`（精简后的高相关文献列表，含 arXiv ID 与 PDF 链接）。
 
 ### 步骤 4：PDF 下载 (PDF Download)
 
-- **技能调用**：[`mas4s-literature-pdf-download`](file:///Users/admin/clawd/skills/mas4s-literature-pdf-download/SKILL.md)
+- **技能调用**：[`mas4s-literature-download`](file:///Users/admin/clawd/skills/mas4s-literature-download/SKILL.md)
 - **输入**：`filtered_papers.json` 中的 PDF 链接列表。
 - **作用**：并发批量下载降噪后的候选论文 PDF 文件至本地工作区。强制校验下载完整性，死链或无法访问的文献直接标记丢弃。
 - **输出**：下载完成的 PDF 文件集合。为了便于集中管理，每篇论文按 arXiv ID 建立独立子目录，存放于 `~/.openclaw/workspace-<agentId>/task/<run_id>/papers/<arXiv.ID>/`。
 
 ### 步骤 5：PDF 转 Markdown (PDF to Markdown)
 
-- **技能调用**：[`mas4s-literature-pdf-to-markdown`](file:///Users/admin/clawd/skills/mas4s-literature-pdf-to-markdown/SKILL.md)
+- **技能调用**：[`mas4s-literature-parse`](file:///Users/admin/clawd/skills/mas4s-literature-parse/SKILL.md)
 - **输入**：步骤 4 下载的 PDF 文件。
 - **作用**：逐篇将 PDF 转换为结构化 Markdown 文本，保留章节标题、公式、表格等结构信息，为后续精读与提取提供标准化的文本输入。
 - **输出**：每篇论文对应一份 Markdown 文件，保存至该论文的专用子目录：`~/.openclaw/workspace-<agentId>/task/<run_id>/papers/<arXiv.ID>/`。
@@ -64,7 +64,7 @@ Agent 严格遵循以下“检索-清洗-解构-合成”的闭环 SOP 流程执
 
 #### Skill A：宏观态势探针 (Macro Probe Skill)
 
-- **技能调用**：[`mas4s-literature-deep-analysis-macro-probe`](file:///Users/admin/clawd/skills/mas4s-literature-deep-analysis-macro-probe/SKILL.md)
+- **技能调用**：[`mas4s-literature-probe`](file:///Users/admin/clawd/skills/mas4s-literature-probe/SKILL.md)
 - **负责字段**：`发表元信息`、`理论基础`、`一句话公式`、`提纯摘要`
 - **认知深度**：浅层抽象。快速抓取核心定位与理论脉络，作为防御“课题被抢发”的先头部队。
 - **输出**：`paper_macro_feature.json`（含 `is_published`, `research_objective`, `theoretical_basis`, `one_sentence_formula`, `refined_abstract`）
@@ -79,7 +79,7 @@ Agent 严格遵循以下“检索-清洗-解构-合成”的闭环 SOP 流程执
 
 #### Skill B：硬核解构引擎 (Technical Deconstruction Skill)
 
-- **技能调用**：[`mas4s-literature-deep-analysis-technical-deconstruction`](file:///Users/admin/clawd/skills/mas4s-literature-deep-analysis-technical-deconstruction/SKILL.md)
+- **技能调用**：[`mas4s-literature-deconstruct`](file:///Users/admin/clawd/skills/mas4s-literature-deconstruct/SKILL.md)
 - **负责字段**：`核心构念`、`实验范式`、`测量工具`、`量化结果`、`算法细节`
 - **认知深度**：深层逻辑链。将论文解构为可复用的实验组件与量化证据，指导我方变量设计。
 - **输出**：`paper_technical_details.json`（含 `core_constructs`, `empirical_design`, `measurement_tools`, `key_findings`, `algorithm`）
@@ -94,7 +94,7 @@ Agent 严格遵循以下“检索-清洗-解构-合成”的闭环 SOP 流程执
 
 #### Skill C：价值批判专家 (Critical Review Skill)
 
-- **技能调用**：[`mas4s-literature-deep-analysis-critical-review`](file:///Users/admin/clawd/skills/mas4s-literature-deep-analysis-critical-review/SKILL.md)
+- **技能调用**：[`mas4s-literature-critique`](file:///Users/admin/clawd/skills/mas4s-literature-critique/SKILL.md)
 - **负责字段**：`设计启示`、`局限审计`、`优劣势分析`、`技术边界`
 - **认知深度**：深度评价与批判。专注于主观启发价值：判断该文献是否可为课题突破口，以及其致命缺陷是否代表了研究机会。
 - **输出**：`paper_critical_review.json`（含 `direct_inspiration`, `limitations_and_future_work`, `pros_and_strengths`, `cons_and_weaknesses`, `boundary_limitations`）
@@ -109,7 +109,7 @@ Agent 严格遵循以下“检索-清洗-解构-合成”的闭环 SOP 流程执
 
 ### 步骤 7：文献全景合成与图谱构建中枢 (Literature Base Synthesizer) (Map-Reduce 增强版)
 
-- **技能调用**：[`mas4s-literature-synthesizer`](file:///Users/admin/clawd/skills/mas4s-literature-synthesizer/SKILL.md)
+- **技能调用**：[`mas4s-literature-synthesize`](file:///Users/admin/clawd/skills/mas4s-literature-synthesize/SKILL.md)
 - **输入**：步骤 6 三个 Skill 产出的每篇论文的结构化 JSON 集，以及 PI 核心假说。
 - **作用**：扮演“文献全景合成建筑师”与“情报分发中枢”角色。采用 **Map-Reduce 架构** 处理大规模文献，产出“三位一体”交付物：
   - **可视化图谱 (Graph)**：构建符合前端标准的 `nodes` 和 `edges`，呈现技术流派的演进、继承与对抗关系。
@@ -119,7 +119,7 @@ Agent 严格遵循以下“检索-清洗-解构-合成”的闭环 SOP 流程执
 - **核心审计与探测**：
   - **抢发风险探测 (Scooped Check)**：对比 PI 假说与图谱，若发现 100% 撞车，触发 `SCOOPED` 警报并提供 Pivot 建议。
   - **双语双轨落盘**：严格输出 `literature_graph_en.json` (驱动后续阶段) 与 `_cn.json` (前端展示)。
-- **输出**：`literature_graph.json` (完整包)、`literature_synthesis_table_*.md/json` (4份特征表) 及人机共读审计报告。
+- **输出**：`literature_graph.json` (完整包)、`literature_visualization_graph_*.json` (独立图谱数据)、`literature_synthesis_table_*.md/json` (4份特征表) 及人机共读审计报告。
 - **HITL 机制**：生成的全景将挂起状态机，等待人类 PI 进行 `[Approve/Retry/Rollback]` 决策。
 
 #### 附：理论框架的设计规范 (Theoretical Framework Design)
@@ -214,4 +214,4 @@ Agent 的执行过程在 AIEMAS 平台中是透明可观测的：
 - [Agent 定义](../../../docs/concepts/agent.md)
 - [双锚点科研 SOP 总览](./science_assistant.md)
 - [阶段 1：Topic Agent](./science_assistant_1topic.md)
-- [阶段 3：Architecture Agent](./science_assistant_3architecture.md)
+- [阶段 3：Design Agent](./science_assistant_3design.md)

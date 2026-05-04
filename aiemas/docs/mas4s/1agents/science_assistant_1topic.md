@@ -12,7 +12,7 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 
 ### 步骤 1：检索增强 (Query Expansion)
 
-- **技能调用**：[`mas4s-topic-query-expand`](file:///Users/admin/clawd/skills/mas4s-topic-query-expand/SKILL.md)
+- **技能调用**：[`mas4s-topic-expand`](file:///Users/admin/clawd/skills/mas4s-topic-expand/SKILL.md)
 - **输入**：用户初始科研构想纯文本（`idea.txt`）。
 - **动作**：将模糊构想扩展为多维度的检索词矩阵，确保对领域现状及学术边界的全面覆盖。
 - **输出**：`idea_query_expand.json`。
@@ -21,16 +21,16 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 
 - **人类锚点**：检索条件确认。
 - **Web 检索**：
-  - **技能调用**：[`mas4s-topic-web-search`](file:///Users/admin/clawd/skills/mas4s-topic-web-search/SKILL.md)
+  - **技能调用**：[`mas4s-topic-web`](file:///Users/admin/clawd/skills/mas4s-topic-web/SKILL.md)
   - **输出**：`web_search_results.json` (含行业痛点、工程实践、商业现状)。
 - **学术检索**：
-  - **技能调用**：[`mas4s-topic-arxiv-search`](file:///Users/admin/clawd/skills/mas4s-topic-arxiv-search/SKILL.md)
+  - **技能调用**：[`mas4s-topic-arxiv`](file:///Users/admin/clawd/skills/mas4s-topic-arxiv/SKILL.md)
   - **输出**：`arxiv_search_results.json` (含最新论文摘要、SOTA 算法、理论框架)。
 - **现实锚点**：基于双轨检索结果，识别研究重叠度，排除已被充分研究的“红海”课题。
 
 ### 步骤 3：候选问题发散 (Candidate Topic Generation)
 
-- **技能调用**：[`mas4s-topic-candidate-generation`](file:///Users/admin/clawd/skills/mas4s-topic-candidate-generation/SKILL.md)
+- **技能调用**：[`mas4s-topic-generate`](file:///Users/admin/clawd/skills/mas4s-topic-generate/SKILL.md)
 - **输入**：`web_search_results.json` 及 `arxiv_search_results.json`。
 - **动作**：基于解耦后的现实与学术双维上下文，多角度发散推演 5 个具有创新潜力的候选研究问题。
 - **人类锚点**：研究方向引导。
@@ -38,7 +38,7 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 
 ### 步骤 4：评分排序与框架构建 (Ranking & Framework Framing)
 
-- **技能调用**：[`mas4s-topic-finer-framing`](file:///Users/admin/clawd/skills/mas4s-topic-finer-framing/SKILL.md)
+- **技能调用**：[`mas4s-topic-frame`](file:///Users/admin/clawd/skills/mas4s-topic-frame/SKILL.md)
 - **动作**：
   1. **评分排序**：按 FINER + 可证伪性框架对候选问题进行评分。
   2. **框架构建**：为胜出项构建完整 PICO/PEOS 框架，并撰写明确的假设声明（H₀/H₁）。
@@ -46,7 +46,7 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 
 ### 步骤 5：首席审计与课题定型 (Principal Investigation & Convergence)
 
-- **技能调用**：[`mas4s-topic-principal-investigate`](file:///Users/admin/clawd/skills/mas4s-topic-principal-investigate/SKILL.md)
+- **技能调用**：[`mas4s-topic-investigate`](file:///Users/admin/clawd/skills/mas4s-topic-investigate/SKILL.md)
 - **输入**：`ranked_framed_hypothesis.json`、`idea_query_expand.json` (来自步骤 1)。
 - **人类锚点**：研究方向决策。
 - **输出**：
@@ -83,4 +83,4 @@ Agent 的执行过程在 AIEMAS 平台中是透明可观测的：
 - [Agent 定义](../../../docs/concepts/agent.md)
 - [双锚点科研 SOP 总览](./science_assistant.md)
 - [阶段 2：Literature Agent](./science_assistant_2literature.md)
-- [阶段 3：Architecture Agent](./science_assistant_3architecture.md)
+- [阶段 3：Design Agent](./science_assistant_3design.md)

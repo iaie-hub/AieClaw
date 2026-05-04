@@ -131,18 +131,18 @@
 
 ### 核心步骤
 
-| 步骤 | 名称            | 技能调用                                                  | 输出                                                                    |
-| :--- | :-------------- | :-------------------------------------------------------- | :---------------------------------------------------------------------- |
-| 1    | 文献底座输入    | —（解析 `pi_result.json`）                                | 提取核心假说与关键词矩阵                                                |
-| 2    | 学术检索        | `mas4s-literature-arxiv-search`                           | `arxiv_search_results.json`                                             |
-| 3    | 智能降噪        | `mas4s-literature-noise-reduction`                        | `filtered_papers.json`                                                  |
-| 4    | PDF 下载        | `mas4s-literature-pdf-download`                           | 本地 PDF 集合（按 arXiv ID 分目录）                                     |
-| 5    | PDF 转 Markdown | `mas4s-literature-pdf-to-markdown`                        | 结构化 Markdown（按 arXiv ID 分目录）                                   |
-| 6    | 逐篇深度解析    | 三 Skill 并发：                                           |                                                                         |
-|      | A: 宏观态势探针 | `mas4s-literature-deep-analysis-macro-probe`              | `paper_macro_feature.json`                                              |
-|      | B: 硬核解构引擎 | `mas4s-literature-deep-analysis-technical-deconstruction` | `paper_technical_details.json`                                          |
-|      | C: 价值批判专家 | `mas4s-literature-deep-analysis-critical-review`          | `paper_critical_review.json`                                            |
-| 7    | 图谱合成与审计  | `mas4s-literature-synthesizer`                            | `literature_graph.json`（双语）+ `literature_synthesis_table_*.md/json` |
+| 步骤 | 名称            | 技能调用                                    | 输出                                                                    |
+| :--- | :-------------- | :------------------------------------------ | :---------------------------------------------------------------------- |
+| 1    | 文献底座输入    | —（解析 `pi_result.json`）                  | 提取核心假说与关键词矩阵                                                |
+| 2    | 学术检索        | `mas4s-literature-arxiv-search`             | `arxiv_search_results.json`                                             |
+| 3    | 智能降噪        | `mas4s-literature-noise-reduction`          | `filtered_papers.json`                                                  |
+| 4    | PDF 下载        | `mas4s-literature-pdf-download`             | 本地 PDF 集合（按 arXiv ID 分目录）                                     |
+| 5    | PDF 转 Markdown | `mas4s-literature-pdf-to-markdown`          | 结构化 Markdown（按 arXiv ID 分目录）                                   |
+| 6    | 逐篇深度解析    | 三 Skill 并发：                             |                                                                         |
+|      | A: 宏观态势探针 | `mas4s-literature-macro-probe`              | `paper_macro_feature.json`                                              |
+|      | B: 硬核解构引擎 | `mas4s-literature-technical-deconstruction` | `paper_technical_details.json`                                          |
+|      | C: 价值批判专家 | `mas4s-literature-critical-review`          | `paper_critical_review.json`                                            |
+| 7    | 图谱合成与审计  | `mas4s-literature-synthesizer`              | `literature_graph.json`（双语）+ `literature_synthesis_table_*.md/json` |
 
 > 步骤 6 的三个 Skill 对每篇论文**并发独立触发**（默认并发数 16），输出分别落盘至对应论文子目录。
 
@@ -309,28 +309,28 @@
 
 **步骤 1：数据资产构建**
 
-- **技能调用**：`mas4s-code-data-asset-build`
+- **技能调用**：`mas4s-implement-data-build`
 - **输入**：`eval_protocol.json`（阶段 3 PREP）
 - **动作**：下载/制备数据、固化预处理流水线、执行探索性分析，生成《数据基准特性报告》，记录溯源信息
 - **输出**：`data_asset_report.json` + 数据制备代码
 
 **步骤 2：提案方法代码实现**
 
-- **技能调用**：`mas4s-code-method-implement`
+- **技能调用**：`mas4s-implement-method`
 - **输入**：`method_blueprint.json` + `problem_formulation.json`
 - **动作**：将蓝图实现为可运行代码，编写单元测试，生成代码文档与依赖清单
 - **输出**：提案方法代码 + `unit_test_report.json`
 
 **步骤 3：基线复现与评估管线**
 
-- **技能调用**：`mas4s-code-baseline-pipeline`
+- **技能调用**：`mas4s-implement-baseline`
 - **输入**：`baseline_manifest.json` + `eval_protocol.json`
 - **动作**：拉取/复现基线，统一接口，编写标准化评估管线，产出《基线复现准确度报告》
 - **输出**：`baseline_reproduction_report.json` + 评估管线代码
 
 **步骤 4：容器化与环境冻结**
 
-- **技能调用**：`mas4s-code-containerize`
+- **技能调用**：`mas4s-implement-containerize`
 - **输入**：整个项目代码库
 - **动作**：生成 Dockerfile，固定随机种子与依赖版本，运行迷你实验验证，记录环境哈希
 - **输出**：`Dockerfile` + `environment_snapshot.json` + 迷你实验通过日志
@@ -559,39 +559,39 @@ pi_result.json ───────────────────→ 文�
 
 ## 附录：全阶段技能清单汇总
 
-| 阶段  | 技能名称                                                  | 功能                                                   |
-| :---- | :-------------------------------------------------------- | :----------------------------------------------------- |
-| **T** | `mas4s-topic-query-expand`                                | 检索增强：多维关键词扩展                               |
-| T     | `mas4s-topic-web-search`                                  | Web 检索：行业痛点与工程现状                           |
-| T     | `mas4s-topic-arxiv-search`                                | 学术检索：最新论文与 SOTA                              |
-| T     | `mas4s-topic-candidate-generation`                        | 候选问题发散                                           |
-| T     | `mas4s-topic-finer-framing`                               | FINER 评分与 PICO/PEOS 框架构建                        |
-| T     | `mas4s-topic-principal-investigate`                       | 首席审计与课题定型（含 stage_2_literature_directives） |
-| T     | `mas4s-topic-pivot`                                       | 课题重构（Rollback 触发）                              |
-| **L** | `mas4s-literature-arxiv-search`                           | 学术检索：基于 PI 假说精准抓取                         |
-| L     | `mas4s-literature-noise-reduction`                        | 智能降噪：相关性过滤                                   |
-| L     | `mas4s-literature-pdf-download`                           | PDF 批量下载                                           |
-| L     | `mas4s-literature-pdf-to-markdown`                        | PDF 转结构化 Markdown                                  |
-| L     | `mas4s-literature-deep-analysis-macro-probe`              | 宏观态势探针                                           |
-| L     | `mas4s-literature-deep-analysis-technical-deconstruction` | 硬核解构引擎                                           |
-| L     | `mas4s-literature-deep-analysis-critical-review`          | 价值批判专家                                           |
-| L     | `mas4s-literature-synthesizer`                            | 图谱合成与全景审计（Map-Reduce 四位一体）              |
-| **D** | `mas4s-design-problem-formalize`                          | 问题形式化：将科学问题转化为 CS 问题陈述               |
-| D     | `mas4s-design-baseline-scan`                              | 基线确立：从文献底座提取并分类方法，生成基线清单       |
-| D     | `mas4s-design-method-blueprint`                           | 方案蓝图：生成算法/系统架构高层设计                    |
-| D     | `mas4s-design-prep-spec`                                  | PREP 制定：生成预注册式评估协议                        |
-| D     | `mas4s-design-resource-ethics-check`                      | 资源与伦理预检                                         |
-| **I** | `mas4s-code-data-asset-build`                             | 数据资产构建：下载/制备/探索性分析                     |
-| I     | `mas4s-code-method-implement`                             | 提案方法代码实现+单元测试                              |
-| I     | `mas4s-code-baseline-pipeline`                            | 基线复现+统一评估管线                                  |
-| I     | `mas4s-code-containerize`                                 | 容器化+环境冻结+迷你实验验证                           |
-| **E** | `mas4s-execution-env-verify`                              | 实验环境检核                                           |
-| E     | `mas4s-execution-full-run`                                | 一键全量运行                                           |
-| E     | `mas4s-execution-monitor`                                 | 运行时监控与异常记录                                   |
-| E     | `mas4s-execution-result-aggregate`                        | 结果自动汇整+PREP 合规比对                             |
-| **W** | `mas4s-writing-method-draft`                              | 方法部分自动编撰                                       |
-| W     | `mas4s-writing-experiment-draft`                          | 实验设置与结果自动生成                                 |
-| W     | `mas4s-writing-discussion-draft`                          | 讨论结构化成文                                         |
-| W     | `mas4s-writing-intro-related`                             | 相关工作与引言生成                                     |
-| W     | `mas4s-writing-abstract-integrate`                        | 摘要生成与全稿整合                                     |
-| W     | `mas4s-writing-integrity-check`                           | 完整性审查（主张-证据映射等）                          |
+| 阶段  | 技能名称                           | 功能                                                   |
+| :---- | :--------------------------------- | :----------------------------------------------------- |
+| **T** | `mas4s-topic-expand`               | 检索增强：多维关键词扩展                               |
+| T     | `mas4s-topic-web`                  | Web 检索：行业痛点与工程现状                           |
+| T     | `mas4s-topic-arxiv`                | 学术检索：最新论文与 SOTA                              |
+| T     | `mas4s-topic-generate`             | 候选问题发散                                           |
+| T     | `mas4s-topic-frame`                | FINER 评分与 PICO/PEOS 框架构建                        |
+| T     | `mas4s-topic-investigate`          | 首席审计与课题定型（含 stage_2_literature_directives） |
+| T     | `mas4s-topic-pivot`                | 课题重构（Rollback 触发）                              |
+| **L** | `mas4s-literature-search`          | 学术检索：基于 PI 假说精准抓取                         |
+| L     | `mas4s-literature-filter`          | 智能降噪：相关性过滤                                   |
+| L     | `mas4s-literature-download`        | PDF 批量下载                                           |
+| L     | `mas4s-literature-parse`           | PDF 转结构化 Markdown                                  |
+| L     | `mas4s-literature-probe`           | 宏观态势探针                                           |
+| L     | `mas4s-literature-deconstruct`     | 硬核解构引擎                                           |
+| L     | `mas4s-literature-critique`        | 价值批判专家                                           |
+| L     | `mas4s-literature-synthesize`      | 图谱合成与全景审计（Map-Reduce 四位一体）              |
+| **D** | `mas4s-design-formalize`           | 问题形式化：将科学问题转化为 CS 问题陈述               |
+| D     | `mas4s-design-baseline`            | 基线确立：从文献底座提取并分类方法，生成基线清单       |
+| D     | `mas4s-design-blueprint`           | 方案蓝图：生成算法/系统架构高层设计                    |
+| D     | `mas4s-design-prep`                | PREP 制定：生成预注册式评估协议                        |
+| D     | `mas4s-design-ethics`              | 资源与伦理预检                                         |
+| **I** | `mas4s-implement-data-build`       | 数据资产构建：下载/制备/探索性分析                     |
+| I     | `mas4s-implement-method`           | 提案方法代码实现+单元测试                              |
+| I     | `mas4s-implement-baseline`         | 基线复现+统一评估管线                                  |
+| I     | `mas4s-implement-containerize`     | 容器化+环境冻结+迷你实验验证                           |
+| **E** | `mas4s-execution-env-verify`       | 实验环境检核                                           |
+| E     | `mas4s-execution-full-run`         | 一键全量运行                                           |
+| E     | `mas4s-execution-monitor`          | 运行时监控与异常记录                                   |
+| E     | `mas4s-execution-result-aggregate` | 结果自动汇整+PREP 合规比对                             |
+| **W** | `mas4s-writing-method-draft`       | 方法部分自动编撰                                       |
+| W     | `mas4s-writing-experiment-draft`   | 实验设置与结果自动生成                                 |
+| W     | `mas4s-writing-discussion-draft`   | 讨论结构化成文                                         |
+| W     | `mas4s-writing-intro-related`      | 相关工作与引言生成                                     |
+| W     | `mas4s-writing-abstract-integrate` | 摘要生成与全稿整合                                     |
+| W     | `mas4s-writing-integrity-check`    | 完整性审查（主张-证据映射等）                          |
