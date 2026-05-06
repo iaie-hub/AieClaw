@@ -17,7 +17,7 @@ import {
   normalizeProviderResolvedModelWithPlugin,
   shouldPreferProviderRuntimeResolvedModel,
 } from "../../plugins/provider-runtime.js";
-import { resolveOpenClawAgentDir } from "../agent-paths.js";
+import { resolveDefaultAgentDir } from "../agent-scope.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../defaults.js";
 import { buildModelAliasLines } from "../model-alias-lines.js";
 import { modelKey, normalizeStaticProviderModelId } from "../model-ref-shared.js";
@@ -25,8 +25,8 @@ import { findNormalizedProviderValue, normalizeProviderId } from "../model-selec
 import {
   buildSuppressedBuiltInModelError,
   shouldSuppressBuiltInModel,
+  shouldUnconditionallySuppress,
 } from "../model-suppression.js";
-import { isLegacyModelsAddCodexMetadataModel } from "../openai-codex-models-add-legacy.js";
 import { discoverAuthStorage, discoverModels } from "../pi-model-discovery.js";
 import {
   attachModelProviderRequestTransport,
@@ -67,14 +67,23 @@ type ProviderRuntimeHooks = {
   ) => unknown;
 };
 
-const DEFAULT_PROVIDER_RUNTIME_HOOKS: ProviderRuntimeHooks = {
-  applyProviderResolvedModelCompatWithPlugins,
-  applyProviderResolvedTransportWithPlugin,
+const TARGET_PROVIDER_RUNTIME_HOOKS: ProviderRuntimeHooks = {
   buildProviderUnknownModelHintWithPlugin,
   prepareProviderDynamicModel,
   runProviderDynamicModel,
   shouldPreferProviderRuntimeResolvedModel,
   normalizeProviderResolvedModelWithPlugin,
+  // Target-provider resolution keeps owner hooks, but avoids broad
+  // cross-provider hooks that can load unrelated bundled provider runtimes.
+  applyProviderResolvedModelCompatWithPlugins: () => undefined,
+  applyProviderResolvedTransportWithPlugin: () => undefined,
+  normalizeProviderTransportWithPlugin: () => undefined,
+};
+
+const DEFAULT_PROVIDER_RUNTIME_HOOKS: ProviderRuntimeHooks = {
+  ...TARGET_PROVIDER_RUNTIME_HOOKS,
+  applyProviderResolvedModelCompatWithPlugins,
+  applyProviderResolvedTransportWithPlugin,
   normalizeProviderTransportWithPlugin,
 };
 
@@ -86,6 +95,11 @@ const STATIC_PROVIDER_RUNTIME_HOOKS: ProviderRuntimeHooks = {
   runProviderDynamicModel: () => undefined,
   normalizeProviderResolvedModelWithPlugin: () => undefined,
   normalizeProviderTransportWithPlugin: () => undefined,
+};
+
+const SKIP_PI_DISCOVERY_PROVIDER_RUNTIME_HOOKS: ProviderRuntimeHooks = {
+  // skipPiDiscovery is the lean path used before PI discovery/models.json has run.
+  ...TARGET_PROVIDER_RUNTIME_HOOKS,
 };
 
 function createEmptyPiDiscoveryStores(): {
@@ -106,11 +120,18 @@ function createEmptyPiDiscoveryStores(): {
 function resolveRuntimeHooks(params?: {
   runtimeHooks?: ProviderRuntimeHooks;
   skipProviderRuntimeHooks?: boolean;
+  skipPiDiscovery?: boolean;
 }): ProviderRuntimeHooks {
   if (params?.skipProviderRuntimeHooks) {
     return STATIC_PROVIDER_RUNTIME_HOOKS;
   }
-  return params?.runtimeHooks ?? DEFAULT_PROVIDER_RUNTIME_HOOKS;
+  if (params?.runtimeHooks) {
+    return params.runtimeHooks;
+  }
+  if (params?.skipPiDiscovery) {
+    return SKIP_PI_DISCOVERY_PROVIDER_RUNTIME_HOOKS;
+  }
+  return DEFAULT_PROVIDER_RUNTIME_HOOKS;
 }
 
 function canonicalizeLegacyResolvedModel(params: {
@@ -161,23 +182,6 @@ function applyResolvedTransportFallback(params: {
   };
 }
 
-// ── 方案 5：normalizeResolvedModel 进程级缓存 ──────────────────────────────
-// key 为 provider + model.id，缓存 plugin normalize/compat/transport hook 的结果。
-// 这些 hook 只依赖 provider 和 model 结构，不依赖 secret 值或 agentDir。
-const NORMALIZED_MODEL_CACHE_KEY = Symbol.for("openclaw.normalizedModelCache");
-
-type NormalizedModelCache = Map<string, Model<Api>>;
-
-function getNormalizedModelCache(): NormalizedModelCache {
-  const g = globalThis as typeof globalThis & {
-    [NORMALIZED_MODEL_CACHE_KEY]?: NormalizedModelCache;
-  };
-  if (!g[NORMALIZED_MODEL_CACHE_KEY]) {
-    g[NORMALIZED_MODEL_CACHE_KEY] = new Map();
-  }
-  return g[NORMALIZED_MODEL_CACHE_KEY];
-}
-
 function normalizeResolvedModel(params: {
   provider: string;
   model: Model<Api>;
@@ -185,13 +189,39 @@ function normalizeResolvedModel(params: {
   agentDir?: string;
   runtimeHooks?: ProviderRuntimeHooks;
 }): Model<Api> {
-  // 方案 5：进程级缓存，key 为 provider + model.id
-  const cacheKey = `${params.provider}\0${params.model.id}`;
-  const cache = getNormalizedModelCache();
-  const cached = cache.get(cacheKey);
-  if (cached) {
-    return cached;
-  }
+  const normalizeModelCost = (cost: unknown): Model<Api>["cost"] => {
+    if (!cost || typeof cost !== "object" || Array.isArray(cost)) {
+      return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    }
+    const record = cost as Partial<Model<Api>["cost"]>;
+    const input =
+      typeof record.input === "number" && Number.isFinite(record.input) ? record.input : 0;
+    const output =
+      typeof record.output === "number" && Number.isFinite(record.output) ? record.output : 0;
+    const cacheRead =
+      typeof record.cacheRead === "number" && Number.isFinite(record.cacheRead)
+        ? record.cacheRead
+        : 0;
+    const cacheWrite =
+      typeof record.cacheWrite === "number" && Number.isFinite(record.cacheWrite)
+        ? record.cacheWrite
+        : 0;
+    if (
+      input === record.input &&
+      output === record.output &&
+      cacheRead === record.cacheRead &&
+      cacheWrite === record.cacheWrite
+    ) {
+      return record as Model<Api>["cost"];
+    }
+    return {
+      ...cost,
+      input,
+      output,
+      cacheRead,
+      cacheWrite,
+    };
+  };
 
   const normalizedInputModel = {
     ...params.model,
@@ -201,6 +231,7 @@ function normalizeResolvedModel(params: {
       modelName: params.model.name,
       input: params.model.input,
     }),
+    cost: normalizeModelCost((params.model as { cost?: unknown }).cost),
   } as Model<Api>;
   const runtimeHooks = params.runtimeHooks ?? DEFAULT_PROVIDER_RUNTIME_HOOKS;
   const pluginNormalized = runtimeHooks.normalizeProviderResolvedModelWithPlugin({
@@ -244,7 +275,7 @@ function normalizeResolvedModel(params: {
       runtimeHooks,
       model: compatNormalized ?? pluginNormalized ?? normalizedInputModel,
     });
-  const result = canonicalizeLegacyResolvedModel({
+  return canonicalizeLegacyResolvedModel({
     provider: params.provider,
     model: normalizeResolvedProviderModel({
       provider: params.provider,
@@ -252,8 +283,6 @@ function normalizeResolvedModel(params: {
         fallbackTransportNormalized ?? compatNormalized ?? pluginNormalized ?? normalizedInputModel,
     }),
   });
-  cache.set(cacheKey, result);
-  return result;
 }
 
 function resolveProviderTransport(params: {
@@ -367,12 +396,10 @@ function resolveConfiguredProviderConfig(
 }
 
 function isModelsAddMetadataModel(params: {
-  provider: string;
   model: NonNullable<InlineProviderConfig["models"]>[number] | undefined;
 }) {
   return (
-    (params.model as { metadataSource?: unknown } | undefined)?.metadataSource === "models-add" ||
-    isLegacyModelsAddCodexMetadataModel(params)
+    (params.model as { metadataSource?: unknown } | undefined)?.metadataSource === "models-add"
   );
 }
 
@@ -498,8 +525,7 @@ function applyConfiguredProviderOverrides(params: {
       ? findConfiguredProviderModel(providerConfig, params.provider, discoveredModel.id)
       : undefined);
   const metadataOverrideModel =
-    params.preferDiscoveredModelMetadata &&
-    isModelsAddMetadataModel({ provider: params.provider, model: configuredModel })
+    params.preferDiscoveredModelMetadata && isModelsAddMetadataModel({ model: configuredModel })
       ? undefined
       : configuredModel;
   const discoveredHeaders = sanitizeModelHeaders(discoveredModel.headers, {
@@ -620,6 +646,14 @@ function resolveExplicitModelWithRegistry(params: {
     modelId,
   });
   if (inlineMatch?.api) {
+    // Unconditional suppressions (no `when` clause) represent absolute provider
+    // capability blocks that cannot be overridden by inline user configuration.
+    // Conditional suppressions (e.g. baseUrlHosts-gated qwen restrictions) are
+    // intentionally bypassable when the user has explicitly configured the model.
+    // (#74451)
+    if (shouldUnconditionallySuppress({ provider, id: modelId, config: cfg })) {
+      return { kind: "suppressed" };
+    }
     const resolvedParams = mergeConfiguredRuntimeModelParams({
       cfg,
       provider,
@@ -651,29 +685,26 @@ function resolveExplicitModelWithRegistry(params: {
   ) {
     return { kind: "suppressed" };
   }
-
   const model = modelRegistry.find(provider, modelId) as Model<Api> | null;
 
   if (model) {
-    const overridden = applyConfiguredProviderOverrides({
-      provider,
-      discoveredModel: model,
-      providerConfig,
-      modelId,
-      cfg,
-      runtimeHooks,
-    });
-    const result = {
-      kind: "resolved" as const,
+    return {
+      kind: "resolved",
       model: normalizeResolvedModel({
         provider,
         cfg,
         agentDir,
-        model: overridden,
+        model: applyConfiguredProviderOverrides({
+          provider,
+          discoveredModel: model,
+          providerConfig,
+          modelId,
+          cfg,
+          runtimeHooks,
+        }),
         runtimeHooks,
       }),
     };
-    return result;
   }
 
   const providers = cfg?.models?.providers ?? {};
@@ -958,7 +989,7 @@ export function resolveModel(
     provider,
     model: normalizeStaticProviderModelId(normalizeProviderId(provider), modelId),
   };
-  const resolvedAgentDir = agentDir ?? resolveOpenClawAgentDir();
+  const resolvedAgentDir = agentDir ?? resolveDefaultAgentDir(cfg ?? {});
   const authStorage = options?.authStorage ?? discoverAuthStorage(resolvedAgentDir);
   const modelRegistry = options?.modelRegistry ?? discoverModels(authStorage, resolvedAgentDir);
   const runtimeHooks = resolveRuntimeHooks(options);
@@ -1010,7 +1041,7 @@ export async function resolveModelAsync(
     provider,
     model: normalizeStaticProviderModelId(normalizeProviderId(provider), modelId),
   };
-  const resolvedAgentDir = agentDir ?? resolveOpenClawAgentDir();
+  const resolvedAgentDir = agentDir ?? resolveDefaultAgentDir(cfg ?? {});
   const emptyDiscoveryStores =
     options?.skipPiDiscovery && (!options.authStorage || !options.modelRegistry)
       ? createEmptyPiDiscoveryStores()
@@ -1059,7 +1090,7 @@ export async function resolveModelAsync(
         providerConfig,
       },
     });
-    const result = resolveModelWithRegistry({
+    return resolveModelWithRegistry({
       provider: normalizedRef.provider,
       modelId: normalizedRef.model,
       modelRegistry,
@@ -1067,7 +1098,6 @@ export async function resolveModelAsync(
       agentDir: resolvedAgentDir,
       runtimeHooks,
     });
-    return result;
   };
   let model =
     explicitModel?.kind === "resolved" &&

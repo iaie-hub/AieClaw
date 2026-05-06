@@ -38,6 +38,10 @@ export const SessionCompactionCheckpointSchema = Type.Object(
 
 export const SessionsListParamsSchema = Type.Object(
   {
+    /**
+     * Maximum rows to return. Omitted Gateway RPC calls use a bounded default
+     * to keep large session stores from monopolizing the event loop.
+     */
     limit: Type.Optional(Type.Integer({ minimum: 1 })),
     activeMinutes: Type.Optional(Type.Integer({ minimum: 1 })),
     includeGlobal: Type.Optional(Type.Boolean()),
@@ -60,11 +64,31 @@ export const SessionsListParamsSchema = Type.Object(
   { additionalProperties: false },
 );
 
+export const SessionsCleanupParamsSchema = Type.Object(
+  {
+    agent: Type.Optional(NonEmptyString),
+    allAgents: Type.Optional(Type.Boolean()),
+    enforce: Type.Optional(Type.Boolean()),
+    activeKey: Type.Optional(NonEmptyString),
+    fixMissing: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+
 export const SessionsPreviewParamsSchema = Type.Object(
   {
     keys: Type.Array(NonEmptyString, { minItems: 1 }),
     limit: Type.Optional(Type.Integer({ minimum: 1 })),
     maxChars: Type.Optional(Type.Integer({ minimum: 20 })),
+  },
+  { additionalProperties: false },
+);
+
+export const SessionsDescribeParamsSchema = Type.Object(
+  {
+    key: NonEmptyString,
+    includeDerivedTitles: Type.Optional(Type.Boolean()),
+    includeLastMessage: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
 );
@@ -90,6 +114,7 @@ export const SessionsCreateParamsSchema = Type.Object(
     model: Type.Optional(NonEmptyString),
     reasoningLevel: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
     parentSessionKey: Type.Optional(NonEmptyString),
+    emitCommandHooks: Type.Optional(Type.Boolean()),
     task: Type.Optional(Type.String()),
     message: Type.Optional(Type.String()),
   },
@@ -124,7 +149,7 @@ export const SessionsMessagesUnsubscribeParamsSchema = Type.Object(
 
 export const SessionsAbortParamsSchema = Type.Object(
   {
-    key: NonEmptyString,
+    key: Type.Optional(NonEmptyString),
     runId: Type.Optional(NonEmptyString),
   },
   { additionalProperties: false },

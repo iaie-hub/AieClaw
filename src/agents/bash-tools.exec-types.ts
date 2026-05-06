@@ -51,7 +51,7 @@ export type ExecApprovalFollowupOutcome = {
   reason?: string;
 };
 
-export type ExecApprovalFollowupContext = {
+type ExecApprovalFollowupContext = {
   approvalId: string;
   sessionId: string;
   trigger?: string;

@@ -55,5 +55,6 @@ export async function persistAcpDispatchTranscript(params: {
     threadId: params.threadId,
     sessionCwd: resolveAcpSessionCwd(params.meta) ?? process.cwd(),
     runId: params.runId ?? generateSecureUuid(),
+    config: params.cfg,
   });
 }

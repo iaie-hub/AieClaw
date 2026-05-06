@@ -35,11 +35,15 @@ minimumReleaseAgeExclude:
   - "sqlite-vec-*"
 
 onlyBuiltDependencies:
+  - "@openclaw/fs-safe"
+  - "@discordjs/opus"
+  - "@google/genai"
   - "@lydell/node-pty"
   - "@matrix-org/matrix-sdk-crypto-nodejs"
   - "@napi-rs/canvas"
   - "@tloncorp/api"
   - "@whiskeysockets/baileys"
+  - "@whiskeysockets/libsignal-node"
   - authenticate-pam
   - esbuild
   - node-llama-cpp
@@ -48,3 +52,4 @@ onlyBuiltDependencies:
 
 ignoredBuiltDependencies:
   - koffi
+  - tree-sitter-bash
