@@ -119,7 +119,7 @@ Agent 严格遵循以下“检索-清洗-解构-合成”的闭环 SOP 流程执
 - **核心审计与探测**：
   - **抢发风险探测 (Scooped Check)**：对比 PI 假说与图谱，若发现 100% 撞车，触发 `SCOOPED` 警报并提供 Pivot 建议。
   - **双语双轨落盘**：严格输出 `literature_graph_en.json` (驱动后续阶段) 与 `_cn.json` (前端展示)。
-- **输出**：`literature_graph.json` (完整包)、`literature_visualization_graph_*.json` (独立图谱数据)、`literature_synthesis_table_*.md/json` (4份特征表) 及人机共读审计报告。
+- **输出**：`literature_graph.json` (完整包)、`literature_visualization_graph_*.json` (独立图谱数据)、`literature_synthesis_table_*.md/json` (4份特征表)、`literature_references.bib` (标准 BibTeX 引用数据库) 及人机共读审计报告。
 - **HITL 机制**：生成的全景将挂起状态机，等待人类 PI 进行 `[Approve/Retry/Rollback]` 决策。
 
 #### 附：理论框架的设计规范 (Theoretical Framework Design)

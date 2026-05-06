@@ -37,3 +37,81 @@
 1. **拆分落盘**：将 `tasks_en` 存为 `execution_manifest_en.json`，供 Stage 5 步骤 4 (结果汇整 Agent) 使用；`tasks_cn` 存为 `_cn.json` 供前端渲染进度条（例如：正在执行任务 2/5: 基线对比...）。
 2. **执行接管**：大模型在此环节仅输出清单与调度器 `run_orchestrator.py`。随后，底层框架应使用 `subprocess` 在 Docker 环境中物理调用 `python run_orchestrator.py`（或 `bash run_orchestrator.sh`），从而真正启动实验。
 3. **监控契约**：生成的 `run_orchestrator` 捕获的任何异常，都将直接写入各自的 `output_dir/error.log` 中。Stage 5 步骤 3 的 Monitor 模块即可通过轮询这些 log 文件，实时生成 `execution_anomaly_log.jsonl`，实现完美解耦。
+
+---
+
+### 六、 手动验证示例 (Manual Verification Examples)
+
+在进入物理执行环节前，人类研究员（PI）需对 `run_id` 目录下的产出进行合规性验证：
+
+#### 1. 验证执行清单 (`execution_manifest.json`)
+
+确保清单中的任务与 PREP 协议 1:1 匹配，且目录已物理隔离。
+
+```json
+{
+  "run_id": "run_20260428",
+  "execution_strategy": "Sequential fault-tolerant execution...",
+  "tasks_en": [
+    {
+      "task_id": "task_001_main",
+      "target_rq": "RQ1",
+      "configuration_name": "Proposed FCSM Method",
+      "command": "python evaluation_pipeline.py --config '{\"model\": \"fcsm_full\"}' --output_dir results/task_001_main",
+      "output_dir": "results/task_001_main"
+    }
+  ]
+}
+```
+
+#### 2. 验证调度脚本 (`run_orchestrator.py`)
+
+检查脚本是否具备 `try-except` 隔离逻辑，确保单点失败不导致全盘崩溃。
+
+```python
+import subprocess
+import os
+
+tasks = [
+    {"id": "task_001_main", "cmd": "python evaluation_pipeline.py ...", "output_dir": "results/task_001_main"},
+    # ...
+]
+
+for task in tasks:
+    print(f"Executing {task['id']}...")
+    try:
+        # 物理调用 Stage 4 的管线
+        subprocess.run(task['cmd'], shell=True, check=True)
+    except Exception as e:
+        # 错误隔离：记录日志并继续执行下一个任务
+        os.makedirs(task['output_dir'], exist_ok=True)
+        with open(f"{task['output_dir']}/error.log", "w") as f:
+            f.write(str(e))
+        print(f"Task {task['id']} FAILED, skipping...")
+```
+
+#### 3. 验证文件完整性
+
+检查 `run_id` 目录下是否包含以下核心资产：
+
+- `execution_manifest.json` / `_en.json` / `_cn.json`
+- `run_orchestrator.py` (且具备 `755` 权限)
+
+#### 4. 物理调用指令示例 (Physical Execution Command)
+
+验证完清单和脚本后，应在阶段 4 产出的 Docker 镜像中启动调度器，以确保环境一致性：
+
+```bash
+# 进入执行代理的任务目录
+cd ~/.openclaw/workspace-execution/task/run_20260428/
+
+# 启动容器并挂载核心调度文件与输出目录
+# -v 将具体的脚本和清单单点挂载到容器的 /app 中，避免覆盖整个目录
+# 挂载 results 目录以确保生成的实验数据能够落盘到宿主机
+docker run --rm \
+  -v $(pwd)/run_orchestrator.py:/app/run_orchestrator.py \
+  -v $(pwd)/execution_manifest.json:/app/execution_manifest.json \
+  -v $(pwd)/results:/app/results \
+  mas4s_exp:run_20260428 \
+  python run_orchestrator.py
+```
