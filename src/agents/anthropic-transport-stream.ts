@@ -924,28 +924,55 @@ export function createAnthropicMessagesTransportStreamFn(): StreamFn {
             const contentBlock = event.content_block as Record<string, unknown> | undefined;
             const index = typeof event.index === "number" ? event.index : -1;
             if (contentBlock?.type === "text") {
-              const block: TransportContentBlock = { type: "text", text: "", index };
+              const text =
+                typeof contentBlock.text === "string"
+                  ? sanitizeTransportPayloadText(contentBlock.text)
+                  : "";
+              const block: TransportContentBlock = { type: "text", text, index };
               output.content.push(block);
+              const contentIndex = output.content.length - 1;
               stream.push({
                 type: "text_start",
-                contentIndex: output.content.length - 1,
+                contentIndex,
                 partial: output as never,
               });
+              if (text.length > 0) {
+                stream.push({
+                  type: "text_delta",
+                  contentIndex,
+                  delta: text,
+                  partial: output as never,
+                });
+              }
               continue;
             }
             if (contentBlock?.type === "thinking") {
+              const thinking =
+                typeof contentBlock.thinking === "string"
+                  ? sanitizeTransportPayloadText(contentBlock.thinking)
+                  : "";
               const block: TransportContentBlock = {
                 type: "thinking",
-                thinking: "",
-                thinkingSignature: "",
+                thinking,
+                thinkingSignature:
+                  typeof contentBlock.signature === "string" ? contentBlock.signature : "",
                 index,
               };
               output.content.push(block);
+              const contentIndex = output.content.length - 1;
               stream.push({
                 type: "thinking_start",
-                contentIndex: output.content.length - 1,
+                contentIndex,
                 partial: output as never,
               });
+              if (thinking.length > 0) {
+                stream.push({
+                  type: "thinking_delta",
+                  contentIndex,
+                  delta: thinking,
+                  partial: output as never,
+                });
+              }
               continue;
             }
             if (contentBlock?.type === "redacted_thinking") {
@@ -991,9 +1018,20 @@ export function createAnthropicMessagesTransportStreamFn(): StreamFn {
             continue;
           }
           if (event.type === "content_block_delta") {
-            const index = blocks.findIndex((block) => block.index === event.index);
-            const block = blocks[index];
             const delta = event.delta as Record<string, unknown> | undefined;
+            let index = blocks.findIndex((block) => block.index === event.index);
+            let block = blocks[index];
+            if (!block && delta?.type === "text_delta" && typeof delta.text === "string") {
+              const recoveredIndex = typeof event.index === "number" ? event.index : blocks.length;
+              block = { type: "text", text: "", index: recoveredIndex };
+              output.content.push(block);
+              index = output.content.length - 1;
+              stream.push({
+                type: "text_start",
+                contentIndex: index,
+                partial: output as never,
+              });
+            }
             if (
               block?.type === "text" &&
               delta?.type === "text_delta" &&
@@ -1042,7 +1080,7 @@ export function createAnthropicMessagesTransportStreamFn(): StreamFn {
               delta?.type === "signature_delta" &&
               typeof delta.signature === "string"
             ) {
-              block.thinkingSignature = `${block.thinkingSignature ?? ""}${delta.signature}`;
+              block.thinkingSignature = delta.signature;
             }
             continue;
           }

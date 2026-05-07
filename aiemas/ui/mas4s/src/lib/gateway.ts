@@ -230,7 +230,7 @@ export class GatewayBrowserClient {
         instanceId: this.opts.instanceId,
       },
       role: "operator",
-      scopes: ["operator.admin", "operator.approvals"],
+      scopes: ["operator.admin", "operator.read", "operator.write", "operator.approvals"],
       caps: ["tool-events"],
       auth:
         this.opts.token || this.opts.password

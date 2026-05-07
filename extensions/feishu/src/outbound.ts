@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import path from "node:path";
 import {
   attachChannelToResult,
@@ -18,6 +17,7 @@ import {
   sendPayloadMediaSequenceAndFinalize,
   sendTextMediaPayload,
 } from "openclaw/plugin-sdk/reply-payload";
+import { statRegularFileSync } from "openclaw/plugin-sdk/security-runtime";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/text-runtime";
 import { resolveFeishuAccount } from "./accounts.js";
 import { createFeishuCardInteractionEnvelope } from "./card-interaction.js";
@@ -25,7 +25,7 @@ import { createFeishuClient } from "./client.js";
 import { cleanupAmbientCommentTypingReaction } from "./comment-reaction.js";
 import { parseFeishuCommentTarget } from "./comment-target.js";
 import { deliverCommentThreadText } from "./drive.js";
-import { sendMediaFeishu } from "./media.js";
+import { sendMediaFeishu, shouldSuppressFeishuTextForVoiceMedia } from "./media.js";
 import { chunkTextForOutbound, type ChannelOutboundAdapter } from "./outbound-runtime-api.js";
 import {
   resolveFeishuCardTemplate,
@@ -66,18 +66,12 @@ function normalizePossibleLocalImagePath(text: string | undefined): string | nul
   if (!path.isAbsolute(raw)) {
     return null;
   }
-  if (!fs.existsSync(raw)) {
-    return null;
-  }
-
-  // Fix race condition: wrap statSync in try-catch to handle file deletion
-  // between existsSync and statSync
   try {
-    if (!fs.statSync(raw).isFile()) {
+    const stat = statRegularFileSync(raw);
+    if (stat.missing) {
       return null;
     }
   } catch {
-    // File may have been deleted or became inaccessible between checks
     return null;
   }
 
@@ -672,8 +666,15 @@ export const feishuOutbound: ChannelOutboundAdapter = {
         });
       }
 
-      // Send text first if provided
-      if (text?.trim()) {
+      const suppressTextForVoiceMedia =
+        mediaUrl !== undefined &&
+        shouldSuppressFeishuTextForVoiceMedia({
+          mediaUrl,
+          audioAsVoice,
+        });
+
+      // Send text first if provided, except for Feishu native voice bubbles.
+      if (text?.trim() && !suppressTextForVoiceMedia) {
         await sendOutboundText({
           cfg,
           to,
@@ -686,7 +687,7 @@ export const feishuOutbound: ChannelOutboundAdapter = {
       // Upload and send media if URL or local path provided
       if (mediaUrl) {
         try {
-          return await sendMediaFeishu({
+          const result = await sendMediaFeishu({
             cfg,
             to,
             mediaUrl,
@@ -695,14 +696,25 @@ export const feishuOutbound: ChannelOutboundAdapter = {
             replyToMessageId,
             ...(audioAsVoice === true ? { audioAsVoice: true } : {}),
           });
+          if (result.voiceIntentDegradedToFile && text?.trim()) {
+            await sendOutboundText({
+              cfg,
+              to,
+              text,
+              accountId: accountId ?? undefined,
+              replyToMessageId,
+            });
+          }
+          return result;
         } catch (err) {
           // Log the error for debugging
           console.error(`[feishu] sendMediaFeishu failed:`, err);
           // Fallback to URL link if upload fails
+          const fallbackText = [text?.trim(), `📎 ${mediaUrl}`].filter(Boolean).join("\n\n");
           return await sendOutboundText({
             cfg,
             to,
-            text: `📎 ${mediaUrl}`,
+            text: fallbackText,
             accountId: accountId ?? undefined,
             replyToMessageId,
           });

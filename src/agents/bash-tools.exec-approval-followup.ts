@@ -25,36 +25,6 @@ type ExecApprovalFollowupParams = {
   direct?: boolean;
 };
 
-// ── Session-level followup serialization ──────────────────────────
-// Multiple exec-approval-followup runs on the same session must execute
-// serially.  Without this, concurrent agent runs reason over incomplete
-// chat history (missing results from sibling followups still in flight)
-// and re-issue the same commands, producing duplicate approval requests.
-// Denied followups are excluded from the queue because their prompt
-// explicitly instructs the LLM not to re-run commands.
-const sessionFollowupChains = new Map<string, Promise<void>>();
-
-function enqueueSessionFollowup(sessionKey: string, fn: () => Promise<void>): Promise<void> {
-  const prev = sessionFollowupChains.get(sessionKey) ?? Promise.resolve();
-  const next = prev
-    .catch(() => {}) // previous failure must not block subsequent followups
-    .then(() => fn());
-  sessionFollowupChains.set(sessionKey, next);
-  // Clean up the reference once the chain settles to avoid memory leaks.
-  // Guard: next.finally() forks a new promise from `next`. If `next` rejects,
-  // the caller handles that rejection via `await`, but this `.finally()` branch
-  // is a separate chain—without `.catch()` it becomes an unhandled rejection
-  // that crashes the process.
-  void next
-    .finally(() => {
-      if (sessionFollowupChains.get(sessionKey) === next) {
-        sessionFollowupChains.delete(sessionKey);
-      }
-    })
-    .catch(() => {});
-  return next;
-}
-
 function buildExecDeniedFollowupPrompt(resultText: string): string {
   const preamble = [
     "An async command did not run.",
@@ -201,18 +171,23 @@ function buildAgentFollowupArgs(params: {
   resultText: string;
   deliveryTarget: ExternalBestEffortDeliveryTarget;
   sessionOnlyOriginChannel?: string;
+  turnSourceChannel?: string;
   turnSourceTo?: string;
   turnSourceAccountId?: string;
   turnSourceThreadId?: string | number;
 }) {
   const { deliveryTarget, sessionOnlyOriginChannel } = params;
+  // When the followup run has no deliverable route and no gateway-internal channel,
+  // preserve the raw turnSourceChannel so the spawned agent inherits messageProvider.
+  // Without this, tools.elevated.allowFrom.<provider> checks fail with provider=null.
+  const fallbackChannel = sessionOnlyOriginChannel ?? params.turnSourceChannel;
   return {
     sessionKey: params.sessionKey,
     role: "system" as const,
     message: buildExecApprovalFollowupPrompt(params.resultText),
     deliver: deliveryTarget.deliver,
     ...(deliveryTarget.deliver ? { bestEffortDeliver: true as const } : {}),
-    channel: deliveryTarget.deliver ? deliveryTarget.channel : sessionOnlyOriginChannel,
+    channel: deliveryTarget.deliver ? deliveryTarget.channel : fallbackChannel,
     to: deliveryTarget.deliver
       ? deliveryTarget.to
       : sessionOnlyOriginChannel
@@ -289,30 +264,22 @@ export async function sendExecApprovalFollowup(
 
   if (sessionKey && params.direct !== true) {
     try {
-      const agentArgs = buildAgentFollowupArgs({
-        approvalId: params.approvalId,
-        sessionKey,
-        resultText,
-        deliveryTarget,
-        sessionOnlyOriginChannel,
-        turnSourceTo: params.turnSourceTo,
-        turnSourceAccountId: params.turnSourceAccountId,
-        turnSourceThreadId: params.turnSourceThreadId,
-      });
-      const doCall = () =>
-        callGatewayTool("agent", { timeoutMs: 60_000 }, agentArgs, { expectFinal: true });
-
-      if (isDenied) {
-        // Denied followups instruct the LLM not to re-run commands, so they
-        // cannot cause duplicate approvals and do not need serialization.
-        await doCall();
-      } else {
-        // Approved followups are serialized per session to prevent concurrent
-        // agent runs from reasoning over incomplete chat history.
-        await enqueueSessionFollowup(sessionKey, async () => {
-          await doCall();
-        });
-      }
+      await callGatewayTool(
+        "agent",
+        { timeoutMs: 60_000 },
+        buildAgentFollowupArgs({
+          approvalId: params.approvalId,
+          sessionKey,
+          resultText,
+          deliveryTarget,
+          sessionOnlyOriginChannel,
+          turnSourceChannel: params.turnSourceChannel,
+          turnSourceTo: params.turnSourceTo,
+          turnSourceAccountId: params.turnSourceAccountId,
+          turnSourceThreadId: params.turnSourceThreadId,
+        }),
+        { expectFinal: true },
+      );
       return true;
     } catch (err) {
       sessionError = err;
