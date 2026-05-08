@@ -777,6 +777,21 @@ export class SessionTranscriptStore {
         return;
       }
 
+      // Skip Pi-echoed user messages. When Pi's SessionManager appends the
+      // user turn to its JSONL transcript, it stores `content` as an array
+      // (e.g. [{ type: "text", text: "[Fri ...] message" }]).  The original
+      // user input was already recorded by the channel's
+      // emitUserTranscriptUpdate (which sends content as a plain string).
+      // Recording the array-format echo would create a duplicate row.
+      // This check is content-agnostic: repeated inputs like "继续" are safe
+      // because each chat.send fires its own string-format Path-A event.
+      if (role === "user" && Array.isArray(msg["content"])) {
+        debugLog(
+          `[mas4s:transcript-store] skipping Pi-echoed user message sessionKey=${sessionKey}`,
+        );
+        return;
+      }
+
       // ── A2A agent mark detection ──────────────────────────────────────────
       // If this is a "user" message and there is a pending agent mark for this
       // sessionKey, check if the message content matches the fingerprint.
