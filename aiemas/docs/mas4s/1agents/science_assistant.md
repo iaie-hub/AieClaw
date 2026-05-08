@@ -4,7 +4,7 @@
 
 ## 阶段流转链
 
-**课题锁定 → 文献底座 → 实验设计 → 实验数据采集 & 代码实现 → 实验执行 → 论文写作**
+**课题对齐 → 文献底座 → 实验设计 → 实验数据采集 & 代码实现 → 实验执行 → 论文写作**
 
 **流转标识：** `T → L → D → I → E → W`
 
@@ -32,7 +32,7 @@
 
 ---
 
-## 阶段 1：课题锁定（Topic）
+## 阶段 1：课题对齐（Topic）
 
 **流转标识：`T`**
 **对应 Agent**：Science Assistant: Topic
@@ -47,11 +47,11 @@
 | 2    | 多源检索与现实锚点 | `mas4s-topic-web-search` + `mas4s-topic-arxiv-search` | `web_search_results.json` + `arxiv_search_results.json` |
 | 3    | 候选问题发散       | `mas4s-topic-candidate-generation`                    | `candidate_topics.json`                                 |
 | 4    | 评分排序与框架构建 | `mas4s-topic-finer-framing`                           | `ranked_framed_hypothesis.json`                         |
-| 5    | 首席审计与课题定型 | `mas4s-topic-principal-investigate`                   | `innovation_assessment_brief.md` + `pi_result.json`     |
+| 5    | 课题审计与课题定型 | `mas4s-topic-principal-investigate`                   | `innovation_assessment_brief.md` + `pi_result.json`     |
 
 **辅助步骤：课题重构** — 当 `[Rollback]` 触发时，调用 `mas4s-topic-pivot` 解析失败逻辑、吸收反馈、孕育新种子，重回步骤 1。
 
-### 步骤 5 详细设计：首席审计与课题定型
+### 步骤 5 详细设计：课题审计与课题定型
 
 #### 设计理念
 
@@ -100,7 +100,7 @@
 ├── pi_result.json                      # 完整输出
 ├── pi_result_en.json                   # 英文输出
 ├── pi_result_cn.json                   # 中文输出
-├── innovation_assessment_brief.md      # 首席审计简报
+├── innovation_assessment_brief.md      # 课题审计简报
 └── progress_mas4s_topic_principal_investigate.jsonl
 ```
 
@@ -229,7 +229,7 @@
 
 - `[Approve]`：确认底座逻辑完备 → 流转至**实验设计 (D)**。
 - `[Retry]`：调整关键词、扩充检索范围 → 原地循环。
-- `[Rollback]`：致命抢发或证据链断裂 → 携带 Pivot 建议打回**课题锁定 (T)**。
+- `[Rollback]`：致命抢发或证据链断裂 → 携带 Pivot 建议打回**课题对齐 (T)**。
 
 ### 阶段输出 Schema
 
@@ -291,7 +291,7 @@
 
 - `[Approve]`：冻结方案蓝图与评估协议 → 流转至**代码实现 (I)**。
 - `[Retry]`：调整基线、指标或消融设计 → 原地循环。
-- `[Rollback]`：方案不可行或已被完全覆盖 → 回退至**课题锁定 (T)** 或**文献底座 (L)**。
+- `[Rollback]`：方案不可行或已被完全覆盖 → 回退至**课题对齐 (T)** 或**文献底座 (L)**。
 
 ### 阶段输出 Schema
 
@@ -476,7 +476,7 @@
 ## 全局流转状态机
 
 ```
-课题锁定(T) ──[Approve]──→ 文献底座(L) ──[Approve]──→ 实验设计(D)
+课题对齐(T) ──[Approve]──→ 文献底座(L) ──[Approve]──→ 实验设计(D)
     ↑                         ↑                          ↑
     │                         │                          │
     └───[Rollback]───────────┘                          │
@@ -566,7 +566,7 @@ pi_result.json ───────────────────→ 文�
 | T     | `mas4s-topic-arxiv`                | 学术检索：最新论文与 SOTA                              |
 | T     | `mas4s-topic-generate`             | 候选问题发散                                           |
 | T     | `mas4s-topic-frame`                | FINER 评分与 PICO/PEOS 框架构建                        |
-| T     | `mas4s-topic-investigate`          | 首席审计与课题定型（含 stage_2_literature_directives） |
+| T     | `mas4s-topic-investigate`          | 课题审计与课题定型（含 stage_2_literature_directives） |
 | T     | `mas4s-topic-pivot`                | 课题重构（Rollback 触发）                              |
 | **L** | `mas4s-literature-search`          | 学术检索：基于 PI 假说精准抓取                         |
 | L     | `mas4s-literature-filter`          | 智能降噪：相关性过滤                                   |

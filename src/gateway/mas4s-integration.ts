@@ -211,6 +211,9 @@ export async function initMas4sIntegration(
     /** Broadcast an event to ALL connected WebSocket clients. */
     const broadcastToAll = (event: string, payload: unknown) => {
       const frame = JSON.stringify({ type: "event", event, payload });
+      log.info(
+        `[mas4s:sop:debug] broadcastToAll: event=${event}, clientCount=${activeClients.size}`,
+      );
       for (const c of activeClients) {
         try {
           c.socket.send(frame);
@@ -301,6 +304,9 @@ export async function initMas4sIntegration(
         const phase = typeof data?.["phase"] === "string" ? data["phase"] : "";
         const toolName = typeof data?.["name"] === "string" ? data["name"] : "";
         const toolCallId = typeof data?.["toolCallId"] === "string" ? data["toolCallId"] : "";
+        log.info(
+          `[mas4s:sop:debug] onAgentEvent stream=tool: toolName=${toolName}, phase=${phase}, toolCallId=${toolCallId}, session=${evtSessionKey}`,
+        );
 
         if (toolCallId && (phase === "start" || phase === "result")) {
           // Record tool event
@@ -327,8 +333,11 @@ export async function initMas4sIntegration(
           if (toolName === "exec" && phase === "start") {
             const args = data?.["args"] as Record<string, unknown> | undefined;
             const command = typeof args?.["command"] === "string" ? args["command"] : "";
-            const scriptMatch = /\/([a-z_]+)\.py/.exec(command);
+            const scriptMatch = /\/([a-z0-9_]+)\.py/.exec(command);
             const runIdMatch = /"run_id":\s*"([^"]+)"/.exec(command);
+            log.info(
+              `[mas4s:sop:debug] exec start: command=${command.slice(0, 120)}, scriptMatch=${scriptMatch?.[1] ?? "null"}, runIdMatch=${runIdMatch?.[1] ?? "null"}`,
+            );
             if (scriptMatch?.[1]) {
               skillName = scriptMatch[1];
               if (toolCallId) {
@@ -343,7 +352,14 @@ export async function initMas4sIntegration(
             _toolCallSkillMap.delete(toolCallId);
           }
 
+          log.info(
+            `[mas4s:sop:debug] toolName=${toolName}, skillName=${skillName}, phase=${phase}, session=${evtSessionKey}, agentId=${agentId}, workspaceDir=${workspaceDir}`,
+          );
+
           if (["exec", "tool", "read", "process"].includes(skillName)) {
+            log.info(
+              `[mas4s:sop:debug] skillName="${skillName}" is in filter list, skipping sopTracker.onToolEvent`,
+            );
             if (skillName === "process" && phase === "result") {
               const res = data?.["result"] as Record<string, unknown> | undefined;
               const args = data?.["args"] as Record<string, unknown> | undefined;
@@ -382,16 +398,21 @@ export async function initMas4sIntegration(
             });
             if (phase === "start") {
               const runId = _toolCallRunIdMap.get(toolCallId);
+              if (!runId) {
+                log.warn(
+                  `[mas4s:sop:debug] no runId for toolCallId=${toolCallId}, skillName=${skillName}, cannot determine progress dir`,
+                );
+              }
               const progressDir = _join(
                 _homedir(),
                 ".openclaw",
                 `workspace-${agentId}`,
-                "workspace",
-                "progress",
+                "task",
+                runId ?? "unknown",
               );
-              const progressFile = _join(
-                progressDir,
-                runId ? `${runId}_${skillName}.progress.jsonl` : `${skillName}.progress.jsonl`,
+              const progressFile = _join(progressDir, `progress_${skillName}.jsonl`);
+              log.info(
+                `[mas4s:sop:debug] startWatch: key=${evtSessionKey}:${skillName}, filePath=${progressFile}`,
               );
               progressWatcher.startWatch({
                 key: `${evtSessionKey}:${skillName}`,

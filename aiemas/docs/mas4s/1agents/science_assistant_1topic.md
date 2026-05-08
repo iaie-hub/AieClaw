@@ -1,4 +1,4 @@
-# 课题锁定 Agent (Science Assistant: Topic)
+# 课题对齐 Agent (Science Assistant: Topic)
 
 ## 1. 概述 (Overview)
 
@@ -44,7 +44,7 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
   2. **框架构建**：为胜出项构建完整 PICO/PEOS 框架，并撰写明确的假设声明（H₀/H₁）。
 - **输出**：`ranked_framed_hypothesis.json`。
 
-### 步骤 5：首席审计与课题定型 (Principal Investigation & Convergence)
+### 步骤 5：课题审计与课题定型 (Principal Investigation & Convergence)
 
 - **技能调用**：[`mas4s-topic-investigate`](file:///Users/admin/clawd/skills/mas4s-topic-investigate/SKILL.md)
 - **输入**：`ranked_framed_hypothesis.json`、`idea_query_expand.json` (来自步骤 1)。

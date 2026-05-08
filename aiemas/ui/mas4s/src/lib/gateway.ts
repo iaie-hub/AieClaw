@@ -273,6 +273,8 @@ export class GatewayBrowserClient {
       return;
     }
 
+    console.debug("[gateway:ws:recv]", parsed);
+
     const frame = parsed as { type?: unknown };
 
     if (frame.type === "event") {
@@ -335,6 +337,7 @@ export class GatewayBrowserClient {
     const p = new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: (v) => resolve(v as T), reject });
     });
+    console.debug("[gateway:ws:send]", frame);
     this.ws.send(JSON.stringify(frame));
     return p;
   }
