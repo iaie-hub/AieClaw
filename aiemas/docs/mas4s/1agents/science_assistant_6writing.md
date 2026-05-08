@@ -23,7 +23,7 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 ### 步骤 1：方法部分自动编撰 (Methodology Drafting)
 
 - **详细设计**：[mas4s_6writing_method_draft.md](../1skills/mas4s_6writing_method_draft.md)
-- **技能调用**：[`mas4s-writing-method-draft`](file:///Users/admin/clawd/skills/mas4s-writing-method-draft/SKILL.md)
+- **技能调用**：[`mas4s-writing-method-draft`](file:///Users/admin/.openclaw/skills/mas4s-writing-method-draft/SKILL.md)
 - **输入**：`method_blueprint.json`（阶段 3）+ `method_implementation.py`（阶段 4）。
 - **动作**：执行“现实对齐”审计，以实际代码逻辑为准，生成数学定义、系统架构描述及 `algorithm2e` 格式的伪代码。
 - **输出**：`section_method.tex`（方法论章节 LaTeX 片段）。

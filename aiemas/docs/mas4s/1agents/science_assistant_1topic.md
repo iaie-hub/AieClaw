@@ -12,7 +12,7 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 
 ### 步骤 1：检索增强 (Query Expansion)
 
-- **技能调用**：[`mas4s-topic-expand`](file:///Users/admin/clawd/skills/mas4s-topic-expand/SKILL.md)
+- **技能调用**：[`mas4s-topic-expand`](file:///Users/admin/.openclaw/skills/mas4s-topic-expand/SKILL.md)
 - **输入**：用户初始科研构想纯文本（`idea.txt`）。
 - **动作**：将模糊构想扩展为多维度的检索词矩阵，确保对领域现状及学术边界的全面覆盖。
 - **输出**：`idea_query_expand.json`。
@@ -21,16 +21,16 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 
 - **人类锚点**：检索条件确认。
 - **Web 检索**：
-  - **技能调用**：[`mas4s-topic-web`](file:///Users/admin/clawd/skills/mas4s-topic-web/SKILL.md)
+  - **技能调用**：[`mas4s-topic-web`](file:///Users/admin/.openclaw/skills/mas4s-topic-web/SKILL.md)
   - **输出**：`web_search_results.json` (含行业痛点、工程实践、商业现状)。
 - **学术检索**：
-  - **技能调用**：[`mas4s-topic-arxiv`](file:///Users/admin/clawd/skills/mas4s-topic-arxiv/SKILL.md)
+  - **技能调用**：[`mas4s-topic-arxiv`](file:///Users/admin/.openclaw/skills/mas4s-topic-arxiv/SKILL.md)
   - **输出**：`arxiv_search_results.json` (含最新论文摘要、SOTA 算法、理论框架)。
 - **现实锚点**：基于双轨检索结果，识别研究重叠度，排除已被充分研究的“红海”课题。
 
 ### 步骤 3：候选问题发散 (Candidate Topic Generation)
 
-- **技能调用**：[`mas4s-topic-generate`](file:///Users/admin/clawd/skills/mas4s-topic-generate/SKILL.md)
+- **技能调用**：[`mas4s-topic-generate`](file:///Users/admin/.openclaw/skills/mas4s-topic-generate/SKILL.md)
 - **输入**：`web_search_results.json` 及 `arxiv_search_results.json`。
 - **动作**：基于解耦后的现实与学术双维上下文，多角度发散推演 5 个具有创新潜力的候选研究问题。
 - **人类锚点**：研究方向引导。
@@ -38,7 +38,7 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 
 ### 步骤 4：评分排序与框架构建 (Ranking & Framework Framing)
 
-- **技能调用**：[`mas4s-topic-frame`](file:///Users/admin/clawd/skills/mas4s-topic-frame/SKILL.md)
+- **技能调用**：[`mas4s-topic-frame`](file:///Users/admin/.openclaw/skills/mas4s-topic-frame/SKILL.md)
 - **动作**：
   1. **评分排序**：按 FINER + 可证伪性框架对候选问题进行评分。
   2. **框架构建**：为胜出项构建完整 PICO/PEOS 框架，并撰写明确的假设声明（H₀/H₁）。
@@ -46,7 +46,7 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 
 ### 步骤 5：课题审计与课题定型 (Principal Investigation & Convergence)
 
-- **技能调用**：[`mas4s-topic-investigate`](file:///Users/admin/clawd/skills/mas4s-topic-investigate/SKILL.md)
+- **技能调用**：[`mas4s-topic-investigate`](file:///Users/admin/.openclaw/skills/mas4s-topic-investigate/SKILL.md)
 - **输入**：`ranked_framed_hypothesis.json`、`idea_query_expand.json` (来自步骤 1)。
 - **人类锚点**：研究方向决策。
 - **输出**：
@@ -59,7 +59,7 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 
 > **触发条件**：当发生 `[Rollback]`（下游打回）或用户在评审阶段提出否定反馈（Feedback）时触发。
 
-- **技能调用**：[`mas4s-topic-pivot`](file:///Users/admin/clawd/skills/mas4s-topic-pivot/SKILL.md)
+- **技能调用**：[`mas4s-topic-pivot`](file:///Users/admin/.openclaw/skills/mas4s-topic-pivot/SKILL.md)
 - **输入**：`pi_result.json` 及 `user_feedback`。
 - **作用**：解析失败逻辑，吸收反馈约束，执行"旧逻辑拆解 → 冲突与对齐 → 概念修剪 → 新种子孕育"，产出修正后的 `idea.txt`。
 - **流转**：重回步骤 1。

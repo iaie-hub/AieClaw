@@ -20,7 +20,7 @@ Agent 严格遵循以下四步 SOP 流程执行任务：
 ### 步骤 1：数据资产构建 (Data Asset Building)
 
 - **详细设计**：[mas4s_4implement_data_build.md](../1skills/mas4s_4implement_data_build.md)
-- **技能调用**：[`mas4s-implement-data-build`](file:///Users/admin/clawd/skills/mas4s-implement-data-build/SKILL.md)
+- **技能调用**：[`mas4s-implement-data-build`](file:///Users/admin/.openclaw/skills/mas4s-implement-data-build/SKILL.md)
 - **输入**：`eval_protocol.json`（阶段 3）。
 - **动作**：下载或生成所需数据集，固化清洗与预处理代码，执行初步的探索性分析（EDA）。记录数据的分布、缺失值情况及版本信息。
 - **输出**：`data_asset_report.json` + 数据制备代码脚本 (`preprocessing_script.py`)。
@@ -31,7 +31,7 @@ Agent 严格遵循以下四步 SOP 流程执行任务：
 ### 步骤 2：提案方法代码实现 (Method Implementation)
 
 - **详细设计**：[mas4s_4implement_method.md](../1skills/mas4s_4implement_method.md)
-- **技能调用**：[`mas4s-implement-method`](file:///Users/admin/clawd/skills/mas4s-implement-method/SKILL.md)
+- **技能调用**：[`mas4s-implement-method`](file:///Users/admin/.openclaw/skills/mas4s-implement-method/SKILL.md)
 - **输入**：`method_blueprint.json` + `problem_formulation.json`。
 - **动作**：根据算法蓝图编写正式的 Python/C++ 代码，并为核心模块编写单元测试。生成详细的代码文档与第三方依赖清单（requirements.txt/pyproject.toml）。
 - **输出**：提案方法源代码 + `unit_test_report.json`。
@@ -39,7 +39,7 @@ Agent 严格遵循以下四步 SOP 流程执行任务：
 ### 步骤 3：基线复现与评估管线 (Baseline Pipeline)
 
 - **详细设计**：[mas4s_4implement_baseline.md](../1skills/mas4s_4implement_baseline.md)
-- **技能调用**：[`mas4s-implement-baseline`](file:///Users/admin/clawd/skills/mas4s-implement-baseline/SKILL.md)
+- **技能调用**：[`mas4s-implement-baseline`](file:///Users/admin/.openclaw/skills/mas4s-implement-baseline/SKILL.md)
 - **输入**：`baseline_manifest.json` + `eval_protocol.json`。
 - **动作**：拉取开源基线代码或根据文献逻辑复现基线，封装统一的推理接口（Interface Wrapper），编写能够自动化运行所有对比方法的评估管线。
 - **输出**：`baseline_reproduction_report.json` + 评估管线代码。
@@ -47,7 +47,7 @@ Agent 严格遵循以下四步 SOP 流程执行任务：
 ### 步骤 4：容器化与环境冻结 (Containerization)
 
 - **详细设计**：[mas4s_4implement_containerize.md](../1skills/mas4s_4implement_containerize.md)
-- **技能调用**：[`mas4s-implement-containerize`](file:///Users/admin/clawd/skills/mas4s-implement-containerize/SKILL.md)
+- **技能调用**：[`mas4s-implement-containerize`](file:///Users/admin/.openclaw/skills/mas4s-implement-containerize/SKILL.md)
 - **输入**：整个项目代码库（含数据脚本、提案代码、基线代码）。
 - **动作**：生成标准的 Dockerfile，锁定 Python/CUDA 依赖版本与随机种子。在容器内运行迷你实验（Mini-Experiment）以验证端到端流程无 Bug。
 - **输出**：`Dockerfile` + `environment_snapshot.json` + 迷你实验通过日志。
