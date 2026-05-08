@@ -132,6 +132,25 @@ export function createAiemasSessionsStore(db: DatabaseSync) {
     },
 
     /**
+     * 按用户 membership 查询根 Agent session 列表（用户隔离）。
+     * 返回用户创建或参与的会话（通过 session_memberships 表 JOIN）。
+     */
+    listRootSessionsForUser(userId: string): RootSessionRecord[] {
+      const rows = db
+        .prepare(
+          `SELECT s.* FROM aiemas_sessions s
+           INNER JOIN session_memberships m ON m.sessionUuid = s.sessionUuid
+           WHERE m.userId = ?
+           ORDER BY s.createdAt DESC`,
+        )
+        .all(userId) as unknown as RawRow[];
+      console.log(
+        `[mas4s:store:listRootSessionsForUser] userId=${userId}, matchedRows=${rows.length}`,
+      );
+      return rows.map(rowToRecord);
+    },
+
+    /**
      * 删除根 Agent session 记录（按 sessionKey）
      */
     deleteRootSession(sessionKey: string): void {

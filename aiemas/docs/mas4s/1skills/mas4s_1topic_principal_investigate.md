@@ -1,4 +1,4 @@
-## 首席审计与课题定型 Agent (Question: Principal Investigation & Convergence) 设计方案
+## 课题审计与课题定型 Agent (Question: Principal Investigation & Convergence) 设计方案
 
 ### 一、 设计理念
 
@@ -71,7 +71,7 @@ python3 scripts/mas4s_question_principal_investigate.py '{"run_id": "run_2026042
 ├── pi_result.json                      # 完整输出
 ├── pi_result_en.json                   # 英文输出
 ├── pi_result_cn.json                   # 中文输出
-├── innovation_assessment_brief.md      # 首席审计简报
+├── innovation_assessment_brief.md      # 课题审计简报
 └── progress_mas4s_question_principal_investigate.jsonl
 ```
 

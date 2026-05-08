@@ -78,18 +78,34 @@ export class SOPTracker {
 
     const sop = this.loadSOP(workspaceDir, agentId);
     if (!sop) {
+      console.log(
+        `[mas4s:sop:debug] onToolEvent: no SOP found for agentId=${agentId}, workspaceDir=${workspaceDir}`,
+      );
       return;
     }
 
     // Match tool name against SOP steps.
     // Tool names from exec calls look like the script name; we match by checking
     // if the tool name contains the skill name (e.g. "search_arxiv" in the exec args).
+    // Also normalize underscores to hyphens for matching (scripts use underscores,
+    // SOP.json uses hyphens).
+    const normalizedToolName = toolName.replace(/_/g, "-");
     const stepIndex = sop.steps.findIndex(
-      (s) => toolName === s.skill || toolName.includes(s.skill),
+      (s) =>
+        toolName === s.skill ||
+        toolName.includes(s.skill) ||
+        normalizedToolName === s.skill ||
+        normalizedToolName.includes(s.skill),
     );
     if (stepIndex === -1) {
+      console.log(
+        `[mas4s:sop:debug] onToolEvent: no step match for toolName="${toolName}" (normalized="${normalizedToolName}"), SOP steps=[${sop.steps.map((s) => s.skill).join(", ")}]`,
+      );
       return;
     }
+    console.log(
+      `[mas4s:sop:debug] onToolEvent: MATCHED step[${stepIndex}]="${sop.steps[stepIndex].skill}" for toolName="${toolName}", phase=${phase}`,
+    );
 
     let state = this.sessions.get(sessionKey);
     if (!state) {
@@ -252,6 +268,10 @@ export class SOPTracker {
     } else if (!allTerminal) {
       state.completedAt = undefined;
     }
+
+    console.log(
+      `[mas4s:sop:debug] emitState: session=${sessionKey}, currentStep=${state.currentStepIndex}, steps=${JSON.stringify(state.steps.map((s) => `${s.skill}:${s.status}`))}`,
+    );
 
     this.opts.onStateChange({
       sessionKey,

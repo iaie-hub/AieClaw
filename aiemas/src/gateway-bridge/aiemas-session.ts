@@ -206,7 +206,7 @@ export interface SessionCascadeService {
   cascadeDelete(params: { sessionKey: string }): Promise<void>;
 
   /** 查询根 Agent session 列表（返回与 sessions.list 兼容的结构） */
-  listRootSessions(): Promise<{
+  listRootSessions(filter?: { userId?: string }): Promise<{
     ts: number;
     count: number;
     sessions: unknown[];
@@ -398,12 +398,17 @@ export function createSessionCascadeService(
       store.deleteRootSession(sessionKey);
     },
 
-    async listRootSessions(): Promise<{
+    async listRootSessions(filter?: { userId?: string }): Promise<{
       ts: number;
       count: number;
       sessions: unknown[];
     }> {
-      const records = store.listRootSessions();
+      const records = filter?.userId
+        ? store.listRootSessionsForUser(filter.userId)
+        : store.listRootSessions();
+      console.log(
+        `[mas4s:listRootSessions] filter=${JSON.stringify(filter)}, storeRecords=${records.length}, keys=[${records.map((r) => r.sessionKey).join(", ")}]`,
+      );
       const sessions = records
         .map((r) => {
           try {

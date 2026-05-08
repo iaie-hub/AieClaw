@@ -133,7 +133,12 @@ export function registerAiemasSessionsHandlers(
 
   // ── aiemas.sessions.list ──
   handlers["aiemas.sessions.list"] = async ({ client, respond, dispatchGateway }) => {
+    const auth = getCallerAuth(client);
     try {
+      const userId = auth.userId ?? null;
+      console.log(
+        `[mas4s:aiemas.sessions.list] auth=${JSON.stringify({ userId: auth.userId, tenantId: auth.tenantId, masRole: auth.masRole })}, resolved userId=${userId}`,
+      );
       const plugin = getPlugin();
       const { createSessionCascadeService } = await import("./aiemas-session.js");
       const cascadeService = createSessionCascadeService({
@@ -162,7 +167,10 @@ export function registerAiemasSessionsHandlers(
         },
       });
 
-      const result = await cascadeService.listRootSessions();
+      const result = await cascadeService.listRootSessions(userId ? { userId } : undefined);
+      console.log(
+        `[mas4s:aiemas.sessions.list] userId=${userId}, filter=${userId ? "byUser" : "none(compat)"}, resultCount=${(result as { count?: number }).count ?? "?"}`,
+      );
       respond(true, result, undefined);
     } catch (err) {
       const e =
