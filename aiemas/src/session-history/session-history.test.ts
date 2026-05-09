@@ -296,6 +296,69 @@ describe("SessionTranscriptStore unit tests", () => {
     expect(rows[0].content).toBe("你好");
   });
 
+  it("Pi-echoed user messages: array-format user content is skipped, repeated string inputs are preserved", () => {
+    const handleUpdate = (
+      store as unknown as { handleUpdate: (u: unknown) => void }
+    ).handleUpdate.bind(store);
+
+    // First user message: string content (from chat.send Path A)
+    handleUpdate({
+      sessionKey: "sk-pi-echo",
+      message: { role: "user", content: "继续", sessionId: "sid-pi-echo", timestamp: 1000 },
+    });
+
+    // Pi-echoed duplicate: array content with timestamp prefix (should be skipped)
+    handleUpdate({
+      sessionKey: "sk-pi-echo",
+      message: {
+        role: "user",
+        content: [{ type: "text", text: "[Fri 2026-05-08 16:06 GMT+8] 继续" }],
+        sessionId: "sid-pi-echo",
+        timestamp: 1050,
+      },
+    });
+
+    // Second legitimate user message: same text "继续" but from a new chat.send
+    handleUpdate({
+      sessionKey: "sk-pi-echo",
+      message: { role: "user", content: "继续", sessionId: "sid-pi-echo", timestamp: 2000 },
+    });
+
+    // Pi-echoed duplicate of second message (should also be skipped)
+    handleUpdate({
+      sessionKey: "sk-pi-echo",
+      message: {
+        role: "user",
+        content: [{ type: "text", text: "[Fri 2026-05-08 16:07 GMT+8] 继续" }],
+        sessionId: "sid-pi-echo",
+        timestamp: 2050,
+      },
+    });
+
+    // Assistant message with array content should NOT be skipped
+    handleUpdate({
+      sessionKey: "sk-pi-echo",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "好的，继续执行" }],
+        sessionId: "sid-pi-echo",
+        timestamp: 3000,
+      },
+    });
+
+    (store as unknown as { flush: () => void }).flush();
+
+    const rows = db
+      .prepare("SELECT role, content FROM session_messages WHERE sessionKey = ? ORDER BY seq")
+      .all("sk-pi-echo") as Array<{ role: string; content: string }>;
+
+    // Should have: 2 user messages + 1 assistant message = 3 total (no Pi echoes)
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toEqual({ role: "user", content: "继续" });
+    expect(rows[1]).toEqual({ role: "user", content: "继续" });
+    expect(rows[2]).toEqual({ role: "assistant", content: "[text] 好的，继续执行" });
+  });
+
   it("seq via handleUpdate accumulates correctly across flushes", () => {
     const handleUpdate = (
       store as unknown as { handleUpdate: (u: unknown) => void }

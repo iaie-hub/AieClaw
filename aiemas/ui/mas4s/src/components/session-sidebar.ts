@@ -215,15 +215,15 @@ export class SessionSidebar extends LitElement {
 
     /* ── Group Header ── */
     .group-header {
-      padding: 8px 6px 8px 16px;
-      margin: 6px 10px 4px;
+      padding: 6px 8px;
+      margin: 4px 8px;
       font-size: 13px;
       font-weight: 700;
       color: #475569;
-      letter-spacing: 0.02em;
+      letter-spacing: 0.01em;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 0;
       cursor: pointer;
       user-select: none;
       border-radius: 8px;
@@ -236,14 +236,14 @@ export class SessionSidebar extends LitElement {
     }
 
     .group-header-arrow {
-      width: 14px;
-      height: 14px;
+      width: 20px;
+      height: 20px;
       display: flex;
       align-items: center;
       justify-content: center;
       transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       flex-shrink: 0;
-      opacity: 0.6;
+      opacity: 0.5;
     }
 
     .group-header-arrow.collapsed {
@@ -253,7 +253,6 @@ export class SessionSidebar extends LitElement {
     .group-header-icon {
       width: 24px;
       height: 24px;
-      border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -261,17 +260,14 @@ export class SessionSidebar extends LitElement {
     }
 
     .group-header-icon.initiated {
-      background: #f1f5f9;
       color: #64748b;
     }
 
     .group-header-icon.participated {
-      background: #f1f5f9;
       color: #64748b;
     }
 
     .group-header-icon.recent {
-      background: #f1f5f9;
       color: #64748b;
     }
 
@@ -309,7 +305,7 @@ export class SessionSidebar extends LitElement {
     .group-items::before {
       content: "";
       position: absolute;
-      left: 28px;
+      left: 26px;
       top: 4px;
       bottom: 4px;
       width: 1.5px;
@@ -328,7 +324,7 @@ export class SessionSidebar extends LitElement {
       min-height: 34px;
       display: flex;
       align-items: center;
-      padding: 4px 10px 4px 48px;
+      padding: 4px 10px 4px 52px;
       cursor: pointer;
       border-radius: 10px;
       margin: 1px 8px;

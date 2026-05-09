@@ -67,6 +67,10 @@ export function registerEventHandlers(): void {
 
   addEventHandler((evt: GatewayEventFrame) => {
     // console.info(`[mas4s:event-handler] >> RECV event=${evt.event}`, JSON.stringify(evt.payload));
+    if (!evt.payload && evt.event !== "connect.challenge") {
+      return;
+    }
+
     switch (evt.event) {
       case "chat":
         handleChatEvent(store, evt.payload);
@@ -316,6 +320,9 @@ export function resolveMessageTarget(
 }
 
 function handleChatEvent(store: AppStore, payload: unknown): void {
+  if (!payload) {
+    return;
+  }
   const { runId, sessionKey, state, message } = payload as {
     runId?: string;
     sessionKey: string;
@@ -389,6 +396,9 @@ function handleChatEvent(store: AppStore, payload: unknown): void {
 }
 
 function handleAgentEvent(store: AppStore, payload: unknown): void {
+  if (!payload) {
+    return;
+  }
   const { runId, sessionKey, stream, data } = payload as {
     runId?: string;
     sessionKey?: string;

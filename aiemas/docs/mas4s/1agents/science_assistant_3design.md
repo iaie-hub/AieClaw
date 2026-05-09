@@ -21,7 +21,7 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 ### 步骤 1：问题形式化 (Problem Formalization)
 
 - **详细设计**：[mas4s_3design_problem_formalize.md](../1skills/mas4s_3design_problem_formalize.md)
-- **技能调用**：[`mas4s-design-formalize`](file:///Users/admin/clawd/skills/mas4s-design-formalize/SKILL.md)
+- **技能调用**：[`mas4s-design-formalize`](file:///Users/admin/.openclaw/skills/mas4s-design-formalize/SKILL.md)
 - **输入**：`pi_result.json`（阶段 1）+ `literature_graph_en.json`（阶段 2）。
 - **动作**：将模糊的科学问题转化为严格的 CS 问题陈述。包括确定问题类别（如分类、优化、生成）、给出数学/逻辑形式化定义，并建立初步的指标公理体系。
 - **输出**：`problem_formulation.json`。
@@ -29,7 +29,7 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 ### 步骤 2：基线确立与方法空间扫描 (Baseline Scan)
 
 - **详细设计**：[mas4s_3design_baseline_scan.md](../1skills/mas4s_3design_baseline_scan.md)
-- **技能调用**：[`mas4s-design-baseline`](file:///Users/admin/clawd/skills/mas4s-design-baseline/SKILL.md)
+- **技能调用**：[`mas4s-design-baseline`](file:///Users/admin/.openclaw/skills/mas4s-design-baseline/SKILL.md)
 - **输入**：`literature_graph_en.json`（阶段 2 文献特征表与图谱）。
 - **动作**：从文献底座中提取、聚类现有方法，生成分级基线清单（SOTA 基线、朴素基线、消融基线）。明确每个基线的优缺点及其与我方提案的灵感来源映射。
 - **输出**：`baseline_manifest.json`。
@@ -37,7 +37,7 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 ### 步骤 3：提案方案蓝图 (Method Blueprint)
 
 - **详细设计**：[mas4s_3design_method_blueprint.md](../1skills/mas4s_3design_method_blueprint.md)
-- **技能调用**：[`mas4s-design-blueprint`](file:///Users/admin/clawd/skills/mas4s-design-blueprint/SKILL.md)
+- **技能调用**：[`mas4s-design-blueprint`](file:///Users/admin/.openclaw/skills/mas4s-design-blueprint/SKILL.md)
 - **输入**：`problem_formulation.json` + `baseline_manifest.json` + `pi_result.json`。
 - **动作**：基于问题定义与基线对比，生成算法或系统架构的高层蓝图。包含核心机制说明、模块化设计、数据流向图，以及三句话的创新声明（Innovation Statement）。
 - **输出**：`method_blueprint.md`（人读版）+ `method_blueprint.json`（机读版）。
@@ -45,7 +45,7 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 ### 步骤 4：预注册式评估协议 (PREP Spec)
 
 - **详细设计**：[mas4s_3design_prep_spec.md](../1skills/mas4s_3design_prep_spec.md)
-- **技能调用**：[`mas4s-design-prep`](file:///Users/admin/clawd/skills/mas4s-design-prep/SKILL.md)
+- **技能调用**：[`mas4s-design-prep`](file:///Users/admin/.openclaw/skills/mas4s-design-prep/SKILL.md)
 - **输入**：`problem_formulation.json` + `baseline_manifest.json` + `method_blueprint.json`。
 - **动作**：明确实验评估的每一个细节，包括使用的具体指标、数据集划分方案、统计检验方法、消融实验设计以及对有效性威胁（Threats to Validity）的预判。
 - **输出**：`eval_protocol.json`（一旦冻结，后续阶段如有偏离需显式说明）。
@@ -53,7 +53,7 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 ### 步骤 5：资源与伦理预检 (Resource & Ethics Check)
 
 - **详细设计**：[mas4s_3design_resource_ethics_check.md](../1skills/mas4s_3design_resource_ethics_check.md)
-- **技能调用**：[`mas4s-design-ethics`](file:///Users/admin/clawd/skills/mas4s-design-ethics/SKILL.md)
+- **技能调用**：[`mas4s-design-ethics`](file:///Users/admin/.openclaw/skills/mas4s-design-ethics/SKILL.md)
 - **输入**：`method_blueprint.json` + `eval_protocol.json`。
 - **动作**：估算实验所需的计算资源（GPU 小时、内存等）、检查数据与 API 的许可合规性，并评估模型可能存在的偏见与伦理风险。
 - **输出**：`resource_ethics_report.json`。

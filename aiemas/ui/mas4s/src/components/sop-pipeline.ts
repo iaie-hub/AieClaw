@@ -62,6 +62,22 @@ function formatTime(ts: number): string {
   const ms = String(d.getMilliseconds()).padStart(3, "0");
   return `[${h}:${m}:${s}.${ms}]`;
 }
+
+function formatFullTimestamp(ts: number): string {
+  const d = new Date(ts);
+  const Y = d.getFullYear();
+  const M = String(d.getMonth() + 1).padStart(2, "0");
+  const D = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const m = String(d.getMinutes()).padStart(2, "0");
+  const s = String(d.getSeconds()).padStart(2, "0");
+  const ms = String(d.getMilliseconds()).padStart(3, "0");
+  return `${Y}-${M}-${D} ${h}:${m}:${s}.${ms}`;
+}
+
+function formatElapsedSeconds(ms: number): string {
+  return (ms / 1000).toFixed(1);
+}
 /**
  * SOP Pipeline — Timeline layout with log tailing, matching the reference design.
  * Status is read dynamically from messages, not hardcoded.
@@ -70,6 +86,7 @@ function formatTime(ts: number): string {
 export class SOPPipeline extends LitElement {
   @property({ attribute: false }) steps: SOPStepView[] = [];
   @property({ attribute: false }) sopLabel = "";
+  @property({ attribute: false }) sopIcon = "";
   @property({ attribute: false }) activeProgress: SkillProgressView | null = null;
   @property({ attribute: false }) logs: ProgressLogEntry[] = [];
   @property({ type: Number }) currentStepIndex = -1;
@@ -126,6 +143,28 @@ export class SOPPipeline extends LitElement {
     }
     .card-title svg {
       fill: var(--text-muted);
+    }
+    .card-title .sop-icon {
+      font-size: 14px;
+      line-height: 1;
+    }
+    .sop-time-info {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      padding-bottom: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .sop-time-info .time-label {
+      color: var(--text-muted);
+    }
+    .sop-time-info .time-value {
+      color: var(--text-main);
+      font-weight: 500;
+    }
+    .sop-time-info .time-elapsed {
+      color: var(--primary-color);
+      font-weight: 500;
     }
     .btn-icon {
       background: none;
@@ -227,6 +266,13 @@ export class SOPPipeline extends LitElement {
       font-size: 12px;
       font-weight: 500;
       color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .step-title .step-icon {
+      font-size: 12px;
+      line-height: 1;
     }
     .step.pending .step-title {
       color: var(--text-muted);
@@ -480,11 +526,19 @@ export class SOPPipeline extends LitElement {
       <div class="sop-card" @click=${this.compact ? this._toggleExpanded : null}>
         <!-- Header -->
         <div class="card-header">
-          <div class="card-title">${this._docSvg} ${this.sopLabel || "SOP 执行进度"}</div>
+          <div class="card-title">
+            ${this.sopIcon
+              ? html`<span class="sop-icon">${this.sopIcon}</span>`
+              : this._docSvg}
+            ${this.sopLabel || "SOP 执行进度"}
+          </div>
           ${this.compact
             ? html` <button class="btn-icon" title="收起面板">${this._chevronUp}</button> `
             : ""}
         </div>
+
+        <!-- Time info -->
+        ${this._renderTimeInfo()}
 
         <!-- Timeline -->
         <div class="timeline">
@@ -494,7 +548,10 @@ export class SOPPipeline extends LitElement {
                 <div class="step-indicator">${this._stepIndicator(step.status)}</div>
                 <div class="step-content">
                   <div class="step-header">
-                    <span class="step-title">${step.label}</span>
+                    <span class="step-title">
+                      ${step.icon ? html`<span class="step-icon">${step.icon}</span>` : ""}
+                      ${step.label}
+                    </span>
                     <span class="step-meta">${this._stepMeta(step)}</span>
                   </div>
                   ${step.status === "running" ? this._renderTailingLog(step.skill) : html``}
@@ -525,9 +582,43 @@ export class SOPPipeline extends LitElement {
     `;
   }
 
-  /** Tailing log: last 2 lines of stdout for the running step */
+  /** SOP time info: start/end time and elapsed */
+  private _renderTimeInfo() {
+    // Determine SOP start time from the first step's startedAt
+    const firstStep = this.steps[0];
+    const sopStartedAt = firstStep?.startedAt;
+    if (!sopStartedAt) {
+      return html``;
+    }
+
+    if (this.completedAt) {
+      // SOP completed
+      const elapsedSec = formatElapsedSeconds(this.completedAt - sopStartedAt);
+      return html`
+        <div class="sop-time-info">
+          <span class="time-label">运行时间：</span>
+          <span class="time-value">${formatFullTimestamp(sopStartedAt)}</span>
+          <span class="time-label"> ~ </span>
+          <span class="time-value">${formatFullTimestamp(this.completedAt)}</span>
+          <span class="time-label">，耗时 </span>
+          <span class="time-elapsed">${elapsedSec} 秒</span>
+        </div>
+      `;
+    }
+
+    // SOP still running
+    return html`
+      <div class="sop-time-info">
+        <span class="time-label">运行时间：</span>
+        <span class="time-value">${formatFullTimestamp(sopStartedAt)}</span>
+        <span class="time-label"> ~ </span>
+      </div>
+    `;
+  }
+
+  /** Tailing log: last 1 line of stdout for the running step */
   private _renderTailingLog(skill: string) {
-    const lines = this.logs.filter((l) => l.skill === skill).slice(-2);
+    const lines = this.logs.filter((l) => l.skill === skill).slice(-1);
     if (lines.length === 0) {
       return html``;
     }

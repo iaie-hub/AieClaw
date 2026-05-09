@@ -23,7 +23,7 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 ### 步骤 1：方法部分自动编撰 (Methodology Drafting)
 
 - **详细设计**：[mas4s_6writing_method_draft.md](../1skills/mas4s_6writing_method_draft.md)
-- **技能调用**：[`mas4s-writing-method-draft`](file:///Users/admin/clawd/skills/mas4s-writing-method-draft/SKILL.md)
+- **技能调用**：[`mas4s-writing-method-draft`](file:///Users/admin/.openclaw/skills/mas4s-writing-method-draft/SKILL.md)
 - **输入**：`method_blueprint.json`（阶段 3）+ `method_implementation.py`（阶段 4）。
 - **动作**：执行“现实对齐”审计，以实际代码逻辑为准，生成数学定义、系统架构描述及 `algorithm2e` 格式的伪代码。
 - **输出**：`section_method.tex`（方法论章节 LaTeX 片段）。
@@ -70,7 +70,7 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 
 ### 3.3 物理隔离与解耦
 
-每一章节均作为独立的 `.tex` 片段落盘。这种“拼图式”写作允许人类在中间阶段通过 `[Retry]` 仅重写某一特定章节（如结果分析），而无需重新生成整篇论文，极大地节省了 Token 并降低了幻觉风险。
+每一章节均作为独立的 `.tex` 片段落盘。这种“拼图式”写作允许人类在中间阶段通过 `[重试]` 仅重写某一特定章节（如结果分析），而无需重新生成整篇论文，极大地节省了 Token 并降低了幻觉风险。
 
 ## 4. SOP 观测方案 (Observation)
 

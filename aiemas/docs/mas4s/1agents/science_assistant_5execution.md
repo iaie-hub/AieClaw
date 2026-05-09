@@ -20,7 +20,7 @@ Agent 严格遵循以下四步 SOP 流程执行任务：
 ### 步骤 1：实验环境检核 (Environment Verification)
 
 - **详细设计**：[mas4s_5execution_verify.md](../1skills/mas4s_5execution_verify.md)
-- **技能调用**：[`mas4s-execution-verify`](file:///Users/admin/clawd/skills/mas4s-execution-verify/SKILL.md)
+- **技能调用**：[`mas4s-execution-verify`](file:///Users/admin/.openclaw/skills/mas4s-execution-verify/SKILL.md)
 - **输入**：`environment_snapshot_en.json`（阶段 4）+ 宿主机真实探测数据 (`host_probe_data.json`) + 冒烟测试运行日志。
 - **动作**：启动容器，校验当前执行硬件环境、随机种子（Seed）以及代码哈希一致性，验证执行现场与阶段 4 冻结快照是否完全匹配，确保“受控状态”不被破坏。
 - **输出**：`env_verification_cert.json`（环境检核证书）。
@@ -28,7 +28,7 @@ Agent 严格遵循以下四步 SOP 流程执行任务：
 ### 步骤 2：一键全量运行 (Full Run)
 
 - **详细设计**：[mas4s_5execution_run.md](../1skills/mas4s_5execution_run.md)
-- **技能调用**：[`mas4s-execution-run`](file:///Users/admin/clawd/skills/mas4s-execution-run/SKILL.md)
+- **技能调用**：[`mas4s-execution-run`](file:///Users/admin/.openclaw/skills/mas4s-execution-run/SKILL.md)
 - **输入**：`eval_protocol.json`（阶段 3 PREP）+ 阶段 4 冻结的代码与数据。
 - **动作**：依据评估协议（PREP）中的预注册指令，自动启动主干评测脚本（如 `evaluation_pipeline.py`）。自动运行所有提案方法、基线对比、消融实验以及敏感性分析。所有输出全部无损落盘，并锁定时间戳。
 - **输出**：`execution_manifest.json`（完整实验执行清单）。
@@ -36,7 +36,7 @@ Agent 严格遵循以下四步 SOP 流程执行任务：
 ### 步骤 3：运行监控与异常记录 (Monitor & Logging)
 
 - **详细设计**：[mas4s_5execution_monitor.md](../1skills/mas4s_5execution_monitor.md)
-- **技能调用**：[`mas4s-execution-monitor`](file:///Users/admin/clawd/skills/mas4s-execution-monitor/SKILL.md)（与步骤 2 并发）
+- **技能调用**：[`mas4s-execution-monitor`](file:///Users/admin/.openclaw/skills/mas4s-execution-monitor/SKILL.md)（与步骤 2 并发）
 - **输入**：容器内运行时环境。
 - **动作**：全过程监控计算资源（CPU/GPU/内存）使用水位，捕获运行时告警或抛出的错误。系统具有严格阻断机制，**绝不允许任何形式的现场修改代码以规避错误**（一旦失败则强制产生包含 `fatal_error_log` 的 Rollback）。
 - **输出**：`execution_anomaly_log.jsonl`。
@@ -44,7 +44,7 @@ Agent 严格遵循以下四步 SOP 流程执行任务：
 ### 步骤 4：结果自动汇整 (Result Aggregation)
 
 - **详细设计**：[mas4s_5execution_aggregate.md](../1skills/mas4s_5execution_aggregate.md)
-- **技能调用**：[`mas4s-execution-aggregate`](file:///Users/admin/clawd/skills/mas4s-execution-aggregate/SKILL.md)
+- **技能调用**：[`mas4s-execution-aggregate`](file:///Users/admin/.openclaw/skills/mas4s-execution-aggregate/SKILL.md)
 - **输入**：`execution_manifest.json` + 所有运行输出数据。
 - **动作**：清洗并汇整纯净的原始数据为标准化汇总表。系统自动对照 PREP 协议（`eval_protocol.json`），对结果进行合规性比对。对于未完成的指标进行“缺失”标记；对于不在协议内的额外输出进行“探索性分析”显式标记。
 - **输出**：`results_summary.json` + `prep_compliance_report.json`。
@@ -57,7 +57,7 @@ Agent 严格遵循以下四步 SOP 流程执行任务：
    - 调度系统基于阶段 4 产出的 `Dockerfile` 启动沙盒环境。`mas4s-execution-env-verify` 作为门神优先检查运行现场是否遭到污染。一旦产生 `env_verification_cert.json`，证明实验平台处于可信的冷冻态。
 2. **自动化实验推演（一键打擂）**：
    - 接着触发 `mas4s-execution-full-run` 调用主评估管线（如 `evaluation_pipeline.py`）。此时测试集、提案逻辑与基线逻辑在同一个硬件与软件上下文下交火，彻底消除复现鸿沟。
-   - 同步运行的 `mas4s-execution-monitor` 像黑匣子一样记录全程表现。如果有由于 OOM 或 Bug 导致的宕机，将直接触发向上游的 `[Rollback]`。
+   - 同步运行的 `mas4s-execution-monitor` 像黑匣子一样记录全程表现。如果有由于 OOM 或 Bug 导致的宕机，将直接触发向上游的 `[回退]`。
 3. **公正无私的裁判（合规聚合）**：
    - 当 `evaluation_pipeline.py` 执行结束后，会留下海量的原始日志 (raw logs) 和评测字典 (metric dictionaries)。`mas4s-execution-result-aggregate` 将基于阶段 3 冻结的 `eval_protocol.json` 对这些结果进行严格的表格化与分类，杜绝科研过程中常见的数据修饰与选择性汇报（P-hacking）。
 
