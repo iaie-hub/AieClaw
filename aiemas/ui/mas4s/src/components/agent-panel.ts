@@ -48,6 +48,7 @@ export class AgentPanel extends LitElement {
   @property({ type: Boolean }) truncated = false;
   @property({ attribute: false }) sopSteps: unknown[] = [];
   @property({ attribute: false }) sopLabel = "";
+  @property({ attribute: false }) sopIcon = "";
   @property({ attribute: false }) activeProgress: unknown = null;
   @property({ attribute: false }) progressLogs: unknown[] = [];
   @property({ type: Number }) currentStepIndex = -1;
@@ -895,6 +896,7 @@ export class AgentPanel extends LitElement {
               <sop-pipeline
                 .steps=${this.sopSteps}
                 .sopLabel=${this.sopLabel}
+                .sopIcon=${this.sopIcon}
                 .activeProgress=${this.activeProgress}
                 .logs=${this.progressLogs}
                 .currentStepIndex=${this.currentStepIndex}
@@ -1039,6 +1041,7 @@ export class AgentPanel extends LitElement {
               <sop-pipeline
                 .steps=${this.sopSteps}
                 .sopLabel=${this.sopLabel}
+                .sopIcon=${this.sopIcon}
                 .activeProgress=${this.activeProgress}
                 .logs=${this.progressLogs}
                 .currentStepIndex=${this.currentStepIndex}

@@ -146,6 +146,9 @@ export function renderMain(
               .sopLabel=${store.activeSessionUuid
                 ? (store.sopStepsBySession.get(store.activeSessionUuid)?.sopLabel ?? "")
                 : ""}
+              .sopIcon=${store.activeSessionUuid
+                ? (store.sopStepsBySession.get(store.activeSessionUuid)?.sopIcon ?? "")
+                : ""}
               .activeProgress=${store.activeSessionUuid
                 ? (store.activeProgressBySession.get(store.activeSessionUuid) ?? null)
                 : null}

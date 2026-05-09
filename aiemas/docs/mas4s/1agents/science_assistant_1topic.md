@@ -57,7 +57,7 @@ Agent 严格遵循以下五步 SOP 流程执行任务：
 
 ### 辅助步骤：课题重构 (Topic Pivot)
 
-> **触发条件**：当发生 `[Rollback]`（下游打回）或用户在评审阶段提出否定反馈（Feedback）时触发。
+> **触发条件**：当发生 `[回退]`（下游打回）或用户在评审阶段提出否定反馈（Feedback）时触发。
 
 - **技能调用**：[`mas4s-topic-pivot`](file:///Users/admin/.openclaw/skills/mas4s-topic-pivot/SKILL.md)
 - **输入**：`pi_result.json` 及 `user_feedback`。

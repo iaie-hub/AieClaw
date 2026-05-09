@@ -7,7 +7,7 @@
 ### 一、 设计理念
 
 1. **绝对门控与防幽灵环境 (Strict Gatekeeping)**：在启动耗时且昂贵的全量实验前，必须物理校验宿主机（Host Node）的真实资源分配（GPU 显存、驱动、内核）是否满足阶段 4 冻结的 `environment_snapshot` 要求，防止环境不匹配导致的秒级崩溃。
-2. **零容忍现场篡改 (Zero-Tolerance for Live-Patching)**：实验现场绝不允许动态修改核心逻辑代码以绕过报错。如果冒烟测试（Mini-experiment）失败，必须硬性拦截，触发 `[Rollback]` 返回上游进行合规的重新构建，以此捍卫执行完整性。
+2. **零容忍现场篡改 (Zero-Tolerance for Live-Patching)**：实验现场绝不允许动态修改核心逻辑代码以绕过报错。如果冒烟测试（Mini-experiment）失败，必须硬性拦截，触发 `[回退]` 返回上游进行合规的重新构建，以此捍卫执行完整性。
 3. **自愈辅助与物理隔离 (Self-Healing via Physical Isolation)**：当触发打回重构时，大模型在指出报错的同时，可通过外部 Markdown 代码块生成“诊断脚本”或“热修复指令（Patch）”。此举既提升了上游 Agent 的 Rollback 成功率，又通过隔离代码与 JSON 彻底规避了序列化转义灾难。
 
 ### 二、 实验环境检核中枢矩阵

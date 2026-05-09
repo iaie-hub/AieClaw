@@ -57,7 +57,7 @@ Agent 严格遵循以下四步 SOP 流程执行任务：
    - 调度系统基于阶段 4 产出的 `Dockerfile` 启动沙盒环境。`mas4s-execution-env-verify` 作为门神优先检查运行现场是否遭到污染。一旦产生 `env_verification_cert.json`，证明实验平台处于可信的冷冻态。
 2. **自动化实验推演（一键打擂）**：
    - 接着触发 `mas4s-execution-full-run` 调用主评估管线（如 `evaluation_pipeline.py`）。此时测试集、提案逻辑与基线逻辑在同一个硬件与软件上下文下交火，彻底消除复现鸿沟。
-   - 同步运行的 `mas4s-execution-monitor` 像黑匣子一样记录全程表现。如果有由于 OOM 或 Bug 导致的宕机，将直接触发向上游的 `[Rollback]`。
+   - 同步运行的 `mas4s-execution-monitor` 像黑匣子一样记录全程表现。如果有由于 OOM 或 Bug 导致的宕机，将直接触发向上游的 `[回退]`。
 3. **公正无私的裁判（合规聚合）**：
    - 当 `evaluation_pipeline.py` 执行结束后，会留下海量的原始日志 (raw logs) 和评测字典 (metric dictionaries)。`mas4s-execution-result-aggregate` 将基于阶段 3 冻结的 `eval_protocol.json` 对这些结果进行严格的表格化与分类，杜绝科研过程中常见的数据修饰与选择性汇报（P-hacking）。
 

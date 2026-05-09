@@ -248,6 +248,7 @@ export class AppStore {
         elapsed?: number;
       }>;
       sopLabel: string;
+      sopIcon?: string;
       currentStepIndex: number;
       completedAt?: number;
     }
@@ -279,10 +280,11 @@ export class AppStore {
       elapsed?: number;
     }>;
     const sopLabel = (data["sopLabel"] as string) ?? "";
+    const sopIcon = (data["sopIcon"] as string) ?? "";
     const currentStepIndex = (data["currentStepIndex"] as number) ?? -1;
     const completedAt = typeof data["completedAt"] === "number" ? data["completedAt"] : undefined;
     if (Array.isArray(steps)) {
-      this.sopStepsBySession.set(sessionUuid, { steps, sopLabel, currentStepIndex, completedAt });
+      this.sopStepsBySession.set(sessionUuid, { steps, sopLabel, sopIcon, currentStepIndex, completedAt });
 
       // 清理已不再运行的技能进度
       const active = this.activeProgressBySession.get(sessionUuid);

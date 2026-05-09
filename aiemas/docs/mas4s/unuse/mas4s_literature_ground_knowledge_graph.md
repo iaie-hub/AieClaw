@@ -185,7 +185,7 @@ After your <think> tags, output ONLY a valid JSON object starting with "{{".
     "pivot_suggestion_cn": "为避免与现有文献重叠的具体结构性调整建议。"
   }},
   "hitl_gateway": {{
-    "recommendation": "[Approve] / [Retry] / [Rollback]",
+    "recommendation": "[继续] / [重试] / [回退]",
     "summary_for_human_en": "A concise summary of the landscape and the justification for the recommendation.",
     "summary_for_human_cn": "全景图的简明摘要及该建议的合理性依据。"
   }}
