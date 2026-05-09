@@ -890,7 +890,7 @@ export class AgentPanel extends LitElement {
             ></message-list>`}
       </div>
 
-      ${this.sopSteps.length > 0 && this.isChatting
+      ${this.sopSteps.length > 0
         ? html`
             <div class="sop-area">
               <sop-pipeline
@@ -1035,7 +1035,7 @@ export class AgentPanel extends LitElement {
             ></message-list>`}
       </div>
 
-      ${this.sopSteps.length > 0 && this.isActive
+      ${this.sopSteps.length > 0
         ? html`
             <div class="sop-area">
               <sop-pipeline
