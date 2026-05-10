@@ -208,6 +208,30 @@ export class AppStore {
     } else if (!isChatting) {
       this.activeRunIdBySession.delete(sessionUuid);
     }
+    // When agent stops and SOP has no completedAt, mark it as completed now
+    if (!isChatting) {
+      const sop = this.sopStepsBySession.get(sessionUuid);
+      if (sop && !sop.completedAt && sop.steps.length > 0) {
+        // Mark any still-running steps as completed
+        let changed = false;
+        for (const step of sop.steps) {
+          if (step.status === "running") {
+            step.status = "completed";
+            if (!step.completedAt) {
+              step.completedAt = Date.now();
+            }
+            if (step.startedAt && !step.elapsed) {
+              step.elapsed = (step.completedAt ?? Date.now()) - step.startedAt;
+            }
+            changed = true;
+          }
+        }
+        sop.completedAt = Date.now();
+        if (changed) {
+          this.sopStepsBySession.set(sessionUuid, { ...sop });
+        }
+      }
+    }
     this.notify();
   }
 
@@ -284,7 +308,13 @@ export class AppStore {
     const currentStepIndex = (data["currentStepIndex"] as number) ?? -1;
     const completedAt = typeof data["completedAt"] === "number" ? data["completedAt"] : undefined;
     if (Array.isArray(steps)) {
-      this.sopStepsBySession.set(sessionUuid, { steps, sopLabel, sopIcon, currentStepIndex, completedAt });
+      this.sopStepsBySession.set(sessionUuid, {
+        steps,
+        sopLabel,
+        sopIcon,
+        currentStepIndex,
+        completedAt,
+      });
 
       // 清理已不再运行的技能进度
       const active = this.activeProgressBySession.get(sessionUuid);

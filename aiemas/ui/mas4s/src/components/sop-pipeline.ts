@@ -148,12 +148,16 @@ export class SOPPipeline extends LitElement {
       font-size: 14px;
       line-height: 1;
     }
+    .card-header-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
     .sop-time-info {
       font-size: 11px;
       color: var(--text-muted);
-      margin-top: 4px;
-      padding-bottom: 4px;
       font-variant-numeric: tabular-nums;
+      white-space: nowrap;
     }
     .sop-time-info .time-label {
       color: var(--text-muted);
@@ -259,7 +263,6 @@ export class SOPPipeline extends LitElement {
     }
     .step-header {
       display: flex;
-      justify-content: space-between;
       align-items: center;
     }
     .step-title {
@@ -269,20 +272,34 @@ export class SOPPipeline extends LitElement {
       display: flex;
       align-items: center;
       gap: 4px;
+      flex-shrink: 0;
     }
     .step-title .step-icon {
       font-size: 12px;
       line-height: 1;
     }
-    .step.pending .step-title {
+    .step-time-range {
+      font-size: 10px;
       color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+      font-weight: 400;
+      flex: 1;
+      text-align: right;
+      margin: 0 8px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .step-meta {
       font-size: 11px;
       color: var(--text-muted);
       font-variant-numeric: tabular-nums;
       flex-shrink: 0;
-      margin-left: 8px;
+      width: 72px;
+      text-align: right;
+    }
+    .step.pending .step-title {
+      color: var(--text-muted);
     }
     .step.running .step-meta {
       color: var(--primary-color);
@@ -480,6 +497,21 @@ export class SOPPipeline extends LitElement {
     }
   }
 
+  private _stepTimeRange(step: SOPStepView) {
+    if (!step.startedAt) {
+      return html``;
+    }
+    if (step.status === "completed" && step.completedAt) {
+      return html`<span class="step-time-range"
+        >${formatFullTimestamp(step.startedAt)} ~ ${formatFullTimestamp(step.completedAt)}</span
+      >`;
+    }
+    if (step.status === "running") {
+      return html`<span class="step-time-range">${formatFullTimestamp(step.startedAt)} ~</span>`;
+    }
+    return html``;
+  }
+
   /** Collapse when clicking outside this component (only in compact mode). */
   private _onDocumentClick = (e: MouseEvent) => {
     if (!this.compact || !this._expanded) {
@@ -527,18 +559,16 @@ export class SOPPipeline extends LitElement {
         <!-- Header -->
         <div class="card-header">
           <div class="card-title">
-            ${this.sopIcon
-              ? html`<span class="sop-icon">${this.sopIcon}</span>`
-              : this._docSvg}
+            ${this.sopIcon ? html`<span class="sop-icon">${this.sopIcon}</span>` : this._docSvg}
             ${this.sopLabel || "SOP 执行进度"}
           </div>
-          ${this.compact
-            ? html` <button class="btn-icon" title="收起面板">${this._chevronUp}</button> `
-            : ""}
+          <div class="card-header-right">
+            ${this._renderTimeInfo()}
+            ${this.compact
+              ? html` <button class="btn-icon" title="收起面板">${this._chevronUp}</button> `
+              : ""}
+          </div>
         </div>
-
-        <!-- Time info -->
-        ${this._renderTimeInfo()}
 
         <!-- Timeline -->
         <div class="timeline">
@@ -552,6 +582,7 @@ export class SOPPipeline extends LitElement {
                       ${step.icon ? html`<span class="step-icon">${step.icon}</span>` : ""}
                       ${step.label}
                     </span>
+                    ${this._stepTimeRange(step)}
                     <span class="step-meta">${this._stepMeta(step)}</span>
                   </div>
                   ${step.status === "running" ? this._renderTailingLog(step.skill) : html``}
@@ -566,7 +597,7 @@ export class SOPPipeline extends LitElement {
           ? html`
               <div class="global-terminal">
                 <div class="terminal-header" @click=${this._toggleTerminal}>
-                  <span>系统运行日志</span>
+                  <span>${this._logSkillLabel()}</span>
                   <button
                     class="btn-icon"
                     title="${this._logsCollapsed && !hasError ? "展开日志" : "收起日志"}"
@@ -595,24 +626,22 @@ export class SOPPipeline extends LitElement {
       // SOP completed
       const elapsedSec = formatElapsedSeconds(this.completedAt - sopStartedAt);
       return html`
-        <div class="sop-time-info">
-          <span class="time-label">运行时间：</span>
+        <span class="sop-time-info">
           <span class="time-value">${formatFullTimestamp(sopStartedAt)}</span>
           <span class="time-label"> ~ </span>
           <span class="time-value">${formatFullTimestamp(this.completedAt)}</span>
           <span class="time-label">，耗时 </span>
           <span class="time-elapsed">${elapsedSec} 秒</span>
-        </div>
+        </span>
       `;
     }
 
     // SOP still running
     return html`
-      <div class="sop-time-info">
-        <span class="time-label">运行时间：</span>
+      <span class="sop-time-info">
         <span class="time-value">${formatFullTimestamp(sopStartedAt)}</span>
         <span class="time-label"> ~ </span>
-      </div>
+      </span>
     `;
   }
 
@@ -627,6 +656,19 @@ export class SOPPipeline extends LitElement {
         ${lines.map((l) => html`<div class="tailing-line">${l.message}</div>`)}
       </div>
     `;
+  }
+
+  /** Determine the skill label for the log panel title */
+  private _logSkillLabel(): string {
+    // Find the skill from the most recent log entry
+    const lastLog = this.logs[this.logs.length - 1];
+    if (lastLog) {
+      const step = this.steps.find((s) => s.skill === lastLog.skill);
+      if (step) {
+        return `${step.icon ?? ""} ${step.label} - 运行日志`.trim();
+      }
+    }
+    return "系统运行日志";
   }
 
   /** Full terminal log panel */
