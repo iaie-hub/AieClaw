@@ -1,9 +1,13 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { CURRENT_SESSION_VERSION } from "@mariozechner/pi-coding-agent";
-import { resolveAgentRuntimeMetadata } from "../../agents/agent-runtime-metadata.js";
-import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../../agents/agent-scope.js";
+import { CURRENT_SESSION_VERSION } from "@earendil-works/pi-coding-agent";
+import { resolveModelAgentRuntimeMetadata } from "../../agents/agent-runtime-metadata.js";
+import {
+  listAgentIds,
+  resolveAgentWorkspaceDir,
+  resolveDefaultAgentId,
+} from "../../agents/agent-scope.js";
 import {
   abortEmbeddedPiRun,
   isEmbeddedPiRunActive,
@@ -22,6 +26,7 @@ import {
   type SessionEntry,
   updateSessionStore,
 } from "../../config/sessions.js";
+import { resolveAgentMainSessionKey } from "../../config/sessions/main-session.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import {
   createInternalHookEvent,
@@ -30,6 +35,10 @@ import {
   type SessionPatchHookContext,
   type SessionPatchHookEvent,
 } from "../../hooks/internal-hooks.js";
+import {
+  measureDiagnosticsTimelineSpan,
+  measureDiagnosticsTimelineSpanSync,
+} from "../../infra/diagnostics-timeline.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { patchPluginSessionExtension } from "../../plugins/host-hook-state.js";
@@ -113,11 +122,23 @@ import type {
 } from "./types.js";
 import { assertValidParams } from "./validation.js";
 
-const log = createSubsystemLogger("gateway/sessions");
+function filterSessionStoreToConfiguredAgents(
+  cfg: OpenClawConfig,
+  store: Record<string, SessionEntry>,
+): Record<string, SessionEntry> {
+  const configuredAgentIds = new Set(listAgentIds(cfg).map((agentId) => normalizeAgentId(agentId)));
+  return Object.fromEntries(
+    Object.entries(store).filter(([key]) => {
+      if (key === "global" || key === "unknown") {
+        return true;
+      }
+      const parsed = parseAgentSessionKey(key);
+      return parsed ? configuredAgentIds.has(normalizeAgentId(parsed.agentId)) : false;
+    }),
+  );
+}
 
-import type * as sessionsRuntimeModuleType from "./sessions.runtime.js";
-
-type SessionsRuntimeModule = typeof sessionsRuntimeModuleType;
+type SessionsRuntimeModule = typeof import("./sessions.runtime.js");
 
 let sessionsRuntimeModulePromise: Promise<SessionsRuntimeModule> | undefined;
 let loggedSlowSessionsListCatalog = false;
@@ -454,20 +475,28 @@ function resolveAbortSessionKey(params: {
   return params.requestedKey;
 }
 
+function collectTrackedActiveSessionRunKeys(
+  context: Partial<Pick<GatewayRequestContext, "chatAbortControllers">>,
+): Set<string> {
+  const keys = new Set<string>();
+  if (!(context.chatAbortControllers instanceof Map)) {
+    return keys;
+  }
+  for (const active of context.chatAbortControllers.values()) {
+    if (typeof active.sessionKey === "string" && active.sessionKey.trim()) {
+      keys.add(active.sessionKey);
+    }
+  }
+  return keys;
+}
+
 function hasTrackedActiveSessionRun(params: {
   context: Partial<Pick<GatewayRequestContext, "chatAbortControllers">>;
   requestedKey: string;
   canonicalKey: string;
 }): boolean {
-  if (!(params.context.chatAbortControllers instanceof Map)) {
-    return false;
-  }
-  for (const active of params.context.chatAbortControllers.values()) {
-    if (active.sessionKey === params.canonicalKey || active.sessionKey === params.requestedKey) {
-      return true;
-    }
-  }
-  return false;
+  const activeSessionKeys = collectTrackedActiveSessionRunKeys(params.context);
+  return activeSessionKeys.has(params.canonicalKey) || activeSessionKeys.has(params.requestedKey);
 }
 
 async function interruptSessionRunIfActive(params: {
@@ -688,39 +717,96 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     }
     const p = params;
     const cfg = context.getRuntimeConfig();
-    const { storePath, store } = loadCombinedSessionStoreForGateway(cfg, { agentId: p.agentId });
-    const modelCatalog = await loadOptionalSessionsListModelCatalog(context);
-    const result = await listSessionsFromStoreAsync({
-      cfg,
-      storePath,
-      store,
-      modelCatalog,
-      opts: p,
-    });
+    const configuredAgentsOnly = p.configuredAgentsOnly === true;
+    const payload = await measureDiagnosticsTimelineSpan(
+      "gateway.sessions.list",
+      async () => {
+        const { storePath, store } = measureDiagnosticsTimelineSpanSync(
+          "gateway.sessions.list.store_load",
+          () =>
+            loadCombinedSessionStoreForGateway(cfg, {
+              agentId: p.agentId,
+              configuredAgentsOnly,
+            }),
+          {
+            config: cfg,
+            phase: "sessions.list",
+            attributes: {
+              agentId: p.agentId ?? null,
+              configuredAgentsOnly,
+            },
+          },
+        );
+        const listStore = configuredAgentsOnly
+          ? filterSessionStoreToConfiguredAgents(cfg, store)
+          : store;
+        const modelCatalog = await measureDiagnosticsTimelineSpan(
+          "gateway.sessions.list.model_catalog",
+          () => loadOptionalSessionsListModelCatalog(context),
+          {
+            config: cfg,
+            phase: "sessions.list",
+          },
+        );
+        const result = await measureDiagnosticsTimelineSpan(
+          "gateway.sessions.list.rows",
+          () =>
+            listSessionsFromStoreAsync({
+              cfg,
+              storePath,
+              store: listStore,
+              modelCatalog,
+              opts: p,
+            }),
+          {
+            config: cfg,
+            phase: "sessions.list",
+            attributes: {
+              storeEntries: Object.keys(listStore).length,
+            },
+          },
+        );
+        const sessions = measureDiagnosticsTimelineSpanSync(
+          "gateway.sessions.list.active_run_flags",
+          () => {
+            const activeSessionKeys = collectTrackedActiveSessionRunKeys(context);
+            return result.sessions.map((session) =>
+              Object.assign({}, session, {
+                hasActiveRun: activeSessionKeys.has(session.key),
+              }),
+            );
+          },
+          {
+            config: cfg,
+            phase: "sessions.list",
+            attributes: {
+              sessions: result.sessions.length,
+            },
+          },
+        );
+        return {
+          ...result,
+          sessions,
+        };
+      },
+      {
+        config: cfg,
+        phase: "sessions.list",
+        attributes: {
+          agentId: p.agentId ?? null,
+          configuredAgentsOnly,
+        },
+      },
+    );
 
     // Apply mas4s session membership filter if available
-    if (context.filterSessionsList && Array.isArray(result.sessions)) {
-      const filtered = context.filterSessionsList(result.sessions as unknown[], client);
-      respond(true, { ...result, sessions: filtered }, undefined);
+    if (context.filterSessionsList && Array.isArray(payload.sessions)) {
+      const filtered = context.filterSessionsList(payload.sessions as unknown[], client);
+      respond(true, { ...payload, sessions: filtered }, undefined);
       return;
     }
 
-    respond(
-      true,
-      {
-        ...result,
-        sessions: result.sessions.map((session) =>
-          Object.assign({}, session, {
-            hasActiveRun: hasTrackedActiveSessionRun({
-              context,
-              requestedKey: session.key,
-              canonicalKey: session.key,
-            }),
-          }),
-        ),
-      },
-      undefined,
-    );
+    respond(true, payload, undefined);
   },
   "sessions.cleanup": async ({ params, respond, context }) => {
     if (!assertValidParams(params, validateSessionsCleanupParams, "sessions.cleanup", respond)) {
@@ -735,6 +821,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
           enforce: params.enforce,
           activeKey: params.activeKey,
           fixMissing: params.fixMissing,
+          fixDmScope: params.fixDmScope,
         },
       });
       const result = serializeSessionCleanupResult({
@@ -1033,6 +1120,46 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       }
       canonicalParentSessionKey = parent.canonicalKey;
     }
+    if (
+      canonicalParentSessionKey &&
+      p.emitCommandHooks === true &&
+      !requestedKey &&
+      !resolveOptionalInitialSessionMessage(p) &&
+      cfg.session?.dmScope === "main"
+    ) {
+      const parentAgentId = normalizeAgentId(
+        resolveAgentIdFromSessionKey(canonicalParentSessionKey) ?? resolveDefaultAgentId(cfg),
+      );
+      const parentMainKey = resolveAgentMainSessionKey({ cfg, agentId: parentAgentId });
+      if (canonicalParentSessionKey === parentMainKey) {
+        const { performGatewaySessionReset } = await loadSessionsRuntimeModule();
+        const resetResult = await performGatewaySessionReset({
+          key: canonicalParentSessionKey,
+          reason: "new",
+          commandSource: "webchat",
+        });
+        if (!resetResult.ok) {
+          respond(false, undefined, resetResult.error);
+          return;
+        }
+        respond(
+          true,
+          {
+            ok: true,
+            key: resetResult.key,
+            sessionId: resetResult.entry.sessionId,
+            entry: resetResult.entry,
+            runStarted: false,
+          },
+          undefined,
+        );
+        emitSessionsChanged(context, {
+          sessionKey: resetResult.key,
+          reason: "new",
+        });
+        return;
+      }
+    }
     if (canonicalParentSessionKey && p.emitCommandHooks === true) {
       const { entry: parentEntry } = loadSessionEntry(canonicalParentSessionKey);
       const parentAgentId = normalizeAgentId(
@@ -1261,6 +1388,9 @@ export const sessionsHandlers: GatewayRequestHandlers = {
         sessionKey: target.canonicalKey,
         sessionId: createdEntry.sessionId,
         resumedFrom: parentEntry?.sessionId,
+        storePath: target.storePath,
+        sessionFile: createdEntry.sessionFile,
+        agentId: target.agentId,
       });
     }
   },
@@ -1648,7 +1778,13 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       provider: resolved.provider,
       model: resolved.model,
     });
-    const agentRuntime = resolveAgentRuntimeMetadata(cfg, agentId);
+    const agentRuntime = resolveModelAgentRuntimeMetadata({
+      cfg,
+      agentId,
+      provider: resolvedDisplayModel.provider,
+      model: resolvedDisplayModel.model,
+      sessionKey: target.canonicalKey ?? key,
+    });
     const result: SessionsPatchResult = {
       ok: true,
       path: storePath,

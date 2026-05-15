@@ -1,6 +1,6 @@
-import type { SessionManager } from "@mariozechner/pi-coding-agent";
-import type { SessionWriteLockAcquireTimeoutConfig } from "../../agents/session-write-lock.js";
+import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import { appendSessionTranscriptMessage } from "../../config/sessions/transcript-append.js";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { emitSessionTranscriptUpdate } from "../../sessions/transcript-events.js";
 
@@ -53,7 +53,7 @@ export async function appendInjectedAssistantMessageToTranscript(params: {
   abortMeta?: GatewayInjectedAbortMeta;
   now?: number;
   parentSessionKey?: string;
-  config?: SessionWriteLockAcquireTimeoutConfig;
+  config?: OpenClawConfig;
 }): Promise<GatewayInjectedTranscriptAppendResult> {
   const now = params.now ?? Date.now();
   const usage = {
@@ -104,7 +104,7 @@ export async function appendInjectedAssistantMessageToTranscript(params: {
   };
 
   try {
-    const { messageId } = await appendSessionTranscriptMessage({
+    const { messageId, message: appendedMessage } = await appendSessionTranscriptMessage({
       transcriptPath: params.transcriptPath,
       message: messageBody,
       now,
@@ -113,11 +113,11 @@ export async function appendInjectedAssistantMessageToTranscript(params: {
     });
     emitSessionTranscriptUpdate({
       sessionFile: params.transcriptPath,
-      message: messageBody,
+      message: appendedMessage,
       messageId,
       parentSessionKey: params.parentSessionKey,
     });
-    return { ok: true, messageId, message: messageBody };
+    return { ok: true, messageId, message: appendedMessage as unknown as Record<string, unknown> };
   } catch (err) {
     return { ok: false, error: formatErrorMessage(err) };
   }
