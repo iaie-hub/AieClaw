@@ -1,0 +1,17 @@
+{
+  "id": "agent-registry",
+  "activation": {
+    "onStartup": false
+  },
+  "channels": ["agent-registry"],
+  "channelEnvVars": {
+    "agent-registry": [
+      "AGENT_REGISTRY_NATS_URL",
+      "AGENT_REGISTRY_AGENT_ID",
+      "AGENT_REGISTRY_AGENT_NAME",
+      "AGENT_REGISTRY_NATS_TOKEN",
+      "AGENT_REGISTRY_SKILLS",
+      "AGENT_REGISTRY_BOUND_AGENT_ID"
+    ]
+  }
+}
