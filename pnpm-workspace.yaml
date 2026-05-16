@@ -5,9 +5,11 @@ packages:
   - extensions/*
   - aiemas/ui/mas4s
 
-minimumReleaseAge: 2880
+minimumReleaseAge: 0
 
 minimumReleaseAgeExclude:
+  - "@openclaw/fs-safe@0.2.4"
+  - "@openclaw/proxyline@0.2.0"
   - "acpx"
   - "tokenjuice"
   - "@agentclientprotocol/sdk"
@@ -108,3 +110,4 @@ peerDependencyRules:
 patchedDependencies:
   "baileys@7.0.0-rc11": "patches/baileys@7.0.0-rc11.patch"
   "@agentclientprotocol/claude-agent-acp@0.33.1": "patches/@agentclientprotocol__claude-agent-acp@0.33.1.patch"
+  postcss: patches/postcss.patch

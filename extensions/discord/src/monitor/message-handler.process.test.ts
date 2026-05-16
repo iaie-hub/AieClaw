@@ -1,4 +1,8 @@
 import { DEFAULT_EMOJIS, DEFAULT_TIMING } from "openclaw/plugin-sdk/channel-feedback";
+import {
+  recordChannelBotPairLoopAndCheckSuppression,
+  type ChannelBotLoopProtectionFacts,
+} from "openclaw/plugin-sdk/inbound-reply-dispatch";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-dispatch-runtime";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DiscordMessagePreflightContext } from "./message-handler.preflight.js";
@@ -200,27 +204,31 @@ vi.mock("openclaw/plugin-sdk/reply-runtime", () => ({
   createReplyDispatcherWithTyping: (opts: {
     deliver: (payload: unknown, info: { kind: string }) => Promise<void> | void;
     onReplyStart?: () => Promise<void> | void;
-  }) => ({
-    dispatcher: {
-      sendToolResult: vi.fn(() => true),
-      sendBlockReply: vi.fn((payload: unknown) => {
-        void opts.deliver(payload, { kind: "block" });
-        return true;
-      }),
-      sendFinalReply: vi.fn((payload: unknown) => {
-        void opts.deliver(payload, { kind: "final" });
-        return true;
-      }),
-      waitForIdle: vi.fn(async () => {}),
-      getQueuedCounts: vi.fn(() => ({ tool: 0, block: 0, final: 0 })),
-      markComplete: vi.fn(),
-    },
-    replyOptions: {
-      onReplyStart: opts.onReplyStart,
-    },
-    markDispatchIdle: vi.fn(),
-    markRunComplete: vi.fn(),
-  }),
+  }) => {
+    const pendingDeliveries: Promise<void>[] = [];
+    const queueDelivery = (payload: unknown, info: { kind: "block" | "final" }) => {
+      const delivery = Promise.resolve(opts.deliver(payload, info)).catch(() => undefined);
+      pendingDeliveries.push(delivery);
+      return true;
+    };
+    return {
+      dispatcher: {
+        sendToolResult: vi.fn(() => true),
+        sendBlockReply: vi.fn((payload: unknown) => queueDelivery(payload, { kind: "block" })),
+        sendFinalReply: vi.fn((payload: unknown) => queueDelivery(payload, { kind: "final" })),
+        waitForIdle: vi.fn(async () => {
+          await Promise.all(pendingDeliveries);
+        }),
+        getQueuedCounts: vi.fn(() => ({ tool: 0, block: 0, final: 0 })),
+        markComplete: vi.fn(),
+      },
+      replyOptions: {
+        onReplyStart: opts.onReplyStart,
+      },
+      markDispatchIdle: vi.fn(),
+      markRunComplete: vi.fn(),
+    };
+  },
 }));
 
 vi.mock("openclaw/plugin-sdk/conversation-runtime", () => ({
@@ -597,6 +605,55 @@ function expectSinglePreviewEdit() {
 }
 
 describe("processDiscordMessage ack reactions", () => {
+  it("drops bot-loop-suppressed messages before Discord side effects", async () => {
+    const botLoopProtection: ChannelBotLoopProtectionFacts = {
+      scopeId: "discord-process-side-effect-test",
+      conversationId: "c-loop-side-effects",
+      senderId: "bot-a",
+      receiverId: "bot-b",
+      config: {
+        maxEventsPerWindow: 1,
+        windowSeconds: 60,
+        cooldownSeconds: 60,
+      },
+      defaultEnabled: true,
+      nowMs: 10_000,
+    };
+    expect(recordChannelBotPairLoopAndCheckSuppression(botLoopProtection)).toEqual({
+      suppressed: false,
+    });
+    const observer = { onReplyPlanResolved: vi.fn() };
+    const ctx = await createAutomaticSourceDeliveryContext({
+      messageChannelId: botLoopProtection.conversationId,
+      message: {
+        id: "m-loop-side-effects",
+        channelId: botLoopProtection.conversationId,
+        timestamp: new Date().toISOString(),
+        attachments: [
+          {
+            id: "att-loop",
+            url: "https://cdn.discordapp.test/loop.png",
+            contentType: "image/png",
+            filename: "loop.png",
+            size: 16,
+          },
+        ],
+      },
+      botLoopProtection: {
+        ...botLoopProtection,
+        nowMs: 10_001,
+      },
+    });
+
+    await processDiscordMessage(ctx, observer);
+
+    expect(observer.onReplyPlanResolved).not.toHaveBeenCalled();
+    expect(createDiscordRestClientSpy).not.toHaveBeenCalled();
+    expect(sendMocks.reactMessageDiscord).not.toHaveBeenCalled();
+    expect(recordInboundSession).not.toHaveBeenCalled();
+    expect(dispatchInboundMessage).not.toHaveBeenCalled();
+  });
+
   it("skips ack reactions for group-mentions when mentions are not required", async () => {
     const ctx = await createBaseContext({
       shouldRequireMention: false,
@@ -1418,6 +1475,32 @@ describe("processDiscordMessage draft streaming", () => {
 
     expect(editMessageDiscord).not.toHaveBeenCalled();
     expect(deliverDiscordReply).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears partial drafts when fallback final delivery fails before completion", async () => {
+    const draftStream = createMockDraftStreamForTest();
+    deliverDiscordReply.mockRejectedValueOnce(new Error("send failed"));
+    dispatchInboundMessage.mockImplementationOnce(async (params?: DispatchInboundParams) => {
+      await params?.replyOptions?.onPartialReply?.({ text: "partial answer..." });
+      await params?.dispatcher.sendFinalReply({ text: "complete\nanswer" });
+      return {
+        queuedFinal: true,
+        counts: { final: 1, tool: 0, block: 0 },
+        failedCounts: { final: 1 },
+      };
+    });
+
+    const ctx = await createAutomaticSourceDeliveryContext({
+      discordConfig: { streamMode: "partial", maxLinesPerMessage: 1 },
+    });
+
+    await runProcessDiscordMessage(ctx);
+
+    expect(draftStream.update).toHaveBeenCalledWith("partial answer...");
+    expect(editMessageDiscord).not.toHaveBeenCalled();
+    expect(deliverDiscordReply).toHaveBeenCalledTimes(1);
+    expect(draftStream.discardPending).toHaveBeenCalled();
+    expect(draftStream.clear).toHaveBeenCalledTimes(1);
   });
 
   it("uses root discord maxLinesPerMessage for preview finalization when runtime config omits it", async () => {

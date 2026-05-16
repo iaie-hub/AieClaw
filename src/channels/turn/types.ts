@@ -1,3 +1,4 @@
+import type { CommandTurnKind } from "../../auto-reply/command-turn-context.js";
 import type { GetReplyOptions } from "../../auto-reply/get-reply-options.types.js";
 import type { ReplyPayload } from "../../auto-reply/reply-payload.js";
 import type { DispatchFromConfigResult } from "../../auto-reply/reply/dispatch-from-config.types.js";
@@ -17,6 +18,7 @@ import type {
 import type { CreateChannelReplyPipelineParams } from "../message/reply-pipeline.js";
 import type { MessageReceipt } from "../message/types.js";
 import type { InboundLastRouteUpdate, RecordInboundSession } from "../session.types.js";
+import type { ChannelBotLoopProtectionFacts } from "./bot-loop-protection.js";
 
 export type ChannelTurnAdmission =
   | { kind: "dispatch"; reason?: string }
@@ -183,6 +185,13 @@ export type MessageFacts = {
   inboundHistory?: Array<{ sender: string; body: string; timestamp?: number }>;
 };
 
+export type CommandFacts = {
+  kind: CommandTurnKind;
+  body?: string;
+  name?: string;
+  authorized?: boolean;
+};
+
 export type SupplementalContextFacts = {
   quote?: {
     id?: string;
@@ -223,6 +232,7 @@ export type InboundMediaFacts = {
 
 export type PreflightFacts = {
   admission?: ChannelTurnAdmission;
+  command?: CommandFacts;
   message?: Partial<MessageFacts>;
   media?: InboundMediaFacts[];
   supplemental?: SupplementalContextFacts;
@@ -326,6 +336,7 @@ export type AssembledChannelTurn = {
   record?: ChannelTurnRecordOptions;
   history?: ChannelTurnHistoryFinalizeOptions;
   admission?: Extract<ChannelTurnAdmission, { kind: "dispatch" | "observeOnly" }>;
+  botLoopProtection?: ChannelBotLoopProtectionFacts;
   log?: (event: ChannelTurnLogEvent) => void;
   messageId?: string;
 };
@@ -343,6 +354,7 @@ export type PreparedChannelTurn<TDispatchResult = DispatchFromConfigResult> = {
   runDispatch: () => Promise<TDispatchResult>;
   observeOnlyDispatchResult?: TDispatchResult;
   admission?: Extract<ChannelTurnAdmission, { kind: "dispatch" | "observeOnly" }>;
+  botLoopProtection?: ChannelBotLoopProtectionFacts;
   log?: (event: ChannelTurnLogEvent) => void;
   messageId?: string;
 };

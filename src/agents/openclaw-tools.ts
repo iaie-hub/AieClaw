@@ -333,6 +333,7 @@ export function createOpenClawTools(
   });
   options?.recordToolPrepStage?.("openclaw-tools:nodes-tool");
   const embedded = isEmbeddedMode();
+  const includeMessageTool = !embedded || options?.sourceReplyDeliveryMode === "message_tool_only";
   const effectiveCallGateway = embedded
     ? createEmbeddedCallGateway()
     : openClawToolsDeps.callGateway;
@@ -367,7 +368,7 @@ export function createOpenClawTools(
               : {}),
           }),
         ]),
-    ...(!embedded && messageTool ? [messageTool] : []),
+    ...(messageTool && includeMessageTool ? [messageTool] : []),
     ...collectPresentOpenClawTools([heartbeatTool]),
     createTtsTool({
       agentChannel: options?.agentChannel,

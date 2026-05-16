@@ -1,3 +1,4 @@
+import { asPositiveSafeInteger } from "../shared/number-coercion.js";
 import { normalizeOptionalString } from "../shared/string-coerce.js";
 
 export type SessionTranscriptUpdate = {
@@ -6,6 +7,7 @@ export type SessionTranscriptUpdate = {
   message?: unknown;
   messageId?: string;
   parentSessionKey?: string;
+  messageSeq?: number;
 };
 
 type SessionTranscriptListener = (update: SessionTranscriptUpdate) => void;
@@ -29,11 +31,13 @@ export function emitSessionTranscriptUpdate(update: string | SessionTranscriptUp
           message: update.message,
           messageId: update.messageId,
           parentSessionKey: update.parentSessionKey,
+          messageSeq: update.messageSeq,
         };
   const trimmed = normalizeOptionalString(normalized.sessionFile);
   if (!trimmed) {
     return;
   }
+  const messageSeq = asPositiveSafeInteger(normalized.messageSeq);
   const nextUpdate: SessionTranscriptUpdate = {
     sessionFile: trimmed,
     ...(normalizeOptionalString(normalized.sessionKey)
@@ -46,6 +50,7 @@ export function emitSessionTranscriptUpdate(update: string | SessionTranscriptUp
     ...(typeof normalized.parentSessionKey === "string" && normalized.parentSessionKey.trim()
       ? { parentSessionKey: normalized.parentSessionKey.trim() }
       : {}),
+    ...(messageSeq !== undefined ? { messageSeq } : {}),
   };
   for (const listener of SESSION_TRANSCRIPT_LISTENERS) {
     try {

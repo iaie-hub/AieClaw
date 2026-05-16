@@ -1499,6 +1499,9 @@ function createChatAbortOps(context: GatewayRequestContext): ChatAbortOps {
     chatRunBuffers: context.chatRunBuffers,
     chatDeltaSentAt: context.chatDeltaSentAt,
     chatDeltaLastBroadcastLen: context.chatDeltaLastBroadcastLen,
+    chatDeltaLastBroadcastText: context.chatDeltaLastBroadcastText,
+    agentDeltaSentAt: context.agentDeltaSentAt,
+    bufferedAgentEvents: context.bufferedAgentEvents,
     chatAbortedRuns: context.chatAbortedRuns,
     removeChatRun: context.removeChatRun,
     agentRunSeq: context.agentRunSeq,
@@ -2276,6 +2279,19 @@ export const chatHandlers: GatewayRequestHandlers = {
         ChatType: entry?.chatType ?? "direct",
         ...(commandSource ? { CommandSource: commandSource } : {}),
         CommandAuthorized: true,
+        CommandTurn: commandSource
+          ? {
+              kind: "text-slash",
+              source: commandSource,
+              authorized: true,
+              body: commandBody,
+            }
+          : {
+              kind: "normal",
+              source: "message",
+              authorized: false,
+              body: commandBody,
+            },
         MessageSid: clientRunId,
         ...(!isOperatorUiClient(clientInfo)
           ? {
