@@ -537,16 +537,17 @@ export class MsgAgent extends LitElement {
       }
 
       if (item.type === "image" || item.type === "image_url") {
+        const args = item.args as any;
         return html`
           <div class="message-image-container">
             <img
               class="message-image"
-              src=${item.args?.["url"] ?? item.args?.["dataUrl"] ?? ""}
+              src=${args?.["url"] ?? args?.["dataUrl"] ?? ""}
               alt="Image"
               @click=${() =>
                 this.dispatchEvent(
                   new CustomEvent("preview-image", {
-                    detail: { url: item.args?.["url"] ?? item.args?.["dataUrl"] },
+                    detail: { url: args?.["url"] ?? args?.["dataUrl"] },
                     bubbles: true,
                     composed: true,
                   }),

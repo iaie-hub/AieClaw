@@ -7,6 +7,7 @@ import type { MasSession } from "../types/session-types.js";
 import { parseSenderPrefix } from "../utils/message-format.js";
 import { extractUuidFromKey, extractAgentNameFromKey } from "../utils/session-utils.js";
 import { addEventHandler } from "./client.js";
+import { dispatchCollabMessage } from "./collab-api.js";
 
 const TOOL_OUTPUT_CHAR_LIMIT = 120_000;
 
@@ -284,6 +285,12 @@ export function registerEventHandlers(): void {
             );
           }
         }
+        break;
+      }
+      // ── Real-time collab events (a2a.discussion.* / a2a.cowork.*) ───────
+      case "collab.message": {
+        const { topic, data } = evt.payload as { topic: string; data: unknown };
+        dispatchCollabMessage({ topic, data });
         break;
       }
     }

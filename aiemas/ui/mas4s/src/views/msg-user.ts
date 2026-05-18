@@ -209,25 +209,26 @@ export class MsgUser extends LitElement {
             : nothing}
           ${this.message.content
             .filter((c) => c.type === "image" || c.type === "image_url")
-            .map(
-              (c) => html`
+            .map((c) => {
+              const args = c.args as any;
+              return html`
                 <div class="message-image-container">
                   <img
                     class="message-image"
-                    src=${c.args?.["url"] ?? c.args?.["dataUrl"] ?? ""}
+                    src=${args?.["url"] ?? args?.["dataUrl"] ?? ""}
                     alt="Image"
                     @click=${() =>
                       this.dispatchEvent(
                         new CustomEvent("preview-image", {
-                          detail: { url: c.args?.["url"] ?? c.args?.["dataUrl"] },
+                          detail: { url: args?.["url"] ?? args?.["dataUrl"] },
                           bubbles: true,
                           composed: true,
                         }),
                       )}
                   />
                 </div>
-              `,
-            )}
+              `;
+            })}
         </div>
         <div class="message-avatar">
           <svg

@@ -708,6 +708,10 @@
       "types": "./dist/plugin-sdk/collection-runtime.d.ts",
       "default": "./dist/plugin-sdk/collection-runtime.js"
     },
+    "./plugin-sdk/collab-runtime": {
+      "types": "./dist/plugin-sdk/collab-runtime.d.ts",
+      "default": "./dist/plugin-sdk/collab-runtime.js"
+    },
     "./plugin-sdk/compat": {
       "types": "./dist/plugin-sdk/compat.d.ts",
       "default": "./dist/plugin-sdk/compat.js"

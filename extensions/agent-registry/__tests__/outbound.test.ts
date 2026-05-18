@@ -10,8 +10,8 @@
 
 import * as fc from "fast-check";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createOutboundAdapter } from "../src/outbound.js";
 import { deserializeEnvelope } from "../src/envelope.js";
+import { createOutboundAdapter } from "../src/outbound.js";
 import type { RegistryEnvelope, SessionContext, OutboundSendParams } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
@@ -69,7 +69,9 @@ function makeMockNatsClient() {
 }
 
 /** Deserialize the first published envelope. */
-function firstPublishedEnvelope(published: Array<{ subject: string; bytes: Uint8Array }>): RegistryEnvelope {
+function firstPublishedEnvelope(
+  published: Array<{ subject: string; bytes: Uint8Array }>,
+): RegistryEnvelope {
   expect(published.length).toBeGreaterThan(0);
   return deserializeEnvelope(published[0]!.bytes);
 }
@@ -85,16 +87,15 @@ const arbNonEmptyTrimmedString = fc
   .string({ minLength: 1, maxLength: 64 })
   .filter((s) => s.trim().length > 0);
 
-const arbAgentId = fc
-  .stringMatching(/^[a-zA-Z0-9_-]{1,32}$/)
-  .filter((s) => s.length > 0);
+const arbAgentId = fc.stringMatching(/^[a-zA-Z0-9_-]{1,32}$/).filter((s) => s.length > 0);
 
 const arbResponseText = fc.string({ minLength: 0, maxLength: 256 });
 
 /** Arbitrary for a unicast session context with a non-empty sourceAgentId. */
-const arbUnicastContext: fc.Arbitrary<SessionContext> = arbNonEmptyTrimmedString.map(
-  (id) => ({ kind: "unicast" as const, sourceAgentId: id }),
-);
+const arbUnicastContext: fc.Arbitrary<SessionContext> = arbNonEmptyTrimmedString.map((id) => ({
+  kind: "unicast" as const,
+  sourceAgentId: id,
+}));
 
 /** Arbitrary for any valid session context. */
 const arbSessionContext: fc.Arbitrary<SessionContext> = fc.oneof(
@@ -102,7 +103,7 @@ const arbSessionContext: fc.Arbitrary<SessionContext> = fc.oneof(
   arbNonEmptyTrimmedString.map((id) => ({ kind: "multicast" as const, groupId: id })),
   arbNonEmptyTrimmedString.map((id) => ({ kind: "discussion" as const, discussionId: id })),
   fc.record({
-    kind: fc.constant("cotask" as const),
+    kind: fc.constant("cowork" as const),
     taskId: arbNonEmptyTrimmedString,
     isComplete: fc.boolean(),
   }),
@@ -117,7 +118,7 @@ const arbInboundEnvelope: fc.Arbitrary<RegistryEnvelope> = fc.record({
   source: arbNonEmptyTrimmedString,
   seq: fc.integer({ min: 0, max: 1_000_000 }),
   action: arbNonEmptyTrimmedString,
-  resource_type: fc.constantFrom("agent", "collaboration", "cotask", "discussion"),
+  resource_type: fc.constantFrom("agent", "collaboration", "cowork", "discussion"),
   payload: fc.dictionary(
     fc.string({ minLength: 1, maxLength: 16 }),
     fc.oneof(fc.string(), fc.integer(), fc.boolean()),
@@ -247,11 +248,11 @@ describe("OutboundAdapter — unit tests", () => {
   it("reply_to takes priority over session context routing", async () => {
     const adapter = createOutboundAdapter({ agentId: "my-agent", natsClient: mockNatsClient });
 
-    // Even with a cotask context, reply_to wins
+    // Even with a cowork context, reply_to wins
     await adapter.send(
       makeSendParams({
         inboundEnvelope: makeInboundEnvelope({ reply_to: "inbox.99999" }),
-        sessionContext: { kind: "cotask", taskId: "task-xyz", isComplete: false },
+        sessionContext: { kind: "cowork", taskId: "task-xyz", isComplete: false },
       }),
     );
 
@@ -260,15 +261,15 @@ describe("OutboundAdapter — unit tests", () => {
   });
 
   // -------------------------------------------------------------------------
-  // cotask isSessionComplete: true → action: "complete"
+  // cowork isSessionComplete: true → action: "complete"
   // -------------------------------------------------------------------------
 
-  it("cotask with isSessionComplete: true produces action 'complete'", async () => {
+  it("cowork with isSessionComplete: true produces action 'complete'", async () => {
     const adapter = createOutboundAdapter({ agentId: "my-agent", natsClient: mockNatsClient });
 
     await adapter.send(
       makeSendParams({
-        sessionContext: { kind: "cotask", taskId: "task-abc", isComplete: false },
+        sessionContext: { kind: "cowork", taskId: "task-abc", isComplete: false },
         isSessionComplete: true,
       }),
     );
@@ -279,15 +280,15 @@ describe("OutboundAdapter — unit tests", () => {
   });
 
   // -------------------------------------------------------------------------
-  // cotask isSessionComplete: false → action: "progress"
+  // cowork isSessionComplete: false → action: "progress"
   // -------------------------------------------------------------------------
 
-  it("cotask with isSessionComplete: false produces action 'progress'", async () => {
+  it("cowork with isSessionComplete: false produces action 'progress'", async () => {
     const adapter = createOutboundAdapter({ agentId: "my-agent", natsClient: mockNatsClient });
 
     await adapter.send(
       makeSendParams({
-        sessionContext: { kind: "cotask", taskId: "task-abc", isComplete: false },
+        sessionContext: { kind: "cowork", taskId: "task-abc", isComplete: false },
         isSessionComplete: false,
       }),
     );
@@ -297,17 +298,17 @@ describe("OutboundAdapter — unit tests", () => {
     expect(envelope.action).toBe("progress");
   });
 
-  it("cotask publishes to a2a.cotask.{taskId}", async () => {
+  it("cowork publishes to a2a.cowork.{taskId}", async () => {
     const adapter = createOutboundAdapter({ agentId: "my-agent", natsClient: mockNatsClient });
 
     await adapter.send(
       makeSendParams({
-        sessionContext: { kind: "cotask", taskId: "task-abc", isComplete: false },
+        sessionContext: { kind: "cowork", taskId: "task-abc", isComplete: false },
         isSessionComplete: false,
       }),
     );
 
-    expect(published[0]!.subject).toBe("a2a.cotask.task-abc");
+    expect(published[0]!.subject).toBe("a2a.cowork.task-abc");
   });
 
   // -------------------------------------------------------------------------
@@ -399,9 +400,7 @@ describe("OutboundAdapter — unit tests", () => {
     const ctx: SessionContext = { kind: "unicast", sourceAgentId: "sender-agent" };
 
     for (let i = 0; i < 5; i++) {
-      await adapter.send(
-        makeSendParams({ sessionContext: ctx, sessionSeq: i }),
-      );
+      await adapter.send(makeSendParams({ sessionContext: ctx, sessionSeq: i }));
     }
 
     expect(published.length).toBe(5);

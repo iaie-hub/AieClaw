@@ -5,10 +5,11 @@
 `agent-registry` 通道插件通过原生 NATS JetStream 将 OpenClaw 连接到 Agent Registry 的 A2A（Agent-to-Agent）协作网络。它遵循 `extensions/telegram/` 所建立的 OpenClaw TypeScript ESM 插件 SDK 模式，使用插件 SDK 中的 `defineBundledChannelEntry` 和 `createChatChannelPlugin` 进行实现。
 
 激活后，该插件将：
+
 1. 连接到 NATS 服务器，并注册从显式配置的技能构建的 AgentCard。
 2. 订阅分配的单播（unicast）、多播（multicast）和广播（broadcast）主题。
 3. 将入站 A2A 消息路由到绑定的 OpenClaw Agent。
-4. 维护一个长效的 **Collaboration_Arbiter** 会话，用于对 `discussion.created` / `cotask.created` 广播进行自主加入决策。
+4. 维护一个长效的 **Collaboration_Arbiter** 会话，用于对 `discussion.created` / `cowork.created` 广播进行自主加入决策。
 5. 以 `floor(TTL/3)` 毫秒为间隔发送心跳，以保持注册状态。
 6. 在关机时进行干净的注销。
 
@@ -236,7 +237,7 @@ interface MessageRouter {
 
 ### CollaborationArbiter (`arbiter.ts`)
 
-维护单一的长效 Bound_Agent 会话。按顺序处理 `discussion.created` 和 `cotask.created` 广播（每次处理一个，决策超时时间为 30 秒）。
+维护单一的长效 Bound_Agent 会话。按顺序处理 `discussion.created` 和 `cowork.created` 广播（每次处理一个，决策超时时间为 30 秒）。
 
 ```typescript
 interface CollaborationArbiterOptions {
@@ -249,7 +250,7 @@ interface CollaborationArbiterOptions {
 interface CollaborationArbiter {
   initialize(): Promise<void>;
   processDiscussionCreated(payload: DiscussionCreatedPayload): Promise<void>;
-  processCotaskCreated(payload: CotaskCreatedPayload): Promise<void>;
+  processCoworkCreated(payload: CoworkCreatedPayload): Promise<void>;
   dispose(): void;
 }
 ```
@@ -273,7 +274,7 @@ interface OutboundAdapter {
 interface OutboundSendParams {
   responseText: string;
   inboundEnvelope: RegistryEnvelope;
-  sessionContext: SessionContext;  // unicast | multicast | discussion | cotask
+  sessionContext: SessionContext; // unicast | multicast | discussion | cowork
   sessionSeq: number;
   isSessionComplete: boolean;
 }
@@ -287,16 +288,17 @@ interface OutboundSendParams {
 
 ```typescript
 interface AgentRegistryConfig {
-  natsUrl: string;                    // AGENT_REGISTRY_NATS_URL
-  agentId: string;                    // AGENT_REGISTRY_AGENT_ID
-  agentName: string;                  // AGENT_REGISTRY_AGENT_NAME
-  natsToken?: string;                 // AGENT_REGISTRY_NATS_TOKEN (可选)
-  skills: string[];                   // AGENT_REGISTRY_SKILLS 解析后的值，默认为 []
-  boundAgentId?: string;              // AGENT_REGISTRY_BOUND_AGENT_ID (可选)
+  natsUrl: string; // AGENT_REGISTRY_NATS_URL
+  agentId: string; // AGENT_REGISTRY_AGENT_ID
+  agentName: string; // AGENT_REGISTRY_AGENT_NAME
+  natsToken?: string; // AGENT_REGISTRY_NATS_TOKEN (可选)
+  skills: string[]; // AGENT_REGISTRY_SKILLS 解析后的值，默认为 []
+  boundAgentId?: string; // AGENT_REGISTRY_BOUND_AGENT_ID (可选)
 }
 ```
 
 验证规则 (需求 9)：
+
 - `natsUrl`: 非空，匹配 `/^nats:\/\/[^:]+:\d{1,5}$/`，且端口号在 1–65535 之间
 - `agentId`: 非空，≤64 字符，匹配 `/^[a-zA-Z0-9_-]+$/`
 - `agentName`: 非空，≤128 字符
@@ -308,16 +310,16 @@ interface AgentRegistryConfig {
 
 ```typescript
 interface RegistryEnvelope {
-  message_id: string;       // UUID v4
-  request_id: string;       // UUID v4 (请求时生成；响应时从请求中复制)
+  message_id: string; // UUID v4
+  request_id: string; // UUID v4 (请求时生成；响应时从请求中复制)
   message_type: "req" | "res" | "event";
-  timestamp: number;        // Unix 时间戳 (毫秒)，非负整数
-  source: string;           // 发送者的 agent_id；若由 Registry 发起则为 "registry"
-  seq: number;              // 非负整数，每个会话单调递增
-  action: string;           // 例如 "register", "heartbeat", "message", "join"
-  resource_type: string;    // "agent" | "collaboration" | "cotask" | "discussion"
+  timestamp: number; // Unix 时间戳 (毫秒)，非负整数
+  source: string; // 发送者的 agent_id；若由 Registry 发起则为 "registry"
+  seq: number; // 非负整数，每个会话单调递增
+  action: string; // 例如 "register", "heartbeat", "message", "join"
+  resource_type: string; // "agent" | "collaboration" | "cowork" | "discussion"
   payload: Record<string, unknown>;
-  reply_to: string | null;  // 请求-响应模式的临时收件箱主题；否则为 null
+  reply_to: string | null; // 请求-响应模式的临时收件箱主题；否则为 null
 }
 ```
 
@@ -328,28 +330,28 @@ interface AgentCard {
   // A2A 标准字段
   name: string;
   description: string;
-  version: string;                    // "1.0.0"
-  url: string;                        // "nats://a2a.agent.unicast.{agentId}"
+  version: string; // "1.0.0"
+  url: string; // "nats://a2a.agent.unicast.{agentId}"
   capabilities: AgentCapabilities;
   skills: AgentSkill[];
-  defaultInputModes: string[];        // ["text/plain"]
-  defaultOutputModes: string[];       // ["text/plain"]
+  defaultInputModes: string[]; // ["text/plain"]
+  defaultOutputModes: string[]; // ["text/plain"]
   securitySchemes?: Record<string, unknown>;
   authentication?: Record<string, unknown>;
   icon?: string;
   // Registry 扩展字段
   agent_id: string;
-  mac: string;                        // 始终为 "00:00:00:00:00:00"
+  mac: string; // 始终为 "00:00:00:00:00:00"
   transport: "mq";
   endpoint?: string;
   status: "online" | "idle" | "busy" | "offline";
 }
 
 interface AgentCapabilities {
-  streaming: boolean;                 // false
-  pushNotifications: boolean;         // false
-  longRunningOperations: boolean;     // true (需求 2.7)
-  stateTransitionHistory: boolean;    // false
+  streaming: boolean; // false
+  pushNotifications: boolean; // false
+  longRunningOperations: boolean; // true (需求 2.7)
+  stateTransitionHistory: boolean; // false
 }
 
 interface AgentSkill {
@@ -367,9 +369,9 @@ interface AgentSkill {
 
 ```typescript
 interface TopicAssignment {
-  unicast: string;          // "a2a.agent.unicast.{agentId}"
-  multicast: string[];      // ["a2a.agent.group.{groupId}", ...]
-  broadcast: string;        // "a2a.agent.broadcast.all"
+  unicast: string; // "a2a.agent.unicast.{agentId}"
+  multicast: string[]; // ["a2a.agent.group.{groupId}", ...]
+  broadcast: string; // "a2a.agent.broadcast.all"
 }
 ```
 
@@ -380,8 +382,8 @@ interface HeartbeatPayload {
   agent_id: string;
   status: "online" | "idle" | "busy" | "offline";
   load: {
-    cpu: number;            // 0.0 (未测量，始终为 0)
-    memory: number;         // 0.0 (未测量，始终为 0)
+    cpu: number; // 0.0 (未测量，始终为 0)
+    memory: number; // 0.0 (未测量，始终为 0)
     active_task_count: number;
   };
 }
@@ -396,7 +398,7 @@ type SessionContext =
   | { kind: "unicast"; sourceAgentId: string }
   | { kind: "multicast"; groupId: string }
   | { kind: "discussion"; discussionId: string }
-  | { kind: "cotask"; taskId: string; isComplete: boolean };
+  | { kind: "cowork"; taskId: string; isComplete: boolean };
 ```
 
 ### PluginStatus
@@ -480,18 +482,18 @@ sequenceDiagram
         else Agent 回答 "否" / 超时
             Arbiter->>Arbiter: 丢弃
         end
-    else 广播: cotask.created
-        Router->>Arbiter: 入队处理 (cotaskPayload)
+    else 广播: cowork.created
+        Router->>Arbiter: 入队处理 (coworkPayload)
         Arbiter->>Agent: 提示 "是否加入协作任务？提供哪些技能？" (30秒超时)
         alt Agent 回答 "是"
-            Arbiter->>NATS: subscribe(a2a.cotask.{id})
+            Arbiter->>NATS: subscribe(a2a.cowork.{id})
             Arbiter->>NATS: 发布 join {action:"join", offered_skills:[...]}
         else Agent 回答 "否" / 超时
             Arbiter->>Arbiter: 丢弃
         end
     else 广播: 其他 action
         Router->>Router: 记录 action, 丢弃
-    else discussion/cotask 主题
+    else discussion/cowork 主题
         Router->>Agent: 获取或创建会话 (基于 topicId)
         Router->>Agent: 分发消息
     end
@@ -515,9 +517,9 @@ sequenceDiagram
     else 讨论上下文
         Outbound->>NATS: publish(a2a.discussion.{id}, envelope)\naction="message"
     else 协作任务上下文, 会话活跃
-        Outbound->>NATS: publish(a2a.cotask.{id}, envelope)\naction="progress"
+        Outbound->>NATS: publish(a2a.cowork.{id}, envelope)\naction="progress"
     else 协作任务上下文, 会话完成
-        Outbound->>NATS: publish(a2a.cotask.{id}, envelope)\naction="complete"
+        Outbound->>NATS: publish(a2a.cowork.{id}, envelope)\naction="complete"
     end
 ```
 
@@ -535,7 +537,7 @@ sequenceDiagram
 
     NATS->>Router: 广播消息 discussion.created (B1)
     Router->>Queue: 入队 (B1)
-    NATS->>Router: 广播消息 cotask.created (B2)
+    NATS->>Router: 广播消息 cowork.created (B2)
     Router->>Queue: 入队 (B2)
 
     Queue->>Arbiter: 处理 B1
@@ -548,7 +550,7 @@ sequenceDiagram
     Queue->>Arbiter: 处理 B2
     Arbiter->>Agent: "协作任务：'全栈部署'\n所需技能：[vm, model, monitor]\n我应该加入吗？可以提供哪些技能？"
     Agent-->>Arbiter: "yes, 我可以提供：[model]"
-    Arbiter->>NATS: subscribe(a2a.cotask.task-yyy)
+    Arbiter->>NATS: subscribe(a2a.cowork.task-yyy)
     Arbiter->>NATS: 发布 join {offered_skills:["model"]}
 ```
 
@@ -579,23 +581,23 @@ sequenceDiagram
 
 ## 错误处理
 
-| 场景 | 行为 |
-|---|---|
-| `AGENT_REGISTRY_NATS_URL` 缺失或格式错误 | 设置状态为 `unavailable`，记录字段名 + 约束 + 预期格式。不尝试连接。 |
-| 必填配置字段验证失败 | 发出验证错误，说明字段、违反的约束及预期格式。拒绝启动。 |
-| 启动时 NATS 无法访问 | 记录包含 `AGENT_REGISTRY_NATS_URL` 的错误，设置状态为 `unavailable`。 |
-| 运行期间 NATS 连接丢失 | 触发指数退避重连（1s → 2s → 4s … 最大 30s）。状态 = `reconnecting`。 |
-| 注册返回 `success=false` | 记录响应中的 `error` 字段，设置状态为 `unavailable`。 |
-| 注册超时 (10秒) | 记录失败原因，设置状态为 `unavailable`。 |
-| 重连后的重新注册 | 重新发布 AgentCard，替换存储的主题 + TTL，重启心跳定时器。 |
-| 心跳发布失败 | 记录包含 `agent_id` + 错误原因的失败信息。在下一个周期继续。 |
-| 入站消息不是有效的 RegistryEnvelope | 记录解析错误（包含原始字节截断至 512 字节）+ 主题。丢弃。 |
-| `AGENT_REGISTRY_SKILLS` 中的技能名未找到 | 记录包含未识别名称的警告。跳过该条目。 |
-| Arbiter 决策超时 (30秒) | 不订阅，丢弃广播。记录超时。 |
-| 注销失败 / 超时 | 记录包含 `agent_id` + 错误的失败信息。继续执行连接拆除。 |
-| 拆除操作超过 10 秒 | 强制关闭 NATS 连接。 |
-| Arbiter 会话意外终止 | 在处理下一个广播前重新创建。 |
-| 单播响应时入站 `source` 字段缺失 | 记录警告，丢弃出站消息。 |
+| 场景                                     | 行为                                                                  |
+| ---------------------------------------- | --------------------------------------------------------------------- |
+| `AGENT_REGISTRY_NATS_URL` 缺失或格式错误 | 设置状态为 `unavailable`，记录字段名 + 约束 + 预期格式。不尝试连接。  |
+| 必填配置字段验证失败                     | 发出验证错误，说明字段、违反的约束及预期格式。拒绝启动。              |
+| 启动时 NATS 无法访问                     | 记录包含 `AGENT_REGISTRY_NATS_URL` 的错误，设置状态为 `unavailable`。 |
+| 运行期间 NATS 连接丢失                   | 触发指数退避重连（1s → 2s → 4s … 最大 30s）。状态 = `reconnecting`。  |
+| 注册返回 `success=false`                 | 记录响应中的 `error` 字段，设置状态为 `unavailable`。                 |
+| 注册超时 (10秒)                          | 记录失败原因，设置状态为 `unavailable`。                              |
+| 重连后的重新注册                         | 重新发布 AgentCard，替换存储的主题 + TTL，重启心跳定时器。            |
+| 心跳发布失败                             | 记录包含 `agent_id` + 错误原因的失败信息。在下一个周期继续。          |
+| 入站消息不是有效的 RegistryEnvelope      | 记录解析错误（包含原始字节截断至 512 字节）+ 主题。丢弃。             |
+| `AGENT_REGISTRY_SKILLS` 中的技能名未找到 | 记录包含未识别名称的警告。跳过该条目。                                |
+| Arbiter 决策超时 (30秒)                  | 不订阅，丢弃广播。记录超时。                                          |
+| 注销失败 / 超时                          | 记录包含 `agent_id` + 错误的失败信息。继续执行连接拆除。              |
+| 拆除操作超过 10 秒                       | 强制关闭 NATS 连接。                                                  |
+| Arbiter 会话意外终止                     | 在处理下一个广播前重新创建。                                          |
+| 单播响应时入站 `source` 字段缺失         | 记录警告，丢弃出站消息。                                              |
 
 ---
 
@@ -603,11 +605,11 @@ sequenceDiagram
 
 需要新增的 npm 包（需添加到 `extensions/agent-registry/package.json`）：
 
-| 包名 | 版本 | 用途 |
-|---|---|---|
+| 包名   | 版本      | 用途                                                 |
+| ------ | --------- | ---------------------------------------------------- |
 | `nats` | `^2.29.0` | 官方 NATS.io TypeScript 客户端 — 原生 JetStream 连接 |
-| `uuid` | `^11.1.0` | 为 `message_id` 和 `request_id` 字段生成 UUID v4 |
-| `zod` | `^3.24.0` | 配置 Schema 验证（与 OpenClaw 代码库模式保持一致） |
+| `uuid` | `^11.1.0` | 为 `message_id` 和 `request_id` 字段生成 UUID v4     |
+| `zod`  | `^3.24.0` | 配置 Schema 验证（与 OpenClaw 代码库模式保持一致）   |
 
 开发依赖项：
 | 包名 | 版本 | 用途 |
@@ -621,9 +623,10 @@ sequenceDiagram
 
 ## 正确性属性 (Correctness Properties)
 
-*属性是跨系统的所有有效执行都应成立的特征或行为 —— 本质上是关于系统应做什么的正式陈述。属性充当了人类可读的规范与机器可验证的正确性保证之间的桥梁。*
+_属性是跨系统的所有有效执行都应成立的特征或行为 —— 本质上是关于系统应做什么的正式陈述。属性充当了人类可读的规范与机器可验证的正确性保证之间的桥梁。_
 
 **属性反射：** 在列出属性之前，消除了冗余：
+
 - AgentCard 字段不变性（2.2, 2.3, 2.4, 2.5, 2.7）被合并为一个综合属性，因为它们都测试同一个 `buildAgentCard()` 函数的输出。
 - 配置验证属性（1.7, 9.1, 9.2, 9.3）被合并，因为它们都使用不同的字段规则测试同一个验证函数。
 - 信封往返 (10.5) 涵盖了各字段的存在性检查（10.1–10.4），因为成功的往返意味着所有必填字段都存在且取值正确。
@@ -633,7 +636,7 @@ sequenceDiagram
 
 ### 属性 1: RegistryEnvelope 序列化往返
 
-*对于任何* 有效的 `RegistryEnvelope` 对象（所有必填字段已填充），将其序列化为 JSON 然后反序列化结果，应产生一个在所有必填字段（`message_id`, `request_id`, `message_type`, `timestamp`, `source`, `seq`, `action`, `resource_type`, `payload`）上与原始对象值相等的对象。
+_对于任何_ 有效的 `RegistryEnvelope` 对象（所有必填字段已填充），将其序列化为 JSON 然后反序列化结果，应产生一个在所有必填字段（`message_id`, `request_id`, `message_type`, `timestamp`, `source`, `seq`, `action`, `resource_type`, `payload`）上与原始对象值相等的对象。
 
 **验证需求：10.1, 10.5**
 
@@ -641,7 +644,7 @@ sequenceDiagram
 
 ### 属性 2: message_id 的唯一性
 
-*对于* 对信封工厂函数的任何两次连续调用，生成的 `message_id` 值应该是不同的（没有两个信封共享相同的 `message_id`）。
+_对于_ 对信封工厂函数的任何两次连续调用，生成的 `message_id` 值应该是不同的（没有两个信封共享相同的 `message_id`）。
 
 **验证需求：10.2**
 
@@ -649,7 +652,7 @@ sequenceDiagram
 
 ### 属性 3: 时间戳是非负整数
 
-*对于* 插件创建的任何信封，`timestamp` 字段应该是一个表示 Unix 时间戳（毫秒）的非负整数，并且应该大于或等于同一进程中之前创建的任何信封的时间戳。
+_对于_ 插件创建的任何信封，`timestamp` 字段应该是一个表示 Unix 时间戳（毫秒）的非负整数，并且应该大于或等于同一进程中之前创建的任何信封的时间戳。
 
 **验证需求：10.3**
 
@@ -657,7 +660,7 @@ sequenceDiagram
 
 ### 属性 4: 每个会话的 seq 单调递增
 
-*对于* 单个 agent 会话中产生的任何出站信封序列，`seq` 值应形成一个从 0 开始的严格递增序列，每个值恰好比前一个值大 1。
+_对于_ 单个 agent 会话中产生的任何出站信封序列，`seq` 值应形成一个从 0 开始的严格递增序列，每个值恰好比前一个值大 1。
 
 **验证需求：10.4, 7.6**
 
@@ -665,7 +668,8 @@ sequenceDiagram
 
 ### 属性 5: AgentCard 不变性
 
-*对于任何* 有效的 `AgentRegistryConfig`，调用 `buildAgentCard(config)` 应产生一张卡片，满足：
+_对于任何_ 有效的 `AgentRegistryConfig`，调用 `buildAgentCard(config)` 应产生一张卡片，满足：
+
 - `card.agent_id === config.agentId`
 - `card.name === config.agentName`
 - `card.mac === "00:00:00:00:00:00"`
@@ -678,7 +682,8 @@ sequenceDiagram
 
 ### 属性 6: AgentCard 技能过滤
 
-*对于任何* 配置的技能名称列表和任何已安装的技能集，`buildAgentCard()` 应产生一个 `skills` 数组，满足：
+_对于任何_ 配置的技能名称列表和任何已安装的技能集，`buildAgentCard()` 应产生一个 `skills` 数组，满足：
+
 - 每个条目的 `name` 都出现在配置的技能名称列表中
 - 每个名称出现在配置列表中的已安装技能都存在于结果中
 - 任何名称未出现在配置列表中的已安装技能都不存在于结果中
@@ -689,7 +694,7 @@ sequenceDiagram
 
 ### 属性 7: 技能字段映射保留
 
-*对于任何* 出现在配置技能列表中的已安装技能，构建出的 AgentCard 中相应的 `AgentSkill` 条目应具有与源安装技能相等的 `id`、`name`、`description` 和 `tags` 值。
+_对于任何_ 出现在配置技能列表中的已安装技能，构建出的 AgentCard 中相应的 `AgentSkill` 条目应具有与源安装技能相等的 `id`、`name`、`description` 和 `tags` 值。
 
 **验证需求：2.6**
 
@@ -697,7 +702,7 @@ sequenceDiagram
 
 ### 属性 8: NATS URL 验证拒绝无效输入
 
-*对于任何* 不匹配 `nats://{host}:{port}` 模式（其中端口是 1 到 65535 之间的整数）的字符串，`validateNatsUrl()` 应返回验证错误。*对于任何* 匹配该模式且具有有效端口的字符串，它应返回成功。
+_对于任何_ 不匹配 `nats://{host}:{port}` 模式（其中端口是 1 到 65535 之间的整数）的字符串，`validateNatsUrl()` 应返回验证错误。_对于任何_ 匹配该模式且具有有效端口的字符串，它应返回成功。
 
 **验证需求：1.7, 9.1**
 
@@ -705,7 +710,7 @@ sequenceDiagram
 
 ### 属性 9: Agent ID 验证
 
-*对于任何* 包含 `[a-zA-Z0-9_-]` 以外字符或超过 64 个字符的字符串，`validateAgentId()` 应返回验证错误。*对于任何* 不超过 64 个字符且仅包含字母数字、连字符和下划线的非空字符串，它应返回成功。
+_对于任何_ 包含 `[a-zA-Z0-9_-]` 以外字符或超过 64 个字符的字符串，`validateAgentId()` 应返回验证错误。_对于任何_ 不超过 64 个字符且仅包含字母数字、连字符和下划线的非空字符串，它应返回成功。
 
 **验证需求：9.2**
 
@@ -713,7 +718,7 @@ sequenceDiagram
 
 ### 属性 10: NATS 令牌包含在连接选项中
 
-*对于任何* 作为 `AGENT_REGISTRY_NATS_TOKEN` 提供的非空令牌字符串，由 `buildNatsConnectOptions(config)` 产生的 NATS 连接选项对象应在 `token` 字段中包含该确切的令牌值。
+_对于任何_ 作为 `AGENT_REGISTRY_NATS_TOKEN` 提供的非空令牌字符串，由 `buildNatsConnectOptions(config)` 产生的 NATS 连接选项对象应在 `token` 字段中包含该确切的令牌值。
 
 **验证需求：1.2**
 
@@ -721,7 +726,7 @@ sequenceDiagram
 
 ### 属性 11: 心跳间隔为 floor(TTL/3)
 
-*对于任何* 由 Registry 返回的正整数 TTL 值（毫秒），由 `computeHeartbeatInterval(ttl)` 计算的心跳定时器间隔应等于 `Math.floor(ttl / 3)`。
+_对于任何_ 由 Registry 返回的正整数 TTL 值（毫秒），由 `computeHeartbeatInterval(ttl)` 计算的心跳定时器间隔应等于 `Math.floor(ttl / 3)`。
 
 **验证需求：5.1**
 
@@ -729,7 +734,8 @@ sequenceDiagram
 
 ### 属性 12: 心跳状态反映活跃会话计数
 
-*对于任何* 非负整数 `activeSessionCount`，`buildHeartbeatPayload(agentId, activeSessionCount)` 应产生一个负载，满足：
+_对于任何_ 非负整数 `activeSessionCount`，`buildHeartbeatPayload(agentId, activeSessionCount)` 应产生一个负载，满足：
+
 - `status === "busy"` 当且仅当 `activeSessionCount > 0`
 - `load.active_task_count === activeSessionCount`
 
@@ -739,7 +745,8 @@ sequenceDiagram
 
 ### 属性 13: 出站信封正确封装响应
 
-*对于任何* 响应文本字符串和有效的会话上下文，`wrapOutboundResponse(text, context, agentId, seq)` 应产生一个 `RegistryEnvelope`，满足：
+_对于任何_ 响应文本字符串和有效的会话上下文，`wrapOutboundResponse(text, context, agentId, seq)` 应产生一个 `RegistryEnvelope`，满足：
+
 - `source === agentId`
 - `message_type === "req"`
 - `message_id` 是有效的 UUID v4
@@ -780,6 +787,7 @@ it.prop([arbitraryRegistryEnvelope()])("往返保留所有必填字段", (envelo
 ```
 
 **作为基于属性的测试实现的属性：**
+
 - 属性 1：`envelope.test.ts` — 往返序列化
 - 属性 2：`envelope.test.ts` — message_id 唯一性
 - 属性 3：`envelope.test.ts` — 时间戳有效性
@@ -827,6 +835,7 @@ export default defineConfig({
 ```
 
 用于属性测试的 fast-check 配置：
+
 ```typescript
 import { configureGlobal } from "fast-check";
 configureGlobal({ numRuns: 100 });

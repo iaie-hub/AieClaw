@@ -5,10 +5,11 @@
 The `agent-registry` channel plugin connects OpenClaw to an Agent Registry's A2A (Agent-to-Agent) collaboration network via native NATS JetStream. It follows the OpenClaw TypeScript ESM plugin SDK patterns established by `extensions/telegram/`, using `defineBundledChannelEntry` and `createChatChannelPlugin` from the plugin SDK.
 
 When active, the plugin:
+
 1. Connects to a NATS server and registers an AgentCard built from explicitly configured skills
 2. Subscribes to assigned unicast, multicast, and broadcast topics
 3. Routes inbound A2A messages to a bound OpenClaw Agent
-4. Maintains a long-lived **Collaboration_Arbiter** session for autonomous join decisions on `discussion.created` / `cotask.created` broadcasts
+4. Maintains a long-lived **Collaboration_Arbiter** session for autonomous join decisions on `discussion.created` / `cowork.created` broadcasts
 5. Sends heartbeats at `floor(TTL/3)` ms intervals to keep the registration alive
 6. Deregisters cleanly on shutdown
 
@@ -236,7 +237,7 @@ interface MessageRouter {
 
 ### CollaborationArbiter (`arbiter.ts`)
 
-Maintains a single long-lived Bound_Agent session. Processes `discussion.created` and `cotask.created` broadcasts sequentially (one at a time, 30 s timeout per decision).
+Maintains a single long-lived Bound_Agent session. Processes `discussion.created` and `cowork.created` broadcasts sequentially (one at a time, 30 s timeout per decision).
 
 ```typescript
 interface CollaborationArbiterOptions {
@@ -249,7 +250,7 @@ interface CollaborationArbiterOptions {
 interface CollaborationArbiter {
   initialize(): Promise<void>;
   processDiscussionCreated(payload: DiscussionCreatedPayload): Promise<void>;
-  processCotaskCreated(payload: CotaskCreatedPayload): Promise<void>;
+  processCoworkCreated(payload: CoworkCreatedPayload): Promise<void>;
   dispose(): void;
 }
 ```
@@ -273,7 +274,7 @@ interface OutboundAdapter {
 interface OutboundSendParams {
   responseText: string;
   inboundEnvelope: RegistryEnvelope;
-  sessionContext: SessionContext;  // unicast | multicast | discussion | cotask
+  sessionContext: SessionContext; // unicast | multicast | discussion | cowork
   sessionSeq: number;
   isSessionComplete: boolean;
 }
@@ -287,16 +288,17 @@ interface OutboundSendParams {
 
 ```typescript
 interface AgentRegistryConfig {
-  natsUrl: string;                    // AGENT_REGISTRY_NATS_URL
-  agentId: string;                    // AGENT_REGISTRY_AGENT_ID
-  agentName: string;                  // AGENT_REGISTRY_AGENT_NAME
-  natsToken?: string;                 // AGENT_REGISTRY_NATS_TOKEN (optional)
-  skills: string[];                   // AGENT_REGISTRY_SKILLS parsed, default []
-  boundAgentId?: string;              // AGENT_REGISTRY_BOUND_AGENT_ID (optional)
+  natsUrl: string; // AGENT_REGISTRY_NATS_URL
+  agentId: string; // AGENT_REGISTRY_AGENT_ID
+  agentName: string; // AGENT_REGISTRY_AGENT_NAME
+  natsToken?: string; // AGENT_REGISTRY_NATS_TOKEN (optional)
+  skills: string[]; // AGENT_REGISTRY_SKILLS parsed, default []
+  boundAgentId?: string; // AGENT_REGISTRY_BOUND_AGENT_ID (optional)
 }
 ```
 
 Validation rules (Requirement 9):
+
 - `natsUrl`: non-empty, matches `/^nats:\/\/[^:]+:\d{1,5}$/` where port 1–65535
 - `agentId`: non-empty, ≤64 chars, `/^[a-zA-Z0-9_-]+$/`
 - `agentName`: non-empty, ≤128 chars
@@ -308,16 +310,16 @@ Validation rules (Requirement 9):
 
 ```typescript
 interface RegistryEnvelope {
-  message_id: string;       // UUID v4
-  request_id: string;       // UUID v4 (req: generated; res: copied from req)
+  message_id: string; // UUID v4
+  request_id: string; // UUID v4 (req: generated; res: copied from req)
   message_type: "req" | "res" | "event";
-  timestamp: number;        // Unix epoch ms, non-negative integer
-  source: string;           // sender agent_id; "registry" for Registry-originated
-  seq: number;              // non-negative integer, monotonically increasing per session
-  action: string;           // e.g. "register", "heartbeat", "message", "join"
-  resource_type: string;    // "agent" | "collaboration" | "cotask" | "discussion"
+  timestamp: number; // Unix epoch ms, non-negative integer
+  source: string; // sender agent_id; "registry" for Registry-originated
+  seq: number; // non-negative integer, monotonically increasing per session
+  action: string; // e.g. "register", "heartbeat", "message", "join"
+  resource_type: string; // "agent" | "collaboration" | "cowork" | "discussion"
   payload: Record<string, unknown>;
-  reply_to: string | null;  // temporary inbox subject for request-reply; null otherwise
+  reply_to: string | null; // temporary inbox subject for request-reply; null otherwise
 }
 ```
 
@@ -328,28 +330,28 @@ interface AgentCard {
   // A2A standard fields
   name: string;
   description: string;
-  version: string;                    // "1.0.0"
-  url: string;                        // "nats://a2a.agent.unicast.{agentId}"
+  version: string; // "1.0.0"
+  url: string; // "nats://a2a.agent.unicast.{agentId}"
   capabilities: AgentCapabilities;
   skills: AgentSkill[];
-  defaultInputModes: string[];        // ["text/plain"]
-  defaultOutputModes: string[];       // ["text/plain"]
+  defaultInputModes: string[]; // ["text/plain"]
+  defaultOutputModes: string[]; // ["text/plain"]
   securitySchemes?: Record<string, unknown>;
   authentication?: Record<string, unknown>;
   icon?: string;
   // Registry extension fields
   agent_id: string;
-  mac: string;                        // always "00:00:00:00:00:00"
+  mac: string; // always "00:00:00:00:00:00"
   transport: "mq";
   endpoint?: string;
   status: "online" | "idle" | "busy" | "offline";
 }
 
 interface AgentCapabilities {
-  streaming: boolean;                 // false
-  pushNotifications: boolean;         // false
-  longRunningOperations: boolean;     // true (Requirement 2.7)
-  stateTransitionHistory: boolean;    // false
+  streaming: boolean; // false
+  pushNotifications: boolean; // false
+  longRunningOperations: boolean; // true (Requirement 2.7)
+  stateTransitionHistory: boolean; // false
 }
 
 interface AgentSkill {
@@ -367,9 +369,9 @@ interface AgentSkill {
 
 ```typescript
 interface TopicAssignment {
-  unicast: string;          // "a2a.agent.unicast.{agentId}"
-  multicast: string[];      // ["a2a.agent.group.{groupId}", ...]
-  broadcast: string;        // "a2a.agent.broadcast.all"
+  unicast: string; // "a2a.agent.unicast.{agentId}"
+  multicast: string[]; // ["a2a.agent.group.{groupId}", ...]
+  broadcast: string; // "a2a.agent.broadcast.all"
 }
 ```
 
@@ -380,8 +382,8 @@ interface HeartbeatPayload {
   agent_id: string;
   status: "online" | "idle" | "busy" | "offline";
   load: {
-    cpu: number;            // 0.0 (not measured, always 0)
-    memory: number;         // 0.0 (not measured, always 0)
+    cpu: number; // 0.0 (not measured, always 0)
+    memory: number; // 0.0 (not measured, always 0)
     active_task_count: number;
   };
 }
@@ -396,7 +398,7 @@ type SessionContext =
   | { kind: "unicast"; sourceAgentId: string }
   | { kind: "multicast"; groupId: string }
   | { kind: "discussion"; discussionId: string }
-  | { kind: "cotask"; taskId: string; isComplete: boolean };
+  | { kind: "cowork"; taskId: string; isComplete: boolean };
 ```
 
 ### PluginStatus
@@ -480,18 +482,18 @@ sequenceDiagram
         else Agent says no / timeout
             Arbiter->>Arbiter: discard
         end
-    else broadcast: cotask.created
-        Router->>Arbiter: enqueue(cotaskPayload)
-        Arbiter->>Agent: prompt "join cotask? which skills?" (30s timeout)
+    else broadcast: cowork.created
+        Router->>Arbiter: enqueue(coworkPayload)
+        Arbiter->>Agent: prompt "join cowork? which skills?" (30s timeout)
         alt Agent says yes
-            Arbiter->>NATS: subscribe(a2a.cotask.{id})
+            Arbiter->>NATS: subscribe(a2a.cowork.{id})
             Arbiter->>NATS: publish join {action:"join", offered_skills:[...]}
         else Agent says no / timeout
             Arbiter->>Arbiter: discard
         end
     else broadcast: other action
         Router->>Router: log action, discard
-    else discussion/cotask topic
+    else discussion/cowork topic
         Router->>Agent: getOrCreate session(topicId)
         Router->>Agent: dispatch message
     end
@@ -514,10 +516,10 @@ sequenceDiagram
         Outbound->>NATS: publish(a2a.agent.unicast.{source}, envelope)
     else discussion context
         Outbound->>NATS: publish(a2a.discussion.{id}, envelope)\naction="message"
-    else cotask context, session active
-        Outbound->>NATS: publish(a2a.cotask.{id}, envelope)\naction="progress"
-    else cotask context, session complete
-        Outbound->>NATS: publish(a2a.cotask.{id}, envelope)\naction="complete"
+    else cowork context, session active
+        Outbound->>NATS: publish(a2a.cowork.{id}, envelope)\naction="progress"
+    else cowork context, session complete
+        Outbound->>NATS: publish(a2a.cowork.{id}, envelope)\naction="complete"
     end
 ```
 
@@ -535,7 +537,7 @@ sequenceDiagram
 
     NATS->>Router: broadcast discussion.created (B1)
     Router->>Queue: enqueue(B1)
-    NATS->>Router: broadcast cotask.created (B2)
+    NATS->>Router: broadcast cowork.created (B2)
     Router->>Queue: enqueue(B2)
 
     Queue->>Arbiter: process B1
@@ -546,9 +548,9 @@ sequenceDiagram
     Queue->>Queue: B1 done, dequeue B2
 
     Queue->>Arbiter: process B2
-    Arbiter->>Agent: "Cotask: 'Full-stack Deploy'\nRequired skills: [vm, model, monitor]\nShould I join? Which skills can I offer?"
+    Arbiter->>Agent: "Cowork: 'Full-stack Deploy'\nRequired skills: [vm, model, monitor]\nShould I join? Which skills can I offer?"
     Agent-->>Arbiter: "yes, I can offer: [model]"
-    Arbiter->>NATS: subscribe(a2a.cotask.task-yyy)
+    Arbiter->>NATS: subscribe(a2a.cowork.task-yyy)
     Arbiter->>NATS: publish join {offered_skills:["model"]}
 ```
 
@@ -579,23 +581,23 @@ sequenceDiagram
 
 ## Error Handling
 
-| Scenario | Behavior |
-|---|---|
-| `AGENT_REGISTRY_NATS_URL` absent or malformed | Set status `unavailable`, log field name + constraint + expected format. No connection attempt. |
-| Required config field fails validation | Emit validation error naming the field, violated constraint, expected format. Refuse to start. |
-| NATS unreachable at startup | Log error including `AGENT_REGISTRY_NATS_URL`, set status `unavailable`. |
-| NATS connection lost during operation | Trigger reconnect with exponential backoff (1s → 2s → 4s … max 30s). Status = `reconnecting`. |
-| Registration `success=false` | Log `error` field from response, set status `unavailable`. |
-| Registration timeout (10s) | Log failure reason, set status `unavailable`. |
-| Re-registration after reconnect | Re-publish AgentCard, replace stored topics + TTL, restart heartbeat timer. |
-| Heartbeat publish fails | Log failure with `agent_id` + error reason. Continue on next interval. |
-| Inbound message not valid RegistryEnvelope | Log parse error with raw bytes (truncated to 512 bytes) + subject. Discard. |
-| Skill name in `AGENT_REGISTRY_SKILLS` not found | Log warning with unresolved name. Skip that entry. |
-| Arbiter decision timeout (30s) | Do not subscribe, discard broadcast. Log timeout. |
-| Deregister fails / timeout | Log failure with `agent_id` + error. Proceed with connection teardown. |
-| Teardown exceeds 10s | Force-close NATS connection. |
-| Arbiter session terminates unexpectedly | Recreate before processing next broadcast. |
-| Inbound `source` field absent on unicast response | Log warning, discard outbound message. |
+| Scenario                                          | Behavior                                                                                        |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `AGENT_REGISTRY_NATS_URL` absent or malformed     | Set status `unavailable`, log field name + constraint + expected format. No connection attempt. |
+| Required config field fails validation            | Emit validation error naming the field, violated constraint, expected format. Refuse to start.  |
+| NATS unreachable at startup                       | Log error including `AGENT_REGISTRY_NATS_URL`, set status `unavailable`.                        |
+| NATS connection lost during operation             | Trigger reconnect with exponential backoff (1s → 2s → 4s … max 30s). Status = `reconnecting`.   |
+| Registration `success=false`                      | Log `error` field from response, set status `unavailable`.                                      |
+| Registration timeout (10s)                        | Log failure reason, set status `unavailable`.                                                   |
+| Re-registration after reconnect                   | Re-publish AgentCard, replace stored topics + TTL, restart heartbeat timer.                     |
+| Heartbeat publish fails                           | Log failure with `agent_id` + error reason. Continue on next interval.                          |
+| Inbound message not valid RegistryEnvelope        | Log parse error with raw bytes (truncated to 512 bytes) + subject. Discard.                     |
+| Skill name in `AGENT_REGISTRY_SKILLS` not found   | Log warning with unresolved name. Skip that entry.                                              |
+| Arbiter decision timeout (30s)                    | Do not subscribe, discard broadcast. Log timeout.                                               |
+| Deregister fails / timeout                        | Log failure with `agent_id` + error. Proceed with connection teardown.                          |
+| Teardown exceeds 10s                              | Force-close NATS connection.                                                                    |
+| Arbiter session terminates unexpectedly           | Recreate before processing next broadcast.                                                      |
+| Inbound `source` field absent on unicast response | Log warning, discard outbound message.                                                          |
 
 ---
 
@@ -603,11 +605,11 @@ sequenceDiagram
 
 New npm packages required (to add to `extensions/agent-registry/package.json`):
 
-| Package | Version | Purpose |
-|---|---|---|
-| `nats` | `^2.29.0` | Official NATS.io TypeScript client — native JetStream connection |
-| `uuid` | `^11.1.0` | UUID v4 generation for `message_id` and `request_id` fields |
-| `zod` | `^3.24.0` | Config schema validation (consistent with OpenClaw codebase patterns) |
+| Package | Version   | Purpose                                                               |
+| ------- | --------- | --------------------------------------------------------------------- |
+| `nats`  | `^2.29.0` | Official NATS.io TypeScript client — native JetStream connection      |
+| `uuid`  | `^11.1.0` | UUID v4 generation for `message_id` and `request_id` fields           |
+| `zod`   | `^3.24.0` | Config schema validation (consistent with OpenClaw codebase patterns) |
 
 Dev dependencies:
 | Package | Version | Purpose |
@@ -617,14 +619,14 @@ Dev dependencies:
 
 The `nats` package provides `connect()`, `StringCodec`, `JSONCodec`, request-reply via `nc.request()`, and subscription management. It handles reconnect internally when configured with `reconnect: true`.
 
-
 ---
 
 ## Correctness Properties
 
-*A property is a characteristic or behavior that should hold true across all valid executions of a system — essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
+_A property is a characteristic or behavior that should hold true across all valid executions of a system — essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees._
 
 **Property Reflection:** Before listing properties, redundancies were eliminated:
+
 - AgentCard field invariants (2.2, 2.3, 2.4, 2.5, 2.7) are combined into a single comprehensive property since they all test the same `buildAgentCard()` function output.
 - Config validation properties (1.7, 9.1, 9.2, 9.3) are combined since they all test the same validation function with different field rules.
 - Envelope round-trip (10.5) subsumes the individual field presence checks (10.1–10.4) since a successful round-trip implies all required fields were present and correctly valued.
@@ -634,7 +636,7 @@ The `nats` package provides `connect()`, `StringCodec`, `JSONCodec`, request-rep
 
 ### Property 1: RegistryEnvelope serialization round-trip
 
-*For any* valid `RegistryEnvelope` object (with all required fields populated), serializing it to JSON and then deserializing the result should produce an object with field values equal to those of the original for all required fields (`message_id`, `request_id`, `message_type`, `timestamp`, `source`, `seq`, `action`, `resource_type`, `payload`).
+_For any_ valid `RegistryEnvelope` object (with all required fields populated), serializing it to JSON and then deserializing the result should produce an object with field values equal to those of the original for all required fields (`message_id`, `request_id`, `message_type`, `timestamp`, `source`, `seq`, `action`, `resource_type`, `payload`).
 
 **Validates: Requirements 10.1, 10.5**
 
@@ -642,7 +644,7 @@ The `nats` package provides `connect()`, `StringCodec`, `JSONCodec`, request-rep
 
 ### Property 2: message_id uniqueness
 
-*For any* two successive calls to the envelope factory function, the generated `message_id` values should be distinct (no two envelopes share the same `message_id`).
+_For any_ two successive calls to the envelope factory function, the generated `message_id` values should be distinct (no two envelopes share the same `message_id`).
 
 **Validates: Requirements 10.2**
 
@@ -650,7 +652,7 @@ The `nats` package provides `connect()`, `StringCodec`, `JSONCodec`, request-rep
 
 ### Property 3: timestamp is a non-negative integer
 
-*For any* envelope created by the plugin, the `timestamp` field should be a non-negative integer representing Unix epoch milliseconds, and should be greater than or equal to the timestamp of any envelope created before it in the same process.
+_For any_ envelope created by the plugin, the `timestamp` field should be a non-negative integer representing Unix epoch milliseconds, and should be greater than or equal to the timestamp of any envelope created before it in the same process.
 
 **Validates: Requirements 10.3**
 
@@ -658,7 +660,7 @@ The `nats` package provides `connect()`, `StringCodec`, `JSONCodec`, request-rep
 
 ### Property 4: seq is monotonically increasing per session
 
-*For any* sequence of outbound envelopes produced within a single agent session, the `seq` values should form a strictly increasing sequence starting from 0, with each value exactly 1 greater than the previous.
+_For any_ sequence of outbound envelopes produced within a single agent session, the `seq` values should form a strictly increasing sequence starting from 0, with each value exactly 1 greater than the previous.
 
 **Validates: Requirements 10.4, 7.6**
 
@@ -666,7 +668,8 @@ The `nats` package provides `connect()`, `StringCodec`, `JSONCodec`, request-rep
 
 ### Property 5: AgentCard invariants
 
-*For any* valid `AgentRegistryConfig`, calling `buildAgentCard(config)` should produce a card where:
+_For any_ valid `AgentRegistryConfig`, calling `buildAgentCard(config)` should produce a card where:
+
 - `card.agent_id === config.agentId`
 - `card.name === config.agentName`
 - `card.mac === "00:00:00:00:00:00"`
@@ -679,7 +682,8 @@ The `nats` package provides `connect()`, `StringCodec`, `JSONCodec`, request-rep
 
 ### Property 6: AgentCard skill filtering
 
-*For any* list of configured skill names and any set of installed skills, `buildAgentCard()` should produce a `skills` array where:
+_For any_ list of configured skill names and any set of installed skills, `buildAgentCard()` should produce a `skills` array where:
+
 - Every entry's `name` appears in the configured skill names list
 - Every installed skill whose name appears in the configured list is present in the result
 - No installed skill whose name does not appear in the configured list is present in the result
@@ -690,7 +694,7 @@ The `nats` package provides `connect()`, `StringCodec`, `JSONCodec`, request-rep
 
 ### Property 7: Skill field mapping preservation
 
-*For any* installed skill that appears in the configured skills list, the corresponding `AgentSkill` entry in the built AgentCard should have `id`, `name`, `description`, and `tags` values equal to those of the source installed skill.
+_For any_ installed skill that appears in the configured skills list, the corresponding `AgentSkill` entry in the built AgentCard should have `id`, `name`, `description`, and `tags` values equal to those of the source installed skill.
 
 **Validates: Requirements 2.6**
 
@@ -698,7 +702,7 @@ The `nats` package provides `connect()`, `StringCodec`, `JSONCodec`, request-rep
 
 ### Property 8: NATS URL validation rejects invalid inputs
 
-*For any* string that does not match the pattern `nats://{host}:{port}` where port is an integer between 1 and 65535, `validateNatsUrl()` should return a validation error. *For any* string that does match the pattern with a valid port, it should return success.
+_For any_ string that does not match the pattern `nats://{host}:{port}` where port is an integer between 1 and 65535, `validateNatsUrl()` should return a validation error. _For any_ string that does match the pattern with a valid port, it should return success.
 
 **Validates: Requirements 1.7, 9.1**
 
@@ -706,7 +710,7 @@ The `nats` package provides `connect()`, `StringCodec`, `JSONCodec`, request-rep
 
 ### Property 9: Agent ID validation
 
-*For any* string that contains characters outside `[a-zA-Z0-9_-]` or exceeds 64 characters, `validateAgentId()` should return a validation error. *For any* non-empty string of at most 64 characters containing only alphanumeric characters, hyphens, and underscores, it should return success.
+_For any_ string that contains characters outside `[a-zA-Z0-9_-]` or exceeds 64 characters, `validateAgentId()` should return a validation error. _For any_ non-empty string of at most 64 characters containing only alphanumeric characters, hyphens, and underscores, it should return success.
 
 **Validates: Requirements 9.2**
 
@@ -714,7 +718,7 @@ The `nats` package provides `connect()`, `StringCodec`, `JSONCodec`, request-rep
 
 ### Property 10: NATS token included in connect options
 
-*For any* non-empty token string provided as `AGENT_REGISTRY_NATS_TOKEN`, the NATS connect options object produced by `buildNatsConnectOptions(config)` should include that exact token value in the `token` field.
+_For any_ non-empty token string provided as `AGENT_REGISTRY_NATS_TOKEN`, the NATS connect options object produced by `buildNatsConnectOptions(config)` should include that exact token value in the `token` field.
 
 **Validates: Requirements 1.2**
 
@@ -722,7 +726,7 @@ The `nats` package provides `connect()`, `StringCodec`, `JSONCodec`, request-rep
 
 ### Property 11: Heartbeat interval is floor(TTL/3)
 
-*For any* positive integer TTL value (in milliseconds) returned by the Registry, the heartbeat timer interval computed by `computeHeartbeatInterval(ttl)` should equal `Math.floor(ttl / 3)`.
+_For any_ positive integer TTL value (in milliseconds) returned by the Registry, the heartbeat timer interval computed by `computeHeartbeatInterval(ttl)` should equal `Math.floor(ttl / 3)`.
 
 **Validates: Requirements 5.1**
 
@@ -730,7 +734,8 @@ The `nats` package provides `connect()`, `StringCodec`, `JSONCodec`, request-rep
 
 ### Property 12: Heartbeat status reflects active session count
 
-*For any* non-negative integer `activeSessionCount`, `buildHeartbeatPayload(agentId, activeSessionCount)` should produce a payload where:
+_For any_ non-negative integer `activeSessionCount`, `buildHeartbeatPayload(agentId, activeSessionCount)` should produce a payload where:
+
 - `status === "busy"` if and only if `activeSessionCount > 0`
 - `load.active_task_count === activeSessionCount`
 
@@ -740,7 +745,8 @@ The `nats` package provides `connect()`, `StringCodec`, `JSONCodec`, request-rep
 
 ### Property 13: Outbound envelope wraps response correctly
 
-*For any* response text string and valid session context, `wrapOutboundResponse(text, context, agentId, seq)` should produce a `RegistryEnvelope` where:
+_For any_ response text string and valid session context, `wrapOutboundResponse(text, context, agentId, seq)` should produce a `RegistryEnvelope` where:
+
 - `source === agentId`
 - `message_type === "req"`
 - `message_id` is a valid UUID v4
@@ -781,6 +787,7 @@ it.prop([arbitraryRegistryEnvelope()])("round-trip preserves all required fields
 ```
 
 **Properties to implement as property-based tests:**
+
 - Property 1: `envelope.test.ts` — round-trip serialization
 - Property 2: `envelope.test.ts` — message_id uniqueness
 - Property 3: `envelope.test.ts` — timestamp validity
@@ -805,7 +812,7 @@ Focus on specific scenarios not covered by property tests:
 - **Heartbeat lifecycle**: timer starts after registration, stops on plugin stop, restarts with new TTL on re-registration
 - **Message routing**: unicast → source session created; multicast → least-loaded session; broadcast `discussion.created` → arbiter enqueued; broadcast unknown action → discarded
 - **Arbiter sequential processing**: two concurrent broadcasts processed one at a time
-- **Outbound routing**: `reply_to` present → publish to `reply_to`; cotask complete → action `"complete"`
+- **Outbound routing**: `reply_to` present → publish to `reply_to`; cowork complete → action `"complete"`
 - **Deregistration**: correct envelope sent, failure logged and teardown continues
 - **Shutdown timeout**: force-close triggered if teardown exceeds 10 s
 
@@ -828,6 +835,7 @@ export default defineConfig({
 ```
 
 fast-check configuration for property tests:
+
 ```typescript
 import { configureGlobal } from "fast-check";
 configureGlobal({ numRuns: 100 });

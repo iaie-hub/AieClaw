@@ -28,6 +28,8 @@ export interface NATSClient {
   unsubscribeAll(): Promise<void>;
   drain(timeoutMs: number): Promise<void>;
   close(): Promise<void>;
+  /** Generate a unique temporary inbox subject for request-reply patterns. */
+  newInbox(): string;
   readonly isConnected: boolean;
 }
 
@@ -68,7 +70,7 @@ export interface RegistryEnvelope {
   seq: number;
   /** e.g. "register", "heartbeat", "message", "join" */
   action: string;
-  /** "agent" | "collaboration" | "cotask" | "discussion" */
+  /** "agent" | "collaboration" | "cowork" | "discussion" */
   resource_type: string;
   payload: Record<string, unknown>;
   /** Temporary inbox subject for request-reply; null otherwise */
@@ -159,7 +161,7 @@ export type SessionContext =
   | { kind: "unicast"; sourceAgentId: string }
   | { kind: "multicast"; groupId: string }
   | { kind: "discussion"; discussionId: string }
-  | { kind: "cotask"; taskId: string; isComplete: boolean };
+  | { kind: "cowork"; taskId: string; isComplete: boolean };
 
 // ---------------------------------------------------------------------------
 // Plugin status
@@ -180,6 +182,8 @@ export type PluginStatus =
 
 export interface RegisterResult {
   ok: boolean;
+  /** Effective agent_id assigned by the Registry (may differ from requested id when a suffix was applied). */
+  agentId?: string;
   topics?: TopicAssignment;
   ttlMs?: number;
   error?: string;
@@ -222,10 +226,18 @@ export interface RegistrationManagerOptions {
   config: AgentRegistryConfig;
   natsClient: NATSClient;
   getInstalledSkills: () => Promise<InstalledSkill[]>;
+  /**
+   * Returns the description string to embed in the AgentCard.
+   * Implementations should read the bound agent's AGENTS.md (falling back to
+   * the default agent's AGENTS.md when no bound agent is configured).
+   * Falls back to the agent name when the file is unavailable.
+   */
+  getAgentDescription?: () => Promise<string>;
 }
 
 export interface HeartbeatManagerOptions {
-  agentId: string;
+  /** Returns the effective agent_id (may change after registration assigns a suffix). */
+  getAgentId: () => string;
   natsClient: NATSClient;
   getActiveSessionCount: () => number;
 }
@@ -241,6 +253,8 @@ export interface MessageRouterOptions {
 
 export interface CollaborationArbiterOptions {
   boundAgentId: string;
+  /** Returns the effective registry agent_id (may change after registration assigns a suffix). */
+  getEffectiveAgentId: () => string;
   natsClient: NATSClient;
   createArbiterSession: (agentId: string) => AgentSession;
   configuredSkills: string[];
@@ -250,10 +264,21 @@ export interface CollaborationArbiterOptions {
    * Returns an empty string when the workspace is unavailable or files are missing.
    */
   getCapabilityContext: () => Promise<string>;
+  /**
+   * Returns the inbound message handler for a given collaboration topic.
+   * Called when the arbiter decides to join a discussion or cowork; the
+   * returned handler is used as the NATS subscription callback so that
+   * incoming messages on the topic are routed through the MessageRouter.
+   *
+   * This MUST be provided by channel.ts by closing over the MessageRouter
+   * reference (which is created after the arbiter, hence the callback pattern).
+   */
+  createCollaborationTopicHandler: (topic: string) => (bytes: Uint8Array) => void;
 }
 
 export interface OutboundAdapterOptions {
-  agentId: string;
+  /** Returns the effective agent_id (may change after registration assigns a suffix). */
+  getAgentId: () => string;
   natsClient: NATSClient;
 }
 
@@ -273,6 +298,6 @@ export interface OutboundSendParams {
 export interface CollaborationArbiter {
   initialize(): Promise<void>;
   processDiscussionCreated(payload: Record<string, unknown>): Promise<void>;
-  processCotaskCreated(payload: Record<string, unknown>): Promise<void>;
+  processCoworkCreated(payload: Record<string, unknown>): Promise<void>;
   dispose(): void;
 }

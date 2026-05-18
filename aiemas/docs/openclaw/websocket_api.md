@@ -165,15 +165,16 @@
 
 ### 3. Aiemas (MAS4S) 协作事件
 
-| 事件                      | 说明                         |
-| :------------------------ | :--------------------------- |
-| `user.presence`           | 租户内协同用户的在线状态变更 |
-| `session.joined`          | 当前用户被邀请加入某会话     |
-| `session.removed`         | 当前用户被移出会话           |
-| `session.archived`        | 会话归档通知                 |
-| `session.unarchived`      | 会话取消归档通知             |
-| `session.summary.updated` | 会话摘要完成更新             |
-| `topology.changed`        | Agent 拓扑关系变更通知       |
+| 事件                      | 说明                          |
+| :------------------------ | :---------------------------- |
+| `user.presence`           | 租户内协同用户的在线状态变更  |
+| `session.joined`          | 当前用户被邀请加入某会话      |
+| `session.removed`         | 当前用户被移出会话            |
+| `session.archived`        | 会话归档通知                  |
+| `session.unarchived`      | 会话取消归档通知              |
+| `session.summary.updated` | 会话摘要完成更新              |
+| `topology.changed`        | Agent 拓扑关系变更通知        |
+| `collab.message`          | 实时协作消息（讨论/协同任务） |
 
 ### 4. 审批、安全与自动化
 
@@ -448,6 +449,34 @@
   }
 }
 ```
+
+### 4. 实时协作消息 (collab.message)
+
+当 Agent 之间发生 A2A 协作（讨论或协同任务）时，网关将 NATS 协作消息实时广播给所有连接的 mas4s UI 客户端。
+
+- **触发时机**：NATS topic `a2a.discussion.*` 或 `a2a.cowork.*` 上有消息到达时
+- **方向**：服务端 → 所有已连接客户端（仅推送，无需客户端订阅）
+
+```json
+{
+  "type": "event",
+  "event": "collab.message",
+  "payload": {
+    "topic": "a2a.discussion.disc-abc123",
+    "data": {
+      "sender": { "agentId": "aieiaas", "tenantId": "default" },
+      "recipients": ["aieiaas-model"],
+      "messageType": "request",
+      "body": "请分析当前数据集的特征分布…"
+    }
+  }
+}
+```
+
+| 字段            | 类型   | 说明                                                                    |
+| :-------------- | :----- | :---------------------------------------------------------------------- |
+| `payload.topic` | string | 完整的 NATS topic，如 `a2a.discussion.disc-abc` / `a2a.cowork.task-xyz` |
+| `payload.data`  | object | 原始的 AgentRegistry 消息信封（RegistryEnvelope），结构由协作协议定义   |
 
 ---
 

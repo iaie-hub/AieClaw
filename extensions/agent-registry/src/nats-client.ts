@@ -8,7 +8,7 @@
  * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 4.1, 4.2, 4.3
  */
 
-import { connect, Events } from "nats";
+import { connect, createInbox, Events } from "nats";
 import type { NatsConnection, Subscription } from "nats";
 import { buildNatsConnectOptions } from "./config.js";
 import { createLogger } from "./logger.js";
@@ -104,10 +104,7 @@ export function createNATSClient(options: NATSClientOptions): NATSClient {
   // subscribe
   // ---------------------------------------------------------------------------
 
-  function subscribe(
-    subject: string,
-    handler: (msg: Uint8Array) => void,
-  ): NATSSubscription {
+  function subscribe(subject: string, handler: (msg: Uint8Array) => void): NATSSubscription {
     if (!nc) {
       throw new Error("NATSClient: not connected");
     }
@@ -185,6 +182,14 @@ export function createNATSClient(options: NATSClientOptions): NATSClient {
   }
 
   // ---------------------------------------------------------------------------
+  // newInbox
+  // ---------------------------------------------------------------------------
+
+  function newInbox(): string {
+    return createInbox();
+  }
+
+  // ---------------------------------------------------------------------------
   // isConnected getter
   // ---------------------------------------------------------------------------
 
@@ -196,6 +201,7 @@ export function createNATSClient(options: NATSClientOptions): NATSClient {
     unsubscribeAll,
     drain,
     close,
+    newInbox,
     get isConnected(): boolean {
       return nc !== null && !nc.isClosed();
     },

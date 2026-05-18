@@ -241,7 +241,7 @@ describe("Feature: multi-agent-chat-view, Property 3: Single_View_Mode 消息存
 
           for (const baseMsg of messages) {
             const sessionKey = buildSessionKey(subAgentId, sessionUuid);
-            const msg: ChatMessage = { ...baseMsg, sessionKey };
+            const msg: ChatMessage = { ...baseMsg, sessionKey } as unknown as ChatMessage;
             // Route via updateAgentChatStream (simulates event-handler routing)
             updateAgentChatStream(storeSingle, sessionUuid, subAgentId, msg, false);
           }
@@ -255,7 +255,7 @@ describe("Feature: multi-agent-chat-view, Property 3: Single_View_Mode 消息存
 
           for (const baseMsg of messages) {
             const sessionKey = buildSessionKey(subAgentId, sessionUuid);
-            const msg: ChatMessage = { ...baseMsg, sessionKey };
+            const msg: ChatMessage = { ...baseMsg, sessionKey } as unknown as ChatMessage;
             updateAgentChatStream(storeMulti, sessionUuid, subAgentId, msg, false);
           }
 
@@ -467,7 +467,7 @@ describe("Feature: multi-agent-chat-view, Property 9: ChatMessage sessionKey 完
             id: msgId,
             sessionKey,
             senderLabel: null,
-          };
+          } as unknown as ChatMessage;
 
           // Verify sessionKey is non-empty
           expect(msg.sessionKey).toBeTruthy();
@@ -520,7 +520,7 @@ describe("Feature: multi-agent-chat-view, Property 9: ChatMessage sessionKey 完
             id: msgId,
             sessionKey,
             senderLabel: null,
-          };
+          } as unknown as ChatMessage;
 
           // Route through updateChatStream (root agent path)
           updateChatStream(store, sessionUuid, msg, false);
@@ -594,16 +594,19 @@ describe("Feature: multi-agent-chat-view, Property 6: 碎片修复保留非 Stre
         (sessionUuid, currentMsgs, apiMsgs) => {
           const store = resetStore();
 
+          const currentMsgsTyped = currentMsgs as ChatMessage[];
           // Set up current messages in messagesBySession
-          store.messagesBySession.set(sessionUuid, currentMsgs as ChatMessage[]);
+          store.messagesBySession.set(sessionUuid, currentMsgsTyped);
 
           // Count user and pending messages before repair
-          const userMsgsBefore = currentMsgs.filter(
+          const userMsgsBefore = currentMsgsTyped.filter(
             (m) => m.role === "user" || m.subType === "pending",
           );
 
           // Simulate fragment repair logic (same as in event-handler.ts)
-          const preserved = currentMsgs.filter((m) => m.role === "user" || m.subType === "pending");
+          const preserved = currentMsgsTyped.filter(
+            (m) => m.role === "user" || m.subType === "pending",
+          );
           const apiNonUserMsgs = (apiMsgs as ChatMessage[]).filter(
             (m) => m.role !== "user" && m.subType !== "pending",
           );

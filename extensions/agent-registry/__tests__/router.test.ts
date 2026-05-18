@@ -6,8 +6,8 @@
  */
 
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import { createMessageRouter } from "../src/router.js";
 import { createEnvelope, serializeEnvelope } from "../src/envelope.js";
+import { createMessageRouter } from "../src/router.js";
 import type {
   MessageRouterOptions,
   RegistryEnvelope,
@@ -39,7 +39,7 @@ function makeMockArbiter(): CollaborationArbiter {
   return {
     initialize: vi.fn(),
     processDiscussionCreated: vi.fn().mockResolvedValue(undefined),
-    processCotaskCreated: vi.fn().mockResolvedValue(undefined),
+    processCoworkCreated: vi.fn().mockResolvedValue(undefined),
     dispose: vi.fn(),
   };
 }
@@ -214,43 +214,45 @@ describe("createInboundHandler — broadcast discussion.created", () => {
     );
   });
 
-  it("does not call processCotaskCreated for discussion.created", async () => {
+  it("does not call processCoworkCreated for discussion.created", async () => {
     const router = createMessageRouter(options);
     const handler = router.createInboundHandler("a2a.agent.broadcast.all");
 
-    handler(makeEnvelopeBytes({ action: "discussion.created", payload: { discussion_id: "disc-1" } }));
+    handler(
+      makeEnvelopeBytes({ action: "discussion.created", payload: { discussion_id: "disc-1" } }),
+    );
     await flushAsync();
 
-    expect(mockArbiter.processCotaskCreated).not.toHaveBeenCalled();
+    expect(mockArbiter.processCoworkCreated).not.toHaveBeenCalled();
   });
 });
 
 // ---------------------------------------------------------------------------
-// Test 5: Broadcast cotask.created → arbiter.processCotaskCreated called
+// Test 5: Broadcast cowork.created → arbiter.processCoworkCreated called
 // Validates: Requirement 6.6
 // ---------------------------------------------------------------------------
 
-describe("createInboundHandler — broadcast cotask.created", () => {
-  it("calls arbiter.processCotaskCreated with the envelope payload", async () => {
+describe("createInboundHandler — broadcast cowork.created", () => {
+  it("calls arbiter.processCoworkCreated with the envelope payload", async () => {
     const router = createMessageRouter(options);
     const handler = router.createInboundHandler("a2a.agent.broadcast.all");
 
     const payload = { task_id: "task-1", text: "Build something" };
-    const bytes = makeEnvelopeBytes({ action: "cotask.created", payload });
+    const bytes = makeEnvelopeBytes({ action: "cowork.created", payload });
     handler(bytes);
     await flushAsync();
 
-    expect(mockArbiter.processCotaskCreated).toHaveBeenCalledOnce();
-    expect(mockArbiter.processCotaskCreated).toHaveBeenCalledWith(
+    expect(mockArbiter.processCoworkCreated).toHaveBeenCalledOnce();
+    expect(mockArbiter.processCoworkCreated).toHaveBeenCalledWith(
       expect.objectContaining({ task_id: "task-1" }),
     );
   });
 
-  it("does not call processDiscussionCreated for cotask.created", async () => {
+  it("does not call processDiscussionCreated for cowork.created", async () => {
     const router = createMessageRouter(options);
     const handler = router.createInboundHandler("a2a.agent.broadcast.all");
 
-    handler(makeEnvelopeBytes({ action: "cotask.created", payload: { task_id: "task-1" } }));
+    handler(makeEnvelopeBytes({ action: "cowork.created", payload: { task_id: "task-1" } }));
     await flushAsync();
 
     expect(mockArbiter.processDiscussionCreated).not.toHaveBeenCalled();
@@ -263,7 +265,7 @@ describe("createInboundHandler — broadcast cotask.created", () => {
 // ---------------------------------------------------------------------------
 
 describe("createInboundHandler — broadcast unknown action", () => {
-  it("logs the unknown action and does not call processDiscussionCreated or processCotaskCreated", async () => {
+  it("logs the unknown action and does not call processDiscussionCreated or processCoworkCreated", async () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
 
     const router = createMessageRouter(options);
@@ -274,7 +276,7 @@ describe("createInboundHandler — broadcast unknown action", () => {
 
     expect(infoSpy).toHaveBeenCalled();
     expect(mockArbiter.processDiscussionCreated).not.toHaveBeenCalled();
-    expect(mockArbiter.processCotaskCreated).not.toHaveBeenCalled();
+    expect(mockArbiter.processCoworkCreated).not.toHaveBeenCalled();
 
     infoSpy.mockRestore();
   });
@@ -324,14 +326,14 @@ describe("createInboundHandler — discussion topic", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Test 8: Cotask topic → getOrCreateSession called with task id
+// Test 8: Cowork topic → getOrCreateSession called with task id
 // Validates: Requirement 6.7
 // ---------------------------------------------------------------------------
 
-describe("createInboundHandler — cotask topic", () => {
+describe("createInboundHandler — cowork topic", () => {
   it("calls getOrCreateSession with (taskId, boundAgentId) and dispatches the message", async () => {
     const router = createMessageRouter(options);
-    const handler = router.createInboundHandler("a2a.cotask.task-xyz");
+    const handler = router.createInboundHandler("a2a.cowork.task-xyz");
 
     handler(makeEnvelopeBytes());
     await flushAsync();
@@ -342,7 +344,7 @@ describe("createInboundHandler — cotask topic", () => {
 
   it("extracts the task id from the topic, not from the envelope source", async () => {
     const router = createMessageRouter(options);
-    const handler = router.createInboundHandler("a2a.cotask.my-task-456");
+    const handler = router.createInboundHandler("a2a.cowork.my-task-456");
 
     handler(makeEnvelopeBytes({ source: "some-other-agent" }));
     await flushAsync();

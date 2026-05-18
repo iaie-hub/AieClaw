@@ -151,9 +151,17 @@ let cachedChannelRuntimePromise: Promise<PluginRuntime["channel"]> | null = null
 let cachedStartupChannelRuntimePromise: Promise<ChannelRuntimeSurface> | null = null;
 
 function getChannelRuntime() {
-  cachedChannelRuntimePromise ??= import("../plugins/runtime/runtime-channel.js").then(
-    ({ createRuntimeChannel }) => createRuntimeChannel(),
-  );
+  cachedChannelRuntimePromise ??= Promise.all([
+    import("../plugins/runtime/runtime-channel.js"),
+    import("../plugins/runtime/runtime-agent.js"),
+    import("../plugins/runtime/runtime-config.js"),
+  ]).then(([channelMod, agentMod, configMod]) => {
+    const channelRuntime = channelMod.createRuntimeChannel();
+    return Object.assign(channelRuntime, {
+      agent: agentMod.createRuntimeAgent(),
+      config: configMod.createRuntimeConfig(),
+    });
+  });
   return cachedChannelRuntimePromise;
 }
 

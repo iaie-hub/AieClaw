@@ -19,7 +19,7 @@
 - **Multicast Topic**：同能力组内任务分发 Topic，格式为 `a2a.agent.group.{groupId}`。
 - **Broadcast Topic**：系统级全局通知 Topic，固定为 `a2a.agent.broadcast.all`。
 - **Discussion**：通用讨论场景，Topic 格式为 `a2a.discussion.{discussionId}`，支持 join/leave/message/conclude 动作。
-- **Cotask**：协作任务场景，Topic 格式为 `a2a.cotask.{taskId}`，支持 join/leave/assign/progress/message/complete/abort 动作。
+- **Cowork**：协作任务场景，Topic 格式为 `a2a.cowork.{taskId}`，支持 join/leave/assign/progress/message/complete/abort 动作。
 - **TTL**：注册有效期（毫秒），Agent 需在 TTL 内发送心跳续约，心跳间隔为 TTL/3。
 - **Plugin**：OpenClaw Channel 插件，通过 `openclaw/plugin-sdk/*` 与核心系统集成。
 - **Channel**：OpenClaw 中的消息通道抽象，负责入站消息接收和出站消息发送。
@@ -29,7 +29,7 @@
 - **Message_Router**：负责入站消息解析与路由的模块。
 - **Outbound_Adapter**：负责将 OpenClaw 出站消息转换为 NATS 消息并发布的模块。
 - **Bound_Agent**：插件配置中绑定的 OpenClaw Agent，用于处理入站 A2A 消息及协作决策；未配置时使用 OpenClaw 默认 Agent。
-- **Collaboration_Arbiter**：Bound_Agent 的专属会话，用于接收 `discussion.created` / `cotask.created` 广播并由 Agent 自主决定是否加入；每个插件实例维护一个长期存活的 Arbiter 会话。
+- **Collaboration_Arbiter**：Bound_Agent 的专属会话，用于接收 `discussion.created` / `cowork.created` 广播并由 Agent 自主决定是否加入；每个插件实例维护一个长期存活的 Arbiter 会话。
 - **Configured_Skills**：通过配置项 `AGENT_REGISTRY_SKILLS` 显式声明的 OpenClaw Skill 名称列表，用于构建 AgentCard；未配置时 AgentCard 的 `skills` 数组为空。
 
 ---
@@ -94,7 +94,7 @@
 2. 当注册成功时，NATS_Client 应订阅 `topics.multicast` 列表中的每个多播主题；如果 `topics.multicast` 列表为空，NATS_Client 应跳过多播订阅且不报错。
 3. 当注册成功时，NATS_Client 应订阅广播主题 `a2a.agent.broadcast.all`；如果订阅失败，NATS_Client 应记录错误并将通道状态设置为 `unavailable`。
 4. 当断开连接后重新建立 NATS 连接时，NATS_Client 应尝试独立地重新订阅每个先前分配的主题；如果其中一个主题重新订阅失败，NATS_Client 应记录该主题的错误并继续重新订阅剩余主题。
-5. 当插件停止时，NATS_Client 应在关闭连接前取消订阅所有活动的主题订阅，包括任何动态加入的 Discussion 和 Cotask 主题。
+5. 当插件停止时，NATS_Client 应在关闭连接前取消订阅所有活动的主题订阅，包括任何动态加入的 Discussion 和 Cowork 主题。
 
 ---
 
@@ -126,10 +126,10 @@
 3. 当在单播主题上接收到有效的 RegistryEnvelope 时，Message_Router 应将消息路由到由 envelope 的 `source` 字段标识且绑定到 Bound_Agent 的 OpenClaw agent 会话；如果该 `source` 不存在会话，Message_Router 应为该源 Agent 创建一个新的 Bound_Agent 会话。
 4. 当在多播主题上接收到有效的 RegistryEnvelope 时，Message_Router 应将消息路由到具有最少活动任务的 Bound_Agent 会话（负载最轻选择）；如果不存在会话，Message_Router 应创建一个新的 Bound_Agent 会话来处理该消息。
 5. 当在广播主题上接收到 `action` 设置为 `"discussion.created"` 的有效 RegistryEnvelope 时，Message_Router 应将完整的讨论上下文（包括 `content.text`、`content.description`、`content.tags` 和 `content.conversation`）转发给 Collaboration_Arbiter 会话，作为结构化提示询问 Bound_Agent 是否加入；如果 Bound_Agent 做出肯定回答，Message_Router 应订阅该讨论主题（`a2a.discussion.{discussionId}`）并发布 `action` 设置为 `"join"` 的加入消息；如果 Bound_Agent 做出否定回答或在 30 秒内未响应，Message_Router 应不订阅并丢弃该广播。
-6. 当在广播主题上接收到 `action` 设置为 `"cotask.created"` 的有效 RegistryEnvelope 时，Message_Router 应将完整的协作任务上下文（包括 `content.text`、`content.description`、`content.required_skills` 和 `content.conversation`）转发给 Collaboration_Arbiter 会话，作为结构化提示询问 Bound_Agent 是否加入以及可以提供哪些技能；如果 Bound_Agent 做出肯定回答，Message_Router 应订阅该协作任务主题（`a2a.cotask.{taskId}`）并发布 `action` 设置为 `"join"` 且 `offered_skills` 设置为 Bound_Agent 声明技能的加入消息；如果 Bound_Agent 做出否定回答或在 30 秒内未响应，Message_Router 应不订阅并丢弃该广播。
-7. 当在 Discussion 或 Cotask 主题上接收到有效的 RegistryEnvelope 时，Message_Router 应将消息负载路由到与该主题 ID 关联的 Bound_Agent 会话；如果没有关联的会话，Message_Router 应创建一个新的 Bound_Agent 会话并将其与该主题 ID 关联。
-8. 当在广播主题上接收到 `action` 值不是 `"discussion.created"` 或 `"cotask.created"` 的有效 RegistryEnvelope 时，Message_Router 应记录该 action 值并丢弃该消息。
-9. Collaboration_Arbiter 会话应是一个在插件启动时创建的长效 Bound_Agent 会话，并复用于所有后续的 `discussion.created` 和 `cotask.created` 决策；如果 Arbiter 会话意外终止，Message_Router 应在处理下一个广播前重新创建它。
+6. 当在广播主题上接收到 `action` 设置为 `"cowork.created"` 的有效 RegistryEnvelope 时，Message_Router 应将完整的协作任务上下文（包括 `content.text`、`content.description`、`content.required_skills` 和 `content.conversation`）转发给 Collaboration_Arbiter 会话，作为结构化提示询问 Bound_Agent 是否加入以及可以提供哪些技能；如果 Bound_Agent 做出肯定回答，Message_Router 应订阅该协作任务主题（`a2a.cowork.{taskId}`）并发布 `action` 设置为 `"join"` 且 `offered_skills` 设置为 Bound_Agent 声明技能的加入消息；如果 Bound_Agent 做出否定回答或在 30 秒内未响应，Message_Router 应不订阅并丢弃该广播。
+7. 当在 Discussion 或 Cowork 主题上接收到有效的 RegistryEnvelope 时，Message_Router 应将消息负载路由到与该主题 ID 关联的 Bound_Agent 会话；如果没有关联的会话，Message_Router 应创建一个新的 Bound_Agent 会话并将其与该主题 ID 关联。
+8. 当在广播主题上接收到 `action` 值不是 `"discussion.created"` 或 `"cowork.created"` 的有效 RegistryEnvelope 时，Message_Router 应记录该 action 值并丢弃该消息。
+9. Collaboration_Arbiter 会话应是一个在插件启动时创建的长效 Bound_Agent 会话，并复用于所有后续的 `discussion.created` 和 `cowork.created` 决策；如果 Arbiter 会话意外终止，Message_Router 应在处理下一个广播前重新创建它。
 
 ---
 
@@ -141,9 +141,9 @@
 
 1. 当 OpenClaw agent 会话产生响应时，Outbound_Adapter 应将响应文本包装在 RegistryEnvelope 中，并将 `action` 设置为 `"message"`，`source` 设置为 `AGENT_REGISTRY_AGENT_ID`，`resource_type` 设置为 `"agent"`。
 2. 当入站消息包含非空的 `reply_to` 字段时，Outbound_Adapter 应将响应发布到 `reply_to` 主题，此规则优先级高于所有其他路由规则。
-3. 当入站消息不包含 `reply_to` 字段且响应不是针对 Discussion 或 Cotask 主题时，Outbound_Adapter 应将响应发布到 `a2a.agent.unicast.{source}`，其中 `source` 是入站信封的 `source` 字段；如果入站 `source` 字段缺失或为空，Outbound_Adapter 应记录警告并丢弃该出站消息。
+3. 当入站消息不包含 `reply_to` 字段且响应不是针对 Discussion 或 Cowork 主题时，Outbound_Adapter 应将响应发布到 `a2a.agent.unicast.{source}`，其中 `source` 是入站信封的 `source` 字段；如果入站 `source` 字段缺失或为空，Outbound_Adapter 应记录警告并丢弃该出站消息。
 4. 当向 Discussion 主题发送响应且入站消息不包含 `reply_to` 字段时，Outbound_Adapter 应发布到该讨论主题（`a2a.discussion.{discussionId}`），将 RegistryEnvelope 的 `action` 设置为 `"message"`，并在负载中包含 `discussion_id`。
-5. 当向 Cotask 主题发送响应且入站消息不包含 `reply_to` 字段时，Outbound_Adapter 应发布到该 cotask 主题（`a2a.cotask.{taskId}`）；如果 agent 会话仍处于活动状态，Outbound_Adapter 应将 `action` 设置为 `"progress"`；当 agent 会话已完成时，Outbound_Adapter 应将 `action` 设置为 `"complete"`。
+5. 当向 Cowork 主题发送响应且入站消息不包含 `reply_to` 字段时，Outbound_Adapter 应发布到该 cowork 主题（`a2a.cowork.{taskId}`）；如果 agent 会话仍处于活动状态，Outbound_Adapter 应将 `action` 设置为 `"progress"`；当 agent 会话已完成时，Outbound_Adapter 应将 `action` 设置为 `"complete"`。
 6. Outbound_Adapter 应为每个新的 agent 会话将 `seq` 计数器初始化为 0，并为该会话内发布的每个出站 RegistryEnvelope 将其递增 1。
 
 ---

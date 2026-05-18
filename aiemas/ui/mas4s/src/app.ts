@@ -1,4 +1,6 @@
 import "katex/dist/katex.min.css";
+// 让 Lit 在 dev-server 下也跳过 dev-mode 警告
+(globalThis as any).litIssuedWarnings = new Set();
 import { LitElement, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { AuthController, type MasAuthState } from "./controllers/auth-controller.js";
@@ -21,6 +23,7 @@ import "./components/invite-dialog.js";
 import "./views/login-view.js";
 import "./views/user-list-view.js";
 import "./views/skills-manager.js";
+import "./views/discussion-panel.js";
 
 /**
  * mas4s 根组件。三栏布局：primary-sidebar + session-sidebar + main-workspace。

@@ -7,11 +7,12 @@
  *  - a2a.agent.group.*     → handleMulticast
  *  - a2a.agent.broadcast.* → handleBroadcast
  *  - a2a.discussion.*      → handleCollaborationTopic (topicId = discussionId)
- *  - a2a.cotask.*          → handleCollaborationTopic (topicId = taskId)
+ *  - a2a.cowork.*          → handleCollaborationTopic (topicId = taskId)
  *
  * Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.10
  */
 
+import { emitCollabEvent } from "openclaw/plugin-sdk/collab-runtime";
 import { deserializeEnvelope } from "./envelope.js";
 import { createLogger, fmtEnvelope } from "./logger.js";
 import type { MessageRouterOptions, RegistryEnvelope } from "./types.js";
@@ -62,13 +63,8 @@ function segmentAfter(prefix: string, topic: string): string {
  * Requirements: 6.1–6.10
  */
 export function createMessageRouter(options: MessageRouterOptions): MessageRouter {
-  const {
-    boundAgentId,
-    arbiter,
-    createSession,
-    getOrCreateSession,
-    getLeastLoadedSession,
-  } = options;
+  const { boundAgentId, arbiter, createSession, getOrCreateSession, getLeastLoadedSession } =
+    options;
 
   // -------------------------------------------------------------------------
   // handleUnicast — Requirement 6.3
@@ -101,10 +97,14 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
     let session;
     try {
       session = getLeastLoadedSession(boundAgentId);
-      log.debug(`multicast: routed to least-loaded session`, { activeTasks: session.activeTaskCount });
+      log.debug(`multicast: routed to least-loaded session`, {
+        activeTasks: session.activeTaskCount,
+      });
     } catch {
       // No sessions exist — create a new one keyed by the sender source
-      log.debug(`multicast: no existing sessions — creating new session for source=${envelope.source}`);
+      log.debug(
+        `multicast: no existing sessions — creating new session for source=${envelope.source}`,
+      );
       session = createSession(envelope.source, boundAgentId);
     }
     await session.dispatch(envelope);
@@ -130,19 +130,17 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
         await arbiter.processDiscussionCreated(envelope.payload);
         break;
 
-      case "cotask.created":
-        log.info(`broadcast: cotask.created — forwarding to arbiter`, {
+      case "cowork.created":
+        log.info(`broadcast: cowork.created — forwarding to arbiter`, {
           task_id: envelope.payload["task_id"] ?? envelope.payload["id"],
         });
-        await arbiter.processCotaskCreated(envelope.payload);
+        await arbiter.processCoworkCreated(envelope.payload);
         break;
 
       default:
         // Requirement 6.8: log and discard unknown broadcast actions
         log.warn(`broadcast action not handled — discarding`, { action: envelope.action });
-        console.info(
-          `[agent-registry] router: broadcast action '${envelope.action}' — discarding`,
-        );
+        console.info(`[agent-registry] router: broadcast action '${envelope.action}' — discarding`);
         break;
     }
   }
@@ -213,16 +211,18 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
         handlerPromise = handleBroadcast(envelope);
       } else if (matchesPrefix("a2a.discussion.", topic)) {
         const discussionId = segmentAfter("a2a.discussion.", topic);
+        // Emit in-process event for real-time UI viewing (no AgentRegistry relay).
+        emitCollabEvent({ topic, message: envelope });
         handlerPromise = handleCollaborationTopic(discussionId, envelope);
-      } else if (matchesPrefix("a2a.cotask.", topic)) {
-        const taskId = segmentAfter("a2a.cotask.", topic);
+      } else if (matchesPrefix("a2a.cowork.", topic)) {
+        const taskId = segmentAfter("a2a.cowork.", topic);
+        // Emit in-process event for real-time UI viewing (no AgentRegistry relay).
+        emitCollabEvent({ topic, message: envelope });
         handlerPromise = handleCollaborationTopic(taskId, envelope);
       } else {
         // Unknown topic pattern — log and discard
         log.warn(`unrecognized topic pattern — discarding`, { topic });
-        console.warn(
-          `[agent-registry] router: unrecognized topic pattern "${topic}" — discarding`,
-        );
+        console.warn(`[agent-registry] router: unrecognized topic pattern "${topic}" — discarding`);
         return;
       }
 

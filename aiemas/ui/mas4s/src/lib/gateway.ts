@@ -110,7 +110,6 @@ export class GatewayBrowserClient {
   private pending = new Map<string, Pending>();
   private closed = false;
   private lastSeq: number | null = null;
-  private connectNonce: string | null = null;
   private connectSent = false;
   private connectTimer: number | null = null;
   private backoffMs = 800;
@@ -202,7 +201,6 @@ export class GatewayBrowserClient {
    * timer fires sendConnect() as a fallback.
    */
   private queueConnect() {
-    this.connectNonce = null;
     this.connectSent = false;
     this._helloReceived = false;
     this.clearConnectTimer();
@@ -280,13 +278,12 @@ export class GatewayBrowserClient {
     if (frame.type === "event") {
       const evt = parsed as GatewayEventFrame;
 
-      // Handle connect.challenge: store the nonce and immediately send connect
+      // Handle connect.challenge: immediately send connect
       // instead of waiting for the 750ms fallback timer.
       if (evt.event === "connect.challenge") {
         const payload = evt.payload as { nonce?: unknown } | undefined;
         const nonce = payload && typeof payload.nonce === "string" ? payload.nonce : null;
         if (nonce) {
-          this.connectNonce = nonce;
           void this.sendConnect();
         }
         return;

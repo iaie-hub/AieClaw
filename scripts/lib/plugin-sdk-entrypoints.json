@@ -112,6 +112,7 @@
   "acp-binding-runtime",
   "acp-binding-resolve-runtime",
   "lazy-runtime",
+  "collab-runtime",
   "agent-runtime-test-contracts",
   "channel-target-testing",
   "channel-test-helpers",

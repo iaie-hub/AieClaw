@@ -19,7 +19,7 @@
 - **Multicast Topic**：同能力组内任务分发 Topic，格式为 `a2a.agent.group.{groupId}`。
 - **Broadcast Topic**：系统级全局通知 Topic，固定为 `a2a.agent.broadcast.all`。
 - **Discussion**：通用讨论场景，Topic 格式为 `a2a.discussion.{discussionId}`，支持 join/leave/message/conclude 动作。
-- **Cotask**：协作任务场景，Topic 格式为 `a2a.cotask.{taskId}`，支持 join/leave/assign/progress/message/complete/abort 动作。
+- **Cowork**：协作任务场景，Topic 格式为 `a2a.cowork.{taskId}`，支持 join/leave/assign/progress/message/complete/abort 动作。
 - **TTL**：注册有效期（毫秒），Agent 需在 TTL 内发送心跳续约，心跳间隔为 TTL/3。
 - **Plugin**：OpenClaw Channel 插件，通过 `openclaw/plugin-sdk/*` 与核心系统集成。
 - **Channel**：OpenClaw 中的消息通道抽象，负责入站消息接收和出站消息发送。
@@ -29,7 +29,7 @@
 - **Message_Router**：负责入站消息解析与路由的模块。
 - **Outbound_Adapter**：负责将 OpenClaw 出站消息转换为 NATS 消息并发布的模块。
 - **Bound_Agent**：插件配置中绑定的 OpenClaw Agent，用于处理入站 A2A 消息及协作决策；未配置时使用 OpenClaw 默认 Agent。
-- **Collaboration_Arbiter**：Bound_Agent 的专属会话，用于接收 `discussion.created` / `cotask.created` 广播并由 Agent 自主决定是否加入；每个插件实例维护一个长期存活的 Arbiter 会话。
+- **Collaboration_Arbiter**：Bound_Agent 的专属会话，用于接收 `discussion.created` / `cowork.created` 广播并由 Agent 自主决定是否加入；每个插件实例维护一个长期存活的 Arbiter 会话。
 - **Configured_Skills**：通过配置项 `AGENT_REGISTRY_SKILLS` 显式声明的 OpenClaw Skill 名称列表，用于构建 AgentCard；未配置时 AgentCard 的 `skills` 数组为空。
 
 ---
@@ -94,7 +94,7 @@
 2. WHEN registration succeeds, THE NATS_Client SHALL subscribe to each Multicast Topic in the `topics.multicast` list; IF the `topics.multicast` list is empty, THE NATS_Client SHALL skip multicast subscription without error.
 3. WHEN registration succeeds, THE NATS_Client SHALL subscribe to the Broadcast Topic `a2a.agent.broadcast.all`; IF the subscription fails, THE NATS_Client SHALL log the error and set the channel status to `unavailable`.
 4. WHEN the NATS connection is re-established after a disconnect, THE NATS_Client SHALL attempt to re-subscribe to each previously assigned topic independently; IF re-subscription of one topic fails, THE NATS_Client SHALL log the error for that topic and continue re-subscribing the remaining topics.
-5. WHEN the plugin stops, THE NATS_Client SHALL unsubscribe from all active topic subscriptions, including any dynamically joined Discussion and Cotask topics, before closing the connection.
+5. WHEN the plugin stops, THE NATS_Client SHALL unsubscribe from all active topic subscriptions, including any dynamically joined Discussion and Cowork topics, before closing the connection.
 
 ---
 
@@ -126,11 +126,11 @@
 3. WHEN a valid RegistryEnvelope is received on the Unicast Topic, THE Message_Router SHALL route the message to the OpenClaw agent session identified by the `source` field of the envelope and bound to the Bound_Agent; IF no session exists for that `source`, THE Message_Router SHALL create a new Bound_Agent session for the source agent.
 4. WHEN a valid RegistryEnvelope is received on a Multicast Topic, THE Message_Router SHALL route the message to the Bound_Agent session with the fewest active tasks (least-loaded selection); IF no sessions exist, THE Message_Router SHALL create a new Bound_Agent session to handle the message.
 5. WHEN a valid RegistryEnvelope is received on the Broadcast Topic with `action` set to `"discussion.created"`, THE Message_Router SHALL forward the full discussion context (including `content.text`, `content.description`, `content.tags`, and `content.conversation`) to the Collaboration_Arbiter session as a structured prompt asking the Bound_Agent whether to join; IF the Bound_Agent responds affirmatively, THE Message_Router SHALL subscribe to the discussion topic (`a2a.discussion.{discussionId}`) and publish a join message with `action` set to `"join"`; IF the Bound_Agent responds negatively or does not respond within 30 seconds, THE Message_Router SHALL not subscribe and shall discard the broadcast.
-6. WHEN a valid RegistryEnvelope is received on the Broadcast Topic with `action` set to `"cotask.created"`, THE Message_Router SHALL forward the full cotask context (including `content.text`, `content.description`, `content.required_skills`, and `content.conversation`) to the Collaboration_Arbiter session as a structured prompt asking the Bound_Agent whether to join and which skills it can offer; IF the Bound_Agent responds affirmatively, THE Message_Router SHALL subscribe to the cotask topic (`a2a.cotask.{taskId}`) and publish a join message with `action` set to `"join"` and `offered_skills` set to the skills the Bound_Agent declared; IF the Bound_Agent responds negatively or does not respond within 30 seconds, THE Message_Router SHALL not subscribe and shall discard the broadcast.
-7. WHEN a valid RegistryEnvelope is received on a Discussion or Cotask topic, THE Message_Router SHALL route the message payload to the Bound_Agent session associated with that topic's id; IF no session is associated, THE Message_Router SHALL create a new Bound_Agent session and associate it with the topic id.
-8. WHEN a valid RegistryEnvelope is received on the Broadcast Topic with an `action` value other than `"discussion.created"` or `"cotask.created"`, THE Message_Router SHALL log the action value and discard the message.
-9. THE Collaboration_Arbiter session SHALL be a single long-lived Bound_Agent session created when the plugin starts and reused for all subsequent `discussion.created` and `cotask.created` decisions; IF the Arbiter session terminates unexpectedly, THE Message_Router SHALL recreate it before processing the next broadcast.
-10. WHEN multiple `discussion.created` or `cotask.created` broadcasts arrive concurrently, THE Message_Router SHALL process them sequentially through the Collaboration_Arbiter session in the order they were received; each broadcast SHALL wait for the Arbiter's decision on the preceding broadcast before being forwarded, up to the 30-second per-broadcast timeout.
+6. WHEN a valid RegistryEnvelope is received on the Broadcast Topic with `action` set to `"cowork.created"`, THE Message_Router SHALL forward the full cowork context (including `content.text`, `content.description`, `content.required_skills`, and `content.conversation`) to the Collaboration_Arbiter session as a structured prompt asking the Bound_Agent whether to join and which skills it can offer; IF the Bound_Agent responds affirmatively, THE Message_Router SHALL subscribe to the cowork topic (`a2a.cowork.{taskId}`) and publish a join message with `action` set to `"join"` and `offered_skills` set to the skills the Bound_Agent declared; IF the Bound_Agent responds negatively or does not respond within 30 seconds, THE Message_Router SHALL not subscribe and shall discard the broadcast.
+7. WHEN a valid RegistryEnvelope is received on a Discussion or Cowork topic, THE Message_Router SHALL route the message payload to the Bound_Agent session associated with that topic's id; IF no session is associated, THE Message_Router SHALL create a new Bound_Agent session and associate it with the topic id.
+8. WHEN a valid RegistryEnvelope is received on the Broadcast Topic with an `action` value other than `"discussion.created"` or `"cowork.created"`, THE Message_Router SHALL log the action value and discard the message.
+9. THE Collaboration_Arbiter session SHALL be a single long-lived Bound_Agent session created when the plugin starts and reused for all subsequent `discussion.created` and `cowork.created` decisions; IF the Arbiter session terminates unexpectedly, THE Message_Router SHALL recreate it before processing the next broadcast.
+10. WHEN multiple `discussion.created` or `cowork.created` broadcasts arrive concurrently, THE Message_Router SHALL process them sequentially through the Collaboration_Arbiter session in the order they were received; each broadcast SHALL wait for the Arbiter's decision on the preceding broadcast before being forwarded, up to the 30-second per-broadcast timeout.
 
 ---
 
@@ -142,9 +142,9 @@
 
 1. WHEN an OpenClaw agent session produces a response, THE Outbound_Adapter SHALL wrap the response text in a RegistryEnvelope with `action` set to `"message"`, `source` set to `AGENT_REGISTRY_AGENT_ID`, and `resource_type` set to `"agent"`.
 2. WHEN the inbound message contained a non-empty `reply_to` field, THE Outbound_Adapter SHALL publish the response to the `reply_to` subject, taking precedence over all other routing rules.
-3. WHEN the inbound message did not contain a `reply_to` field and the response is not for a Discussion or Cotask topic, THE Outbound_Adapter SHALL publish the response to `a2a.agent.unicast.{source}` where `source` is the `source` field of the inbound envelope; IF the inbound `source` field is absent or empty, THE Outbound_Adapter SHALL log a warning and discard the outbound message.
+3. WHEN the inbound message did not contain a `reply_to` field and the response is not for a Discussion or Cowork topic, THE Outbound_Adapter SHALL publish the response to `a2a.agent.unicast.{source}` where `source` is the `source` field of the inbound envelope; IF the inbound `source` field is absent or empty, THE Outbound_Adapter SHALL log a warning and discard the outbound message.
 4. WHEN sending a response to a Discussion topic and the inbound message did not contain a `reply_to` field, THE Outbound_Adapter SHALL publish to the discussion topic (`a2a.discussion.{discussionId}`), set the RegistryEnvelope `action` to `"message"`, and include `discussion_id` in the payload.
-5. WHEN sending a response to a Cotask topic and the inbound message did not contain a `reply_to` field, THE Outbound_Adapter SHALL publish to the cotask topic (`a2a.cotask.{taskId}`); IF the agent session is still active, THE Outbound_Adapter SHALL set `action` to `"progress"`; WHEN the agent session has completed, THE Outbound_Adapter SHALL set `action` to `"complete"`.
+5. WHEN sending a response to a Cowork topic and the inbound message did not contain a `reply_to` field, THE Outbound_Adapter SHALL publish to the cowork topic (`a2a.cowork.{taskId}`); IF the agent session is still active, THE Outbound_Adapter SHALL set `action` to `"progress"`; WHEN the agent session has completed, THE Outbound_Adapter SHALL set `action` to `"complete"`.
 6. THE Outbound_Adapter SHALL initialize the `seq` counter to 0 for each new agent session and increment it by 1 for each outbound RegistryEnvelope published within that session.
 
 ---

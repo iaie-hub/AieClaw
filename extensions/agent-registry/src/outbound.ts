@@ -7,7 +7,7 @@
  *  2. sessionContext.kind === "unicast"    → a2a.agent.unicast.{sourceAgentId}
  *  3. sessionContext.kind === "multicast"  → a2a.agent.unicast.{sourceAgentId} (unicast reply back to sender)
  *  4. sessionContext.kind === "discussion" → a2a.discussion.{discussionId}
- *  5. sessionContext.kind === "cotask"     → a2a.cotask.{taskId}
+ *  5. sessionContext.kind === "cowork"     → a2a.cowork.{taskId}
  *
  * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 10.4
  */
@@ -15,11 +15,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { createEnvelope, serializeEnvelope } from "./envelope.js";
 import { createLogger } from "./logger.js";
-import type {
-  OutboundAdapterOptions,
-  OutboundSendParams,
-  SessionContext,
-} from "./types.js";
+import type { OutboundAdapterOptions, OutboundSendParams, SessionContext } from "./types.js";
 
 const log = createLogger("outbound");
 
@@ -47,8 +43,8 @@ function sessionKey(ctx: SessionContext): string {
       return `multicast:${ctx.groupId}`;
     case "discussion":
       return `discussion:${ctx.discussionId}`;
-    case "cotask":
-      return `cotask:${ctx.taskId}`;
+    case "cowork":
+      return `cowork:${ctx.taskId}`;
   }
 }
 
@@ -87,8 +83,8 @@ function resolveSubject(
     case "discussion":
       return `a2a.discussion.${ctx.discussionId}`;
 
-    case "cotask":
-      return `a2a.cotask.${ctx.taskId}`;
+    case "cowork":
+      return `a2a.cowork.${ctx.taskId}`;
   }
 }
 
@@ -101,7 +97,7 @@ function resolveAction(ctx: SessionContext, isSessionComplete: boolean): string 
     case "multicast":
     case "discussion":
       return "message";
-    case "cotask":
+    case "cowork":
       return isSessionComplete ? "complete" : "progress";
   }
 }
@@ -116,24 +112,21 @@ function resolveResourceType(ctx: SessionContext): string {
       return "agent";
     case "discussion":
       return "discussion";
-    case "cotask":
-      return "cotask";
+    case "cowork":
+      return "cowork";
   }
 }
 
 /**
  * Build the payload for the outbound envelope.
  */
-function buildPayload(
-  responseText: string,
-  ctx: SessionContext,
-): Record<string, unknown> {
+function buildPayload(responseText: string, ctx: SessionContext): Record<string, unknown> {
   const base: Record<string, unknown> = { text: responseText };
 
   switch (ctx.kind) {
     case "discussion":
       return { ...base, discussion_id: ctx.discussionId };
-    case "cotask":
+    case "cowork":
       return { ...base, task_id: ctx.taskId };
     default:
       return base;
@@ -154,7 +147,7 @@ function buildPayload(
  * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 10.4
  */
 export function createOutboundAdapter(options: OutboundAdapterOptions): OutboundAdapter {
-  const { agentId, natsClient } = options;
+  const { getAgentId, natsClient } = options;
 
   // Per-session seq counters: Map<sessionKey, nextSeq>
   const seqCounters = new Map<string, number>();
@@ -194,7 +187,7 @@ export function createOutboundAdapter(options: OutboundAdapterOptions): Outbound
       const envelope = createEnvelope({
         request_id: uuidv4(),
         message_type: "req",
-        source: agentId,
+        source: getAgentId(),
         seq,
         action,
         resource_type: resourceType,

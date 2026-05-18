@@ -1,5 +1,5 @@
 /**
- * discussion-initiator.ts — Discussion and Cotask creation via NATS request-reply.
+ * discussion-initiator.ts — Discussion and Cowork creation via NATS request-reply.
  *
  * Encapsulates the NATS request to AgentRegistry for initiating discussions
  * and collaborative tasks. Designed to be injected into channelRuntime so that
@@ -32,10 +32,10 @@ export type CreateDiscussionResult =
   | { ok: false; error: string };
 
 // ---------------------------------------------------------------------------
-// Cotask types
+// Cowork types
 // ---------------------------------------------------------------------------
 
-export interface CreateCotaskParams {
+export interface CreateCoworkParams {
   /** Short, human-readable task name. */
   taskName: string;
   /** Detailed description of the task and goals. */
@@ -46,7 +46,7 @@ export interface CreateCotaskParams {
   conversation?: string[];
 }
 
-export type CreateCotaskResult =
+export type CreateCoworkResult =
   | { ok: true; taskId: string; topic: string }
   | { ok: false; error: string };
 
@@ -70,6 +70,8 @@ export async function createDiscussion(
   agentId: string,
   natsClient: NATSClient,
 ): Promise<CreateDiscussionResult> {
+  const replyInbox = natsClient.newInbox();
+
   const envelope = createEnvelope({
     request_id: uuidv4(),
     message_type: "req",
@@ -83,15 +85,25 @@ export async function createDiscussion(
       tags: params.tags ?? [],
       conversation: params.conversation ?? [],
     },
-    reply_to: null,
+    reply_to: replyInbox,
   });
 
   try {
-    const responseBytes = await natsClient.request(
-      "registry.discussion.create",
-      serializeEnvelope(envelope),
-      10_000,
-    );
+    const responseBytes = await new Promise<Uint8Array>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        sub.unsubscribe();
+        reject(new Error("discussion_create request timed out after 10 s"));
+      }, 10_000);
+
+      const sub = natsClient.subscribe(replyInbox, (bytes) => {
+        clearTimeout(timer);
+        sub.unsubscribe();
+        resolve(bytes);
+      });
+
+      natsClient.publish("registry.discussion.create", serializeEnvelope(envelope));
+    });
+
     const response = deserializeEnvelope(responseBytes);
     const p = response.payload as {
       success?: boolean;
@@ -111,47 +123,59 @@ export async function createDiscussion(
 }
 
 // ---------------------------------------------------------------------------
-// createCotask
+// createCowork
 // ---------------------------------------------------------------------------
 
 /**
- * Send a `registry.cotask.create` NATS request to AgentRegistry.
+ * Send a `registry.cowork.create` NATS request to AgentRegistry.
  *
  * On success the registry:
- *  1. Validates the agent is registered, online, and has `allow_create_cotask`
- *  2. Generates a `task-{uuid8}` ID and `a2a.cotask.{id}` topic
- *  3. Broadcasts `cotask.created` to `a2a.agent.broadcast.all`
+ *  1. Validates the agent is registered, online, and has `allow_create_cowork`
+ *  2. Generates a `task-{uuid8}` ID and `a2a.cowork.{id}` topic
+ *  3. Broadcasts `cowork.created` to `a2a.agent.broadcast.all`
  *  4. Returns `{ success: true, task_id, topic }` in the reply
  *
  * Requirements: P0 from cowork.md §"第一部分"
  */
-export async function createCotask(
-  params: CreateCotaskParams,
+export async function createCowork(
+  params: CreateCoworkParams,
   agentId: string,
   natsClient: NATSClient,
-): Promise<CreateCotaskResult> {
+): Promise<CreateCoworkResult> {
+  const replyInbox = natsClient.newInbox();
+
   const envelope = createEnvelope({
     request_id: uuidv4(),
     message_type: "req",
     source: agentId,
     seq: 0,
-    action: "cotask_create",
-    resource_type: "cotask",
+    action: "cowork_create",
+    resource_type: "collaboration",
     payload: {
       task_name: params.taskName,
       description: params.description ?? "",
       required_skills: params.requiredSkills ?? [],
       conversation: params.conversation ?? [],
     },
-    reply_to: null,
+    reply_to: replyInbox,
   });
 
   try {
-    const responseBytes = await natsClient.request(
-      "registry.cotask.create",
-      serializeEnvelope(envelope),
-      10_000,
-    );
+    const responseBytes = await new Promise<Uint8Array>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        sub.unsubscribe();
+        reject(new Error("cowork_create request timed out after 10 s"));
+      }, 10_000);
+
+      const sub = natsClient.subscribe(replyInbox, (bytes) => {
+        clearTimeout(timer);
+        sub.unsubscribe();
+        resolve(bytes);
+      });
+
+      natsClient.publish("registry.cowork.create", serializeEnvelope(envelope));
+    });
+
     const response = deserializeEnvelope(responseBytes);
     const p = response.payload as {
       success?: boolean;

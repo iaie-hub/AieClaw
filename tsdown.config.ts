@@ -297,6 +297,8 @@ function buildUnifiedDistEntries(): Record<string, string> {
     "plugin-sdk/codex-native-task-runtime": "src/plugin-sdk/codex-native-task-runtime.ts",
     // Private bundled Codex helper for app-server user MCP config projection.
     "plugin-sdk/codex-mcp-projection": "src/plugin-sdk/codex-mcp-projection.ts",
+    // Compile Agent Registry worker directly to the plugin dist root
+    "extensions/agent-registry/channel.worker": "extensions/agent-registry/src/channel.worker.ts",
     ...Object.fromEntries(
       Object.entries(buildPluginSdkEntrySources()).map(([entry, source]) => [
         `plugin-sdk/${entry}`,

@@ -1,6 +1,6 @@
 /**
  * CollaborationArbiter — maintains a single long-lived Bound_Agent session and
- * processes `discussion.created` / `cotask.created` broadcasts sequentially.
+ * processes `discussion.created` / `cowork.created` broadcasts sequentially.
  *
  * Design:
  * - One `ArbiterSession` is created on `initialize()` and reused for all decisions.
@@ -56,7 +56,7 @@ function isAffirmative(response: string): boolean {
 }
 
 /**
- * Extract offered skills from the agent's cotask response.
+ * Extract offered skills from the agent's cowork response.
  * Scans the response text for any configured skill name (case-insensitive).
  */
 function extractOfferedSkills(response: string, configuredSkills: string[]): string[] {
@@ -71,9 +71,7 @@ function extractOfferedSkills(response: string, configuredSkills: string[]): str
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
     promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error("timeout")), ms),
-    ),
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
   ]);
 }
 
@@ -89,7 +87,15 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 export function createCollaborationArbiter(
   options: CollaborationArbiterOptions,
 ): CollaborationArbiter {
-  const { boundAgentId, natsClient, createArbiterSession, configuredSkills, getCapabilityContext } = options;
+  const {
+    boundAgentId,
+    getEffectiveAgentId,
+    natsClient,
+    createArbiterSession,
+    configuredSkills,
+    getCapabilityContext,
+    createCollaborationTopicHandler,
+  } = options;
 
   // The single long-lived arbiter session (Requirement 6.9).
   let session: ArbiterSession | null = null;
@@ -166,9 +172,7 @@ export function createCollaborationArbiter(
   // Discussion processing (Requirement 6.5)
   // -------------------------------------------------------------------------
 
-  async function processDiscussionCreatedTask(
-    payload: Record<string, unknown>,
-  ): Promise<void> {
+  async function processDiscussionCreatedTask(payload: Record<string, unknown>): Promise<void> {
     const content = (payload["content"] ?? payload) as Record<string, unknown>;
     const discussionId = String(payload["discussion_id"] ?? payload["id"] ?? "");
     const text = String(content["text"] ?? "");
@@ -222,13 +226,18 @@ export function createCollaborationArbiter(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message === "timeout") {
-        log.warn(`discussion.created decision timed out — discarding`, { discussion_id: discussionId });
+        log.warn(`discussion.created decision timed out — discarding`, {
+          discussion_id: discussionId,
+        });
         console.warn(
           `[agent-registry] arbiter: discussion.created decision timed out for discussion_id="${discussionId}" — discarding`,
         );
       } else {
         // Session-level error — invalidate so it is recreated next time.
-        log.error(`session error during discussion decision — discarding`, { discussion_id: discussionId, error: message });
+        log.error(`session error during discussion decision — discarding`, {
+          discussion_id: discussionId,
+          error: message,
+        });
         console.error(
           `[agent-registry] arbiter: session error during discussion decision: ${message} — discarding`,
         );
@@ -238,7 +247,10 @@ export function createCollaborationArbiter(
     }
 
     if (!isAffirmative(response)) {
-      log.info(`Bound_Agent declined discussion`, { discussion_id: discussionId, response: response.slice(0, 80) });
+      log.info(`Bound_Agent declined discussion`, {
+        discussion_id: discussionId,
+        response: response.slice(0, 80),
+      });
       console.info(
         `[agent-registry] arbiter: Bound_Agent declined discussion_id="${discussionId}"`,
       );
@@ -250,37 +262,35 @@ export function createCollaborationArbiter(
 
     log.info(`joining discussion`, { discussion_id: discussionId, topic });
 
-    natsClient.subscribe(topic, () => {
-      // Message handling for this topic is delegated to the MessageRouter;
-      // the subscription here is the side-effect required by Requirement 6.5.
-    });
+    // Route incoming messages on this topic through the MessageRouter so that
+    // Agent sessions are created and the LLM can process them properly.
+    // createCollaborationTopicHandler closes over the MessageRouter which is
+    // created after the arbiter in channel.ts — the callback pattern ensures
+    // it is resolved at call time, not at arbiter construction time.
+    natsClient.subscribe(topic, createCollaborationTopicHandler(topic));
 
     const joinEnvelope = createEnvelope({
       request_id: uuidv4(),
-      message_type: "event",
-      source: boundAgentId,
+      message_type: "req",
+      source: getEffectiveAgentId(),
       seq: 0,
       action: "join",
-      resource_type: "collaboration",
-      payload: { discussion_id: discussionId },
+      resource_type: "discussion",
+      payload: { agent_id: getEffectiveAgentId(), discussion_id: discussionId },
       reply_to: null,
     });
 
     natsClient.publish(topic, serializeEnvelope(joinEnvelope));
 
     log.info(`joined discussion — join envelope published`, { discussion_id: discussionId, topic });
-    console.info(
-      `[agent-registry] arbiter: joined discussion_id="${discussionId}"`,
-    );
+    console.info(`[agent-registry] arbiter: joined discussion_id="${discussionId}"`);
   }
 
   // -------------------------------------------------------------------------
-  // Cotask processing (Requirement 6.6)
+  // Cowork processing (Requirement 6.6)
   // -------------------------------------------------------------------------
 
-  async function processCotaskCreatedTask(
-    payload: Record<string, unknown>,
-  ): Promise<void> {
+  async function processCoworkCreatedTask(payload: Record<string, unknown>): Promise<void> {
     const content = (payload["content"] ?? payload) as Record<string, unknown>;
     const taskId = String(payload["task_id"] ?? payload["id"] ?? "");
     const text = String(content["text"] ?? "");
@@ -305,11 +315,11 @@ export function createCollaborationArbiter(
       `- Description: ${description}\n` +
       `- Required skills: ${requiredSkills}\n` +
       `- Current context: ${conversation}\n\n` +
-      `Based on your capabilities above, should you join this cotask?\n` +
+      `Based on your capabilities above, should you join this cowork?\n` +
       `If yes, list which required skills you can provide.\n` +
       `Reply "yes [skill1, skill2, ...]" or "no".`;
 
-    log.debug(`sending cotask decision prompt to bound agent`, {
+    log.debug(`sending cowork decision prompt to bound agent`, {
       task_id: taskId,
       promptLength: prompt.length,
       prompt,
@@ -322,21 +332,24 @@ export function createCollaborationArbiter(
         s.sendAndAwaitResponse(prompt, DECISION_TIMEOUT_MS),
         DECISION_TIMEOUT_MS,
       );
-      log.debug(`received cotask decision response`, {
+      log.debug(`received cowork decision response`, {
         task_id: taskId,
         response: response.slice(0, 200),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message === "timeout") {
-        log.warn(`cotask.created decision timed out — discarding`, { task_id: taskId });
+        log.warn(`cowork.created decision timed out — discarding`, { task_id: taskId });
         console.warn(
-          `[agent-registry] arbiter: cotask.created decision timed out for task_id="${taskId}" — discarding`,
+          `[agent-registry] arbiter: cowork.created decision timed out for task_id="${taskId}" — discarding`,
         );
       } else {
-        log.error(`session error during cotask decision — discarding`, { task_id: taskId, error: message });
+        log.error(`session error during cowork decision — discarding`, {
+          task_id: taskId,
+          error: message,
+        });
         console.error(
-          `[agent-registry] arbiter: session error during cotask decision: ${message} — discarding`,
+          `[agent-registry] arbiter: session error during cowork decision: ${message} — discarding`,
         );
         invalidateSession();
       }
@@ -344,31 +357,28 @@ export function createCollaborationArbiter(
     }
 
     if (!isAffirmative(response)) {
-      log.info(`Bound_Agent declined cotask`, { task_id: taskId, response: response.slice(0, 80) });
-      console.info(
-        `[agent-registry] arbiter: Bound_Agent declined task_id="${taskId}"`,
-      );
+      log.info(`Bound_Agent declined cowork`, { task_id: taskId, response: response.slice(0, 80) });
+      console.info(`[agent-registry] arbiter: Bound_Agent declined task_id="${taskId}"`);
       return;
     }
 
     // Extract offered skills from the response text.
     const offeredSkills = extractOfferedSkills(response, configuredSkills);
 
-    // Affirmative: subscribe to the cotask topic and publish join envelope.
-    const topic = `a2a.cotask.${taskId}`;
+    // Affirmative: subscribe to the cowork topic and publish join envelope.
+    const topic = `a2a.cowork.${taskId}`;
 
-    natsClient.subscribe(topic, () => {
-      // Message handling delegated to MessageRouter.
-    });
+    // Route incoming messages through the MessageRouter (same pattern as discussion).
+    natsClient.subscribe(topic, createCollaborationTopicHandler(topic));
 
     const joinEnvelope = createEnvelope({
       request_id: uuidv4(),
-      message_type: "event",
-      source: boundAgentId,
+      message_type: "req",
+      source: getEffectiveAgentId(),
       seq: 0,
       action: "join",
-      resource_type: "cotask",
-      payload: { task_id: taskId, offered_skills: offeredSkills },
+      resource_type: "cowork",
+      payload: { agent_id: getEffectiveAgentId(), task_id: taskId, offered_skills: offeredSkills },
       reply_to: null,
     });
 
@@ -403,12 +413,12 @@ export function createCollaborationArbiter(
     },
 
     /**
-     * Enqueue a `cotask.created` broadcast for sequential processing.
+     * Enqueue a `cowork.created` broadcast for sequential processing.
      * Requirement 6.6, 6.10
      */
-    async processCotaskCreated(payload: Record<string, unknown>): Promise<void> {
+    async processCoworkCreated(payload: Record<string, unknown>): Promise<void> {
       if (disposed) return;
-      enqueue(() => processCotaskCreatedTask(payload));
+      enqueue(() => processCoworkCreatedTask(payload));
     },
 
     /**

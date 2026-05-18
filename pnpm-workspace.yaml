@@ -110,4 +110,3 @@ peerDependencyRules:
 patchedDependencies:
   "baileys@7.0.0-rc11": "patches/baileys@7.0.0-rc11.patch"
   "@agentclientprotocol/claude-agent-acp@0.33.1": "patches/@agentclientprotocol__claude-agent-acp@0.33.1.patch"
-  postcss: patches/postcss.patch

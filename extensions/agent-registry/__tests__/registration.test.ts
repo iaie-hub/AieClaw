@@ -11,13 +11,9 @@
 
 import * as fc from "fast-check";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createRegistrationManager } from "../src/registration.js";
 import { serializeEnvelope, createEnvelope } from "../src/envelope.js";
-import type {
-  AgentRegistryConfig,
-  InstalledSkill,
-  NATSClient,
-} from "../src/types.js";
+import { createRegistrationManager } from "../src/registration.js";
+import type { AgentRegistryConfig, InstalledSkill, NATSClient } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -42,6 +38,7 @@ function makeMockNatsClient(): NATSClient & {
   unsubscribeAll: ReturnType<typeof vi.fn>;
   drain: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
+  newInbox: ReturnType<typeof vi.fn>;
 } {
   return {
     request: vi.fn(),
@@ -50,16 +47,20 @@ function makeMockNatsClient(): NATSClient & {
     unsubscribeAll: vi.fn(),
     drain: vi.fn(),
     close: vi.fn(),
+    newInbox: vi.fn(() => "mock-inbox"),
     isConnected: true,
   };
 }
 
 /** Serialize a successful RegisterResponse envelope for use in mock NATS replies. */
-function makeSuccessResponseBytes(topics = {
-  unicast: "a2a.agent.unicast.test-agent",
-  multicast: [] as string[],
-  broadcast: "a2a.agent.broadcast.all",
-}, ttl = 30000): Uint8Array {
+function makeSuccessResponseBytes(
+  topics = {
+    unicast: "a2a.agent.unicast.test-agent",
+    multicast: [] as string[],
+    broadcast: "a2a.agent.broadcast.all",
+  },
+  ttl = 30000,
+): Uint8Array {
   const envelope = createEnvelope({
     request_id: "00000000-0000-4000-8000-000000000099",
     message_type: "res",
@@ -99,9 +100,7 @@ const arbAgentId = fc.stringMatching(/^[a-zA-Z0-9_-]{1,64}$/);
 const arbAgentName = fc.string({ minLength: 1, maxLength: 128 });
 
 /** Arbitrary skill name: non-empty string up to 64 chars */
-const arbSkillName = fc.string({ minLength: 1, maxLength: 64 }).filter(
-  (s) => s.trim().length > 0,
-);
+const arbSkillName = fc.string({ minLength: 1, maxLength: 64 }).filter((s) => s.trim().length > 0);
 
 /** Arbitrary InstalledSkill with a given name. */
 function arbInstalledSkillWithName(name: string): fc.Arbitrary<InstalledSkill> {
@@ -164,15 +163,13 @@ describe("Feature: agent-registry-channel, Property 6: AgentCard skill filtering
         // configuredSkills: array of skill names (some may not be installed)
         fc.array(arbSkillName, { minLength: 0, maxLength: 8 }),
         // installedSkills: array of InstalledSkill objects with unique names
-        fc
-          .array(arbSkillName, { minLength: 0, maxLength: 8 })
-          .chain((names) => {
-            // Deduplicate names to ensure uniqueness
-            const uniqueNames = [...new Set(names)];
-            return fc.tuple(
-              ...uniqueNames.map((n) => arbInstalledSkillWithName(n)),
-            ).map((skills) => skills as InstalledSkill[]);
-          }),
+        fc.array(arbSkillName, { minLength: 0, maxLength: 8 }).chain((names) => {
+          // Deduplicate names to ensure uniqueness
+          const uniqueNames = [...new Set(names)];
+          return fc
+            .tuple(...uniqueNames.map((n) => arbInstalledSkillWithName(n)))
+            .map((skills) => skills as InstalledSkill[]);
+        }),
         async (configuredSkills, installedSkills) => {
           const config = makeConfig({
             agentId: "test-agent",
@@ -321,9 +318,7 @@ describe("register() — unit tests", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const natsClient = makeMockNatsClient();
-    natsClient.request.mockResolvedValue(
-      makeFailureResponseBytes("agent already registered"),
-    );
+    natsClient.request.mockResolvedValue(makeFailureResponseBytes("agent already registered"));
 
     const config = makeConfig({ agentId: "agent-1", agentName: "Agent One" });
     const manager = createRegistrationManager({

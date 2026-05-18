@@ -11,11 +11,7 @@
 
 import * as fc from "fast-check";
 import { describe, it, expect } from "vitest";
-import {
-  serializeEnvelope,
-  deserializeEnvelope,
-  createEnvelope,
-} from "../src/envelope.js";
+import { serializeEnvelope, deserializeEnvelope, createEnvelope } from "../src/envelope.js";
 import type { RegistryEnvelope } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
@@ -34,7 +30,7 @@ const arbRegistryEnvelope: fc.Arbitrary<RegistryEnvelope> = fc.record({
   source: arbNonEmptyString,
   seq: fc.integer({ min: 0, max: 1_000_000 }),
   action: arbNonEmptyString,
-  resource_type: fc.constantFrom("agent", "collaboration", "cotask", "discussion"),
+  resource_type: fc.constantFrom("agent", "collaboration", "cowork", "discussion"),
   payload: fc.dictionary(
     fc.string({ minLength: 1, maxLength: 16 }),
     fc.oneof(fc.string(), fc.integer(), fc.boolean()),
@@ -49,7 +45,7 @@ const arbCreateEnvelopeBase = fc.record({
   source: arbNonEmptyString,
   seq: fc.integer({ min: 0, max: 1_000_000 }),
   action: arbNonEmptyString,
-  resource_type: fc.constantFrom("agent", "collaboration", "cotask", "discussion"),
+  resource_type: fc.constantFrom("agent", "collaboration", "cowork", "discussion"),
   payload: fc.dictionary(
     fc.string({ minLength: 1, maxLength: 16 }),
     fc.oneof(fc.string(), fc.integer(), fc.boolean()),

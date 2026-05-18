@@ -32,7 +32,7 @@ const log = createLogger("registration");
 // ---------------------------------------------------------------------------
 
 export interface RegistrationManager {
-  buildAgentCard(): Promise<AgentCard>;
+  buildAgentCard(agentId: string): Promise<AgentCard>;
   register(): Promise<RegisterResult>;
   deregister(): Promise<void>;
   readonly assignedTopics: TopicAssignment | null;
@@ -51,20 +51,28 @@ export interface RegistrationManager {
 export function createRegistrationManager(
   options: RegistrationManagerOptions,
 ): RegistrationManager {
-  const { config, natsClient, getInstalledSkills } = options;
+  const { config, natsClient, getInstalledSkills, getAgentDescription } = options;
 
   let _assignedTopics: TopicAssignment | null = null;
   let _ttlMs: number | null = null;
+  /** The effective agent_id used for registration (base id + UUID suffix). */
+  let _effectiveAgentId: string = `${config.agentId}-${uuidv4().slice(0, 8)}`;
 
   // -------------------------------------------------------------------------
   // buildAgentCard
   // -------------------------------------------------------------------------
 
-  async function buildAgentCard(): Promise<AgentCard> {
-    log.debug(`building AgentCard`, { agentId: config.agentId, configuredSkills: config.skills });
+  async function buildAgentCard(agentId: string): Promise<AgentCard> {
+    log.debug(`building AgentCard`, { agentId, configuredSkills: config.skills });
 
-    const installedSkills: InstalledSkill[] = await getInstalledSkills();
-    log.debug(`resolved installed skills`, { count: installedSkills.length, names: installedSkills.map(s => s.name) });
+    const [installedSkills, description] = await Promise.all([
+      getInstalledSkills(),
+      getAgentDescription ? getAgentDescription() : Promise.resolve(config.agentName),
+    ]);
+    log.debug(`resolved installed skills`, {
+      count: installedSkills.length,
+      names: installedSkills.map((s) => s.name),
+    });
 
     // Build a lookup map by name for O(1) resolution.
     const skillByName = new Map<string, InstalledSkill>();
@@ -78,7 +86,9 @@ export function createRegistrationManager(
       const source = skillByName.get(configuredName);
       if (!source) {
         // Requirement 2.6: log warning for unresolved names, skip entry.
-        log.warn(`skill name not found in installed skills — skipping`, { skillName: configuredName });
+        log.warn(`skill name not found in installed skills — skipping`, {
+          skillName: configuredName,
+        });
         console.warn(
           `[agent-registry] buildAgentCard: skill name "${configuredName}" not found in installed skills — skipping`,
         );
@@ -112,9 +122,9 @@ export function createRegistrationManager(
     const card: AgentCard = {
       // A2A standard fields
       name: config.agentName, // Requirement 2.3
-      description: "", // No description configured
+      description,
       version: "1.0.0",
-      url: `nats://a2a.agent.unicast.${config.agentId}`,
+      url: `nats://a2a.agent.unicast.${agentId}`,
       capabilities: {
         streaming: false,
         pushNotifications: false,
@@ -125,7 +135,7 @@ export function createRegistrationManager(
       defaultInputModes: ["text/plain"],
       defaultOutputModes: ["text/plain"],
       // Registry extension fields
-      agent_id: config.agentId, // Requirement 2.2
+      agent_id: agentId,
       mac: "00:00:00:00:00:00", // Requirement 2.5 — never expose host MAC
       transport: "mq", // Requirement 2.4
       status: "online",
@@ -136,7 +146,7 @@ export function createRegistrationManager(
       name: card.name,
       transport: card.transport,
       skillCount: card.skills.length,
-      skills: card.skills.map(s => s.name),
+      skills: card.skills.map((s) => s.name),
     });
 
     return card;
@@ -146,102 +156,141 @@ export function createRegistrationManager(
   // register
   // -------------------------------------------------------------------------
 
+  /** Maximum number of retries when agent_id conflicts occur. */
+  const MAX_CONFLICT_RETRIES = 5;
+
   async function register(): Promise<RegisterResult> {
-    log.info(`starting registration`, { agentId: config.agentId, agentName: config.agentName });
-
-    let card: AgentCard;
-    try {
-      card = await buildAgentCard();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error(`failed to build AgentCard`, message);
-      console.error(`[agent-registry] register: failed to build AgentCard: ${message}`);
-      return { ok: false, error: message };
-    }
-
-    // Requirement 3.2: wrap AgentCard in RegistryEnvelope with action "register".
-    const envelope = createEnvelope({
-      request_id: uuidv4(),
-      message_type: "req",
-      source: config.agentId,
-      seq: 0,
-      action: "register",
-      resource_type: "agent",
-      payload: card as unknown as Record<string, unknown>,
-      reply_to: null,
+    log.info(`starting registration`, {
+      baseAgentId: config.agentId,
+      effectiveAgentId: _effectiveAgentId,
     });
 
-    log.debug(`sending registration request`, { subject: "registry.agent.register", messageId: envelope.message_id });
+    // Retry loop: on AGENT_ID_CONFLICT, regenerate the UUID suffix and retry.
+    for (let attempt = 0; attempt <= MAX_CONFLICT_RETRIES; attempt++) {
+      let card: AgentCard;
+      try {
+        card = await buildAgentCard(_effectiveAgentId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(`failed to build AgentCard`, message);
+        console.error(`[agent-registry] register: failed to build AgentCard: ${message}`);
+        return { ok: false, error: message };
+      }
 
-    const requestBytes = serializeEnvelope(envelope);
+      const replyInbox = natsClient.newInbox();
 
-    let responseBytes: Uint8Array;
-    try {
-      // Requirement 3.1: publish to "registry.agent.register" with 10 s timeout.
-      responseBytes = await natsClient.request(
-        "registry.agent.register",
-        requestBytes,
-        10000,
-      );
-    } catch (err) {
-      // Requirement 3.5: log failure reason on timeout or publish failure.
-      const message = err instanceof Error ? err.message : String(err);
-      log.error(`registration request failed`, { subject: "registry.agent.register", error: message });
-      console.error(
-        `[agent-registry] register: request to registry.agent.register failed: ${message}`,
-      );
-      return { ok: false, error: message };
-    }
-
-    let responseEnvelope;
-    try {
-      responseEnvelope = deserializeEnvelope(responseBytes);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error(`failed to parse RegisterResponse`, message);
-      console.error(
-        `[agent-registry] register: failed to parse RegisterResponse: ${message}`,
-      );
-      return { ok: false, error: message };
-    }
-
-    log.debug(`received registration response`, {
-      action: responseEnvelope.action,
-      source: responseEnvelope.source,
-      payload: responseEnvelope.payload,
-    });
-
-    const payload = responseEnvelope.payload as {
-      success?: boolean;
-      topics?: TopicAssignment;
-      ttl?: number;
-      error?: string;
-    };
-
-    if (payload.success === true) {
-      // Requirement 3.3: store assigned topics and TTL on success.
-      const topics = payload.topics as TopicAssignment;
-      const ttlMs = payload.ttl as number;
-      _assignedTopics = topics;
-      _ttlMs = ttlMs;
-      log.info(`registration successful`, {
-        agentId: config.agentId,
-        unicast: topics.unicast,
-        multicast: topics.multicast,
-        broadcast: topics.broadcast,
-        ttlMs,
-        heartbeatIntervalMs: Math.floor(ttlMs / 3),
+      const envelope = createEnvelope({
+        request_id: uuidv4(),
+        message_type: "req",
+        source: _effectiveAgentId,
+        seq: 0,
+        action: "register",
+        resource_type: "agent",
+        payload: card as unknown as Record<string, unknown>,
+        reply_to: replyInbox,
       });
-      return { ok: true, topics, ttlMs };
-    } else {
-      // Requirement 3.4: log error field from response, return ok: false.
+
+      log.debug(`sending registration request`, {
+        subject: "registry.agent.register",
+        messageId: envelope.message_id,
+        agentId: _effectiveAgentId,
+        attempt,
+        replyInbox,
+      });
+
+      const requestBytes = serializeEnvelope(envelope);
+
+      let responseBytes: Uint8Array;
+      try {
+        responseBytes = await new Promise<Uint8Array>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            sub.unsubscribe();
+            reject(new Error("registration request timed out after 10 s"));
+          }, 10000);
+
+          const sub = natsClient.subscribe(replyInbox, (bytes) => {
+            clearTimeout(timer);
+            sub.unsubscribe();
+            resolve(bytes);
+          });
+
+          natsClient.publish("registry.agent.register", requestBytes);
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(`registration request failed`, {
+          subject: "registry.agent.register",
+          error: message,
+        });
+        console.error(
+          `[agent-registry] register: request to registry.agent.register failed: ${message}`,
+        );
+        return { ok: false, error: message };
+      }
+
+      let responseEnvelope;
+      try {
+        responseEnvelope = deserializeEnvelope(responseBytes);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(`failed to parse RegisterResponse`, message);
+        console.error(`[agent-registry] register: failed to parse RegisterResponse: ${message}`);
+        return { ok: false, error: message };
+      }
+
+      log.debug(`received registration response`, {
+        action: responseEnvelope.action,
+        source: responseEnvelope.source,
+        payload: responseEnvelope.payload,
+      });
+
+      const payload = responseEnvelope.payload as {
+        success?: boolean;
+        agent_id?: string;
+        topics?: TopicAssignment;
+        ttl?: number;
+        error?: string;
+      };
+
+      if (payload.success === true) {
+        const topics = payload.topics as TopicAssignment;
+        const ttlMs = payload.ttl as number;
+        const effectiveAgentId = payload.agent_id ?? _effectiveAgentId;
+        _effectiveAgentId = effectiveAgentId;
+        _assignedTopics = topics;
+        _ttlMs = ttlMs;
+        log.info(`registration successful`, {
+          baseAgentId: config.agentId,
+          effectiveAgentId,
+          unicast: topics.unicast,
+          multicast: topics.multicast,
+          broadcast: topics.broadcast,
+          ttlMs,
+          heartbeatIntervalMs: Math.floor(ttlMs / 3),
+        });
+        return { ok: true, agentId: effectiveAgentId, topics, ttlMs };
+      }
+
+      // Check for AGENT_ID_CONFLICT — regenerate suffix and retry.
+      if (payload.error === "AGENT_ID_CONFLICT" && attempt < MAX_CONFLICT_RETRIES) {
+        const newSuffix = uuidv4().slice(0, 8);
+        _effectiveAgentId = `${config.agentId}-${newSuffix}`;
+        log.warn(`agent_id conflict — regenerating suffix and retrying`, {
+          attempt: attempt + 1,
+          newEffectiveAgentId: _effectiveAgentId,
+        });
+        continue;
+      }
+
+      // Non-conflict error or retries exhausted — fail.
       const errorMsg = payload.error ?? "Registry returned success=false with no error message";
-      log.error(`Registry rejected registration`, { agentId: config.agentId, error: errorMsg });
-      console.error(
-        `[agent-registry] register: Registry rejected registration: ${errorMsg}`,
-      );
+      log.error(`Registry rejected registration`, { agentId: _effectiveAgentId, error: errorMsg });
+      console.error(`[agent-registry] register: Registry rejected registration: ${errorMsg}`);
       return { ok: false, error: errorMsg };
     }
+
+    // Should not reach here, but satisfy TypeScript.
+    return { ok: false, error: "registration failed after max conflict retries" };
   }
 
   // -------------------------------------------------------------------------
@@ -249,32 +298,50 @@ export function createRegistrationManager(
   // -------------------------------------------------------------------------
 
   async function deregister(): Promise<void> {
-    log.info(`sending deregistration request`, { agentId: config.agentId });
+    log.info(`sending deregistration request`, { agentId: _effectiveAgentId });
+
+    const replyInbox = natsClient.newInbox();
 
     // Requirement 8.2: wrap payload in RegistryEnvelope with action "deregister".
     const envelope = createEnvelope({
       request_id: uuidv4(),
       message_type: "req",
-      source: config.agentId,
+      source: _effectiveAgentId,
       seq: 0,
       action: "deregister",
       resource_type: "agent",
-      payload: { agent_id: config.agentId },
-      reply_to: null,
+      payload: { agent_id: _effectiveAgentId },
+      reply_to: replyInbox,
     });
 
     const requestBytes = serializeEnvelope(envelope);
 
     try {
       // Requirement 8.1: publish to "registry.agent.deregister" with 5 s timeout.
-      await natsClient.request("registry.agent.deregister", requestBytes, 5000);
-      log.info(`deregistration acknowledged`, { agentId: config.agentId });
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          sub.unsubscribe();
+          reject(new Error("deregistration request timed out after 5 s"));
+        }, 5000);
+
+        const sub = natsClient.subscribe(replyInbox, (_bytes) => {
+          clearTimeout(timer);
+          sub.unsubscribe();
+          resolve();
+        });
+
+        natsClient.publish("registry.agent.deregister", requestBytes);
+      });
+      log.info(`deregistration acknowledged`, { agentId: _effectiveAgentId });
     } catch (err) {
       // Requirement 8.3: log failure with agent_id and error reason; do not throw.
       const message = err instanceof Error ? err.message : String(err);
-      log.warn(`deregistration failed (proceeding with shutdown)`, { agentId: config.agentId, error: message });
+      log.warn(`deregistration failed (proceeding with shutdown)`, {
+        agentId: _effectiveAgentId,
+        error: message,
+      });
       console.error(
-        `[agent-registry] deregister: failed for agent_id="${config.agentId}": ${message}`,
+        `[agent-registry] deregister: failed for agent_id="${_effectiveAgentId}": ${message}`,
       );
     }
   }

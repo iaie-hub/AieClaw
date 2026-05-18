@@ -110,14 +110,14 @@ Build the `@openclaw/agent-registry` channel plugin as a TypeScript ESM package 
       - Else if `sessionContext.kind === "unicast"` → publish to `a2a.agent.unicast.{sourceAgentId}`; if `sourceAgentId` absent → log warning and discard
       - Else if `sessionContext.kind === "multicast"` → publish to `a2a.agent.unicast.{sourceAgentId}` (unicast reply back to sender)
       - Else if `sessionContext.kind === "discussion"` → publish to `a2a.discussion.{discussionId}`, `action: "message"`, include `discussion_id` in payload
-      - Else if `sessionContext.kind === "cotask"` → publish to `a2a.cotask.{taskId}`, `action: params.isSessionComplete ? "complete" : "progress"`
+      - Else if `sessionContext.kind === "cowork"` → publish to `a2a.cowork.{taskId}`, `action: params.isSessionComplete ? "complete" : "progress"`
     - Maintain per-session `seq` counter starting at 0, incrementing by 1 per published envelope
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 10.4_
 
   - [x] 9.2 Write property and unit tests for outbound adapter (`__tests__/outbound.test.ts`)
     - **Property 4: seq is monotonically increasing per session** — for any sequence of `send()` calls within one session, `seq` values form a strictly increasing sequence starting from 0
     - **Property 13: Outbound envelope wraps response correctly** — for any response text and valid session context, produced envelope has `source === agentId`, `message_type === "req"`, valid UUID v4 `message_id`, non-negative integer `timestamp`, correct `seq`, and payload containing response text
-    - Unit tests: `reply_to` present → published to `reply_to` subject; cotask `isSessionComplete: true` → `action: "complete"`; cotask `isSessionComplete: false` → `action: "progress"`; discussion → `action: "message"` with `discussion_id`; missing `sourceAgentId` on unicast → warning logged, no publish
+    - Unit tests: `reply_to` present → published to `reply_to` subject; cowork `isSessionComplete: true` → `action: "complete"`; cowork `isSessionComplete: false` → `action: "progress"`; discussion → `action: "message"` with `discussion_id`; missing `sourceAgentId` on unicast → warning logged, no publish
     - **Validates: Requirements 7.1–7.6, 10.4**
 
 - [x] 10. Implement CollaborationArbiter
@@ -126,7 +126,7 @@ Build the `@openclaw/agent-registry` channel plugin as a TypeScript ESM package 
     - Implement `initialize()` — create the single long-lived Bound_Agent session via `createArbiterSession(boundAgentId)`; store reference
     - Implement sequential async queue (single-concurrency promise chain) for processing broadcasts one at a time
     - Implement `processDiscussionCreated(payload)` — enqueue; when dequeued, send structured prompt to Arbiter session: `"Discussion: '{text}'\nDescription: {description}\nTags: {tags}\nConversation: {conversation}\nShould I join? (yes/no)"`; await response with 30 s timeout; on affirmative: subscribe to `a2a.discussion.{discussionId}` and publish join envelope (`action: "join"`); on negative or timeout: log and discard
-    - Implement `processCotaskCreated(payload)` — enqueue; when dequeued, send structured prompt: `"Cotask: '{text}'\nDescription: {description}\nRequired skills: {required_skills}\nConversation: {conversation}\nShould I join? Which skills can I offer?"`; await response with 30 s timeout; on affirmative: subscribe to `a2a.cotask.{taskId}` and publish join envelope (`action: "join"`, `offered_skills: [...]`); on negative or timeout: log and discard
+    - Implement `processCoworkCreated(payload)` — enqueue; when dequeued, send structured prompt: `"Cowork: '{text}'\nDescription: {description}\nRequired skills: {required_skills}\nConversation: {conversation}\nShould I join? Which skills can I offer?"`; await response with 30 s timeout; on affirmative: subscribe to `a2a.cowork.{taskId}` and publish join envelope (`action: "join"`, `offered_skills: [...]`); on negative or timeout: log and discard
     - Implement `dispose()` — cancel pending queue items, close Arbiter session
     - If Arbiter session terminates unexpectedly, recreate before processing next broadcast
     - _Requirements: 6.5, 6.6, 6.9, 6.10_
@@ -136,13 +136,13 @@ Build the `@openclaw/agent-registry` channel plugin as a TypeScript ESM package 
     - Implement `createMessageRouter(options: MessageRouterOptions): MessageRouter`
     - Implement `handleUnicast(envelope)` — route to `getOrCreateSession(envelope.source, boundAgentId)`; dispatch message
     - Implement `handleMulticast(envelope)` — route to `getLeastLoadedSession(boundAgentId)` (create new if none); dispatch message
-    - Implement `handleBroadcast(envelope)` — switch on `envelope.action`: `"discussion.created"` → `arbiter.processDiscussionCreated(envelope.payload)`; `"cotask.created"` → `arbiter.processCotaskCreated(envelope.payload)`; other → log action and discard
+    - Implement `handleBroadcast(envelope)` — switch on `envelope.action`: `"discussion.created"` → `arbiter.processDiscussionCreated(envelope.payload)`; `"cowork.created"` → `arbiter.processCoworkCreated(envelope.payload)`; other → log action and discard
     - Implement `handleCollaborationTopic(topicId, envelope)` — route to `getOrCreateSession(topicId, boundAgentId)`; dispatch message
     - Implement inbound message handler factory: parse bytes via `deserializeEnvelope`; on parse failure log error with raw bytes (truncated to 512 bytes) and subject, discard; dispatch to correct handler based on topic pattern
     - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.10_
 
   - [x] 11.2 Write unit tests for message router (`__tests__/router.test.ts`)
-    - Unit tests: invalid envelope bytes → parse error logged with truncated bytes, discarded; unicast message → `getOrCreateSession` called with `source`; multicast → `getLeastLoadedSession` called; broadcast `discussion.created` → `arbiter.processDiscussionCreated` called; broadcast `cotask.created` → `arbiter.processCotaskCreated` called; broadcast unknown action → logged and discarded; discussion/cotask topic → `getOrCreateSession` called with topic id
+    - Unit tests: invalid envelope bytes → parse error logged with truncated bytes, discarded; unicast message → `getOrCreateSession` called with `source`; multicast → `getLeastLoadedSession` called; broadcast `discussion.created` → `arbiter.processDiscussionCreated` called; broadcast `cowork.created` → `arbiter.processCoworkCreated` called; broadcast unknown action → logged and discarded; discussion/cowork topic → `getOrCreateSession` called with topic id
     - **Validates: Requirements 6.1–6.10**
 
 - [x] 12. Checkpoint — wire and verify core components

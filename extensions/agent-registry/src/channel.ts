@@ -21,25 +21,23 @@
  *               5.8, 8.1, 11.3, 11.4, 11.5, 11.6
  */
 
-import { createChatChannelPlugin } from "openclaw/plugin-sdk/channel-core";
-import {
-  dispatchInboundDirectDmWithRuntime,
-} from "openclaw/plugin-sdk/direct-dm";
-import { waitUntilAbort } from "openclaw/plugin-sdk/channel-lifecycle";
-import type { ChannelPlugin } from "openclaw/plugin-sdk/channel-core";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
+import { createInbox } from "nats";
 import type { ChannelGatewayContext } from "openclaw/plugin-sdk/channel-contract";
-
-import { parseConfig } from "./config.js";
-import { createNATSClient } from "./nats-client.js";
-import { createRegistrationManager } from "./registration.js";
-import { createHeartbeatManager } from "./heartbeat.js";
-import { createMessageRouter } from "./router.js";
-import { createOutboundAdapter } from "./outbound.js";
+import { createChatChannelPlugin } from "openclaw/plugin-sdk/channel-core";
+import type { ChannelPlugin } from "openclaw/plugin-sdk/channel-core";
+import { waitUntilAbort } from "openclaw/plugin-sdk/channel-lifecycle";
+import { dispatchInboundDirectDmWithRuntime } from "openclaw/plugin-sdk/direct-dm";
 import { createCollaborationArbiter } from "./arbiter.js";
 import type { ArbiterSession } from "./arbiter.js";
+import { parseConfig } from "./config.js";
+import { createDiscussion, createCowork } from "./discussion-initiator.js";
+import type { CreateDiscussionParams, CreateCoworkParams } from "./discussion-initiator.js";
+import { createOutboundAdapter } from "./outbound.js";
+import { createMessageRouter } from "./router.js";
 import { createStatusAdapter } from "./status.js";
-import { createDiscussion, createCotask } from "./discussion-initiator.js";
-import type { CreateDiscussionParams, CreateCotaskParams } from "./discussion-initiator.js";
 import type {
   AgentRegistryConfig,
   AgentSession,
@@ -47,6 +45,18 @@ import type {
   NATSSubscription,
   RegistryEnvelope,
 } from "./types.js";
+
+function resolveWorkerUrl(currentModuleUrl: string): URL {
+  const currentPath = fileURLToPath(currentModuleUrl);
+  const distMarker = `${path.sep}dist${path.sep}`;
+  const distIndex = currentPath.lastIndexOf(distMarker);
+  if (distIndex >= 0) {
+    const distRoot = currentPath.slice(0, distIndex + distMarker.length - 1);
+    return pathToFileURL(path.join(distRoot, "extensions", "agent-registry", "channel.worker.js"));
+  }
+  const extension = path.extname(currentPath) || ".js";
+  return new URL(`../channel.worker${extension}`, currentModuleUrl);
+}
 
 // ---------------------------------------------------------------------------
 // Resolved account type (minimal — no credentials stored in config)
@@ -66,13 +76,16 @@ type ResolvedAgentRegistryAccount = {
  */
 class SessionTracker {
   readonly sessions = new Map<string, AgentSession>();
+  onUpdate?: (count: number) => void;
 
   add(key: string, session: AgentSession): void {
     this.sessions.set(key, session);
+    this.onUpdate?.(this.count());
   }
 
   remove(key: string): void {
     this.sessions.delete(key);
+    this.onUpdate?.(this.count());
   }
 
   get(key: string): AgentSession | undefined {
@@ -85,6 +98,7 @@ class SessionTracker {
 
   clear(): void {
     this.sessions.clear();
+    this.onUpdate?.(this.count());
   }
 }
 
@@ -103,6 +117,8 @@ class SessionTracker {
  */
 function createAgentSession(params: {
   sessionKey: string;
+  /** Controls how outbound responses are routed by the OutboundAdapter. */
+  sessionContextKind: "unicast" | "discussion" | "cowork";
   agentId: string;
   boundAgentId: string;
   config: AgentRegistryConfig;
@@ -113,6 +129,7 @@ function createAgentSession(params: {
 }): AgentSession {
   const {
     sessionKey,
+    sessionContextKind,
     agentId,
     cfg,
     channelRuntime,
@@ -126,9 +143,10 @@ function createAgentSession(params: {
     async dispatch(envelope: RegistryEnvelope): Promise<void> {
       activeTaskCount++;
       try {
-        const messageText = typeof envelope.payload["text"] === "string"
-          ? envelope.payload["text"]
-          : JSON.stringify(envelope.payload);
+        const messageText =
+          typeof envelope.payload["text"] === "string"
+            ? envelope.payload["text"]
+            : JSON.stringify(envelope.payload);
 
         const peer = { kind: "direct" as const, id: envelope.source || sessionKey };
 
@@ -147,24 +165,37 @@ function createAgentSession(params: {
           messageId: envelope.message_id,
           timestamp: envelope.timestamp,
           deliver: async (payload) => {
-            // Deliver the agent's response back via the outbound adapter
+            // Deliver the agent's response back via the outbound adapter.
+            // The SessionContext determines which NATS subject the response
+            // is published to (unicast → a2a.agent.unicast.{source},
+            // discussion → a2a.discussion.{id}, cowork → a2a.cowork.{id}).
             const responseText =
               typeof payload === "object" && payload !== null && "text" in payload
                 ? String((payload as Record<string, unknown>)["text"] ?? "")
                 : "";
 
             if (responseText) {
+              // Build the correct session context based on the session kind.
+              const sessionContext =
+                sessionContextKind === "discussion"
+                  ? ({ kind: "discussion", discussionId: sessionKey } as const)
+                  : sessionContextKind === "cowork"
+                    ? ({ kind: "cowork", taskId: sessionKey, isComplete: false } as const)
+                    : ({ kind: "unicast", sourceAgentId: envelope.source } as const);
+
               await outboundAdapter.send({
                 responseText,
                 inboundEnvelope: envelope,
-                sessionContext: { kind: "unicast", sourceAgentId: envelope.source },
+                sessionContext,
                 sessionSeq: 0,
                 isSessionComplete: false,
               });
             }
           },
           onRecordError: (err) => {
-            console.error(`[agent-registry] session record error for ${sessionKey}: ${String(err)}`);
+            console.error(
+              `[agent-registry] session record error for ${sessionKey}: ${String(err)}`,
+            );
           },
           onDispatchError: (err, info) => {
             console.error(
@@ -280,10 +311,7 @@ async function getInstalledSkillsFromRuntime(
   // Cast to access the agent workspace and skill snapshot builder.
   const runtime = channelRuntime as unknown as {
     agent?: {
-      resolveAgentWorkspaceDir?: (params: {
-        cfg: unknown;
-        agentId: string;
-      }) => string;
+      resolveAgentWorkspaceDir?: (params: { cfg: unknown; agentId: string }) => string;
     };
     config?: {
       current?: () => unknown;
@@ -300,9 +328,9 @@ async function getInstalledSkillsFromRuntime(
 
     // Dynamically import the skill snapshot builder to avoid bundling it
     // into the plugin's static import graph.
-    const { buildWorkspaceSkillSnapshot } = await import(
-      "openclaw/plugin-sdk/agent-harness"
-    ).catch(() => ({ buildWorkspaceSkillSnapshot: null }));
+    const { buildWorkspaceSkillSnapshot } = await import("openclaw/plugin-sdk/agent-harness").catch(
+      () => ({ buildWorkspaceSkillSnapshot: null }),
+    );
 
     if (!buildWorkspaceSkillSnapshot) {
       return [];
@@ -331,9 +359,7 @@ async function getInstalledSkillsFromRuntime(
 
     return skills;
   } catch (err) {
-    console.warn(
-      `[agent-registry] getInstalledSkills: failed to resolve skills: ${String(err)}`,
-    );
+    console.warn(`[agent-registry] getInstalledSkills: failed to resolve skills: ${String(err)}`);
     return [];
   }
 }
@@ -451,9 +477,7 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
           const channels = (cfg as Record<string, unknown>)["channels"] as
             | Record<string, unknown>
             | undefined;
-          const channelCfg = channels?.["agent-registry"] as
-            | Record<string, unknown>
-            | undefined;
+          const channelCfg = channels?.["agent-registry"] as Record<string, unknown> | undefined;
           return channelCfg?.["enabled"] !== false;
         },
         isConfigured: () => {
@@ -467,6 +491,8 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
         startAccount: async (ctx: ChannelGatewayContext<ResolvedAgentRegistryAccount>) => {
           const { cfg, abortSignal, log, channelRuntime } = ctx;
 
+          log?.info?.("[agent-registry] Starting Agent Registry channel...");
+
           const statusAdapter = createStatusAdapter();
           const sessionTracker = new SessionTracker();
           const activeSubscriptions: NATSSubscription[] = [];
@@ -477,6 +503,9 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
           let config: AgentRegistryConfig;
           try {
             config = parseConfig(process.env);
+            log?.info?.(
+              `[agent-registry] Configuration parsed successfully. agentId="${config.agentId}", natsUrl="${config.natsUrl}"`,
+            );
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             log?.error?.(`[agent-registry] configuration error: ${message}`);
@@ -486,88 +515,250 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
 
           const boundAgentId = config.boundAgentId ?? "default";
 
-          // ----------------------------------------------------------------
-          // Step 2: Connect to NATS
+          // -------------------------------          // ----------------------------------------------------------------
+          // Step 2: Spawn worker and setup proxy NATS client
           // ----------------------------------------------------------------
           statusAdapter.setStatus("connecting");
-
-          const natsClient = createNATSClient({
-            url: config.natsUrl,
-            token: config.natsToken,
-            onDisconnect: () => {
-              if (!abortSignal.aborted) {
-                statusAdapter.setStatus("reconnecting");
-                log?.warn?.("[agent-registry] NATS disconnected — reconnecting");
-              }
-            },
-            onReconnect: () => {
-              if (!abortSignal.aborted) {
-                log?.info?.("[agent-registry] NATS reconnected — re-registering");
-                // Re-register, replace topics, restart heartbeat, re-subscribe
-                void handleReconnect().catch((err) => {
-                  log?.error?.(
-                    `[agent-registry] reconnect handler failed: ${String(err)}`,
-                  );
-                });
-              }
-            },
-          });
-
-          try {
-            await natsClient.connect();
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            log?.error?.(
-              `[agent-registry] failed to connect to NATS at ${config.natsUrl}: ${message}`,
-            );
-            statusAdapter.setStatus("unavailable");
-            return;
-          }
-
-          // ----------------------------------------------------------------
-          // Step 3: Build sub-modules
-          // ----------------------------------------------------------------
+          log?.info?.(`[agent-registry] Initializing NATS client via worker thread...`);
 
           const getInstalledSkills = async (): Promise<InstalledSkill[]> => {
             if (!channelRuntime) return [];
             return getInstalledSkillsFromRuntime(channelRuntime, boundAgentId);
           };
 
-          const registrationManager = createRegistrationManager({
-            config,
-            natsClient,
-            getInstalledSkills,
-          });
+          const getAgentDescription = async (): Promise<string> => {
+            if (!channelRuntime) {
+              log?.warn?.(
+                `[agent-registry] getAgentDescription: channelRuntime unavailable — falling back to agent name`,
+              );
+              return config.agentName;
+            }
+            const rt = channelRuntime as unknown as {
+              agent?: {
+                resolveAgentWorkspaceDir?: (cfg: unknown, agentId: string) => string;
+              };
+              config?: { current?: () => unknown };
+            };
+            const rtCfg = rt.config?.current?.() ?? {};
+            const workspaceDir = rt.agent?.resolveAgentWorkspaceDir?.(rtCfg, boundAgentId) ?? null;
 
-          const heartbeatManager = createHeartbeatManager({
-            agentId: config.agentId,
-            natsClient,
-            getActiveSessionCount: () => sessionTracker.count(),
-          });
+            log?.info?.(
+              `[agent-registry] getAgentDescription: boundAgentId="${boundAgentId}" workspaceDir=${workspaceDir ?? "(null)"}`,
+            );
+
+            if (!workspaceDir) {
+              log?.warn?.(
+                `[agent-registry] getAgentDescription: could not resolve workspace dir for agent "${boundAgentId}" — falling back to agent name`,
+              );
+              return config.agentName;
+            }
+            try {
+              const { readFile } = await import("node:fs/promises");
+              const { join } = await import("node:path");
+              const agentsMdPath = join(workspaceDir, "AGENTS.md");
+              log?.info?.(
+                `[agent-registry] getAgentDescription: reading AGENTS.md from "${agentsMdPath}"`,
+              );
+              const content = await readFile(agentsMdPath, "utf8");
+              if (!content) {
+                log?.warn?.(
+                  `[agent-registry] getAgentDescription: AGENTS.md is empty at "${agentsMdPath}" — falling back to agent name`,
+                );
+                return config.agentName;
+              }
+              log?.info?.(
+                `[agent-registry] getAgentDescription: loaded AGENTS.md (${content.length} chars, truncated to 4000)`,
+              );
+              return content.slice(0, 4000);
+            } catch (err) {
+              log?.warn?.(
+                `[agent-registry] getAgentDescription: failed to read AGENTS.md for agent "${boundAgentId}": ${String(err)} — falling back to agent name`,
+              );
+              return config.agentName;
+            }
+          };
+
+          const skills = (await getInstalledSkills()).map((s) => s.name);
+          const description = await getAgentDescription();
+
+          const workerUrl = resolveWorkerUrl(import.meta.url);
+          log?.info?.(`[agent-registry] Spawning worker thread from URL: ${workerUrl.href}`);
+          const worker = new Worker(workerUrl);
+
+          let effectiveAgentId = config.agentId;
+          let workerTopics: any = null;
+          let workerTtlMs = 150000;
+
+          const handlers = new Map<string, Set<(bytes: Uint8Array) => void>>();
+
+          const natsClient = {
+            connect: async (): Promise<void> => {
+              worker.on("message", (msg: any) => {
+                if (msg.type === "MESSAGE") {
+                  const subjectHandlers = handlers.get(msg.subject);
+                  if (subjectHandlers) {
+                    for (const handler of subjectHandlers) {
+                      try {
+                        handler(msg.payload);
+                      } catch (err) {
+                        log?.error?.(
+                          `[agent-registry] handler threw on subject "${msg.subject}": ${String(err)}`,
+                        );
+                      }
+                    }
+                  }
+                } else if (msg.type === "STATUS") {
+                  statusAdapter.setStatus(msg.status);
+                } else if (msg.type === "REGISTERED") {
+                  if (msg.ok) {
+                    effectiveAgentId = msg.agentId;
+                    workerTopics = msg.topics;
+                    workerTtlMs = msg.ttlMs;
+                  }
+                }
+              });
+
+              worker.postMessage({
+                type: "START",
+                config,
+                skills,
+                description,
+              });
+
+              return new Promise<void>((resolve, reject) => {
+                let resolved = false;
+
+                const onRegisterMsg = (msg: any) => {
+                  if (msg.type === "REGISTERED") {
+                    worker.off("message", onRegisterMsg);
+                    worker.off("error", onError);
+                    worker.off("exit", onExit);
+                    if (msg.ok) {
+                      resolved = true;
+                      resolve();
+                    } else {
+                      reject(new Error(msg.error || "Worker registration failed"));
+                    }
+                  }
+                };
+
+                const onError = (err: Error) => {
+                  worker.off("message", onRegisterMsg);
+                  worker.off("error", onError);
+                  worker.off("exit", onExit);
+                  reject(err);
+                };
+
+                const onExit = (code: number) => {
+                  worker.off("message", onRegisterMsg);
+                  worker.off("error", onError);
+                  worker.off("exit", onExit);
+                  if (!resolved) {
+                    reject(new Error(`Worker exited with code ${code} before registration`));
+                  }
+                };
+
+                worker.on("message", onRegisterMsg);
+                worker.on("error", onError);
+                worker.on("exit", onExit);
+              });
+            },
+            publish: (subject: string, payload: Uint8Array): void => {
+              worker.postMessage({ type: "PUBLISH", subject, payload });
+            },
+            subscribe: (subject: string, handler: (msg: Uint8Array) => void): NATSSubscription => {
+              let subjectHandlers = handlers.get(subject);
+              if (!subjectHandlers) {
+                subjectHandlers = new Set();
+                handlers.set(subject, subjectHandlers);
+                worker.postMessage({ type: "SUBSCRIBE", subject });
+              }
+              subjectHandlers.add(handler);
+
+              return {
+                subject,
+                unsubscribe: () => {
+                  const sh = handlers.get(subject);
+                  if (sh) {
+                    sh.delete(handler);
+                    if (sh.size === 0) {
+                      handlers.delete(subject);
+                      worker.postMessage({ type: "UNSUBSCRIBE", subject });
+                    }
+                  }
+                },
+              };
+            },
+            unsubscribeAll: async (): Promise<void> => {
+              handlers.clear();
+            },
+            drain: async (timeoutMs: number): Promise<void> => {
+              // Worker handles drain on stop
+            },
+            close: async (): Promise<void> => {
+              worker.postMessage({ type: "STOP" });
+              return new Promise<void>((resolve) => {
+                worker.once("exit", () => resolve());
+              });
+            },
+            newInbox: (): string => {
+              return createInbox();
+            },
+            get isConnected(): boolean {
+              return true;
+            },
+          };
+
+          sessionTracker.onUpdate = (count) => {
+            worker.postMessage({ type: "UPDATE_SESSION_COUNT", count });
+          };
+
+          try {
+            await natsClient.connect();
+            log?.info?.("[agent-registry] Worker-based connection and registration established.");
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            log?.error?.(`[agent-registry] worker initialization failed: ${message}`);
+            statusAdapter.setStatus("unavailable");
+            return;
+          }
+
+          const registrationManager = {
+            register: async () => ({
+              ok: true as const,
+              agentId: effectiveAgentId,
+              topics: workerTopics,
+              ttlMs: workerTtlMs,
+            }),
+            deregister: async () => {},
+          };
+
+          const heartbeatManager = {
+            start: (intervalMs: number) => {},
+            stop: () => {},
+            get isRunning() {
+              return true;
+            },
+          };
 
           const outboundAdapter = createOutboundAdapter({
-            agentId: config.agentId,
+            getAgentId: () => effectiveAgentId,
             natsClient,
           });
 
           // ----------------------------------------------------------------
           // Inject agentRegistry helpers into channelRuntime so Agent skills
           // can call runtime.agentRegistry.createDiscussion() directly.
+          // NOTE: moved below messageRouter creation so the subscription
+          // handler can close over the fully constructed messageRouter.
           // ----------------------------------------------------------------
-          if (channelRuntime) {
-            const rt = channelRuntime as Record<string, unknown>;
-            rt["agentRegistry"] = {
-              createDiscussion: (params: CreateDiscussionParams) =>
-                createDiscussion(params, config.agentId, natsClient),
-              createCotask: (params: CreateCotaskParams) =>
-                createCotask(params, config.agentId, natsClient),
-            };
-          }
 
           // Cast channelRuntime to the DirectDmRuntime shape.
           // For external channel plugins, the gateway injects the full
           // PluginRuntimeChannel surface which satisfies DirectDmRuntime.
-          type DirectDmRuntimeShape = Parameters<typeof dispatchInboundDirectDmWithRuntime>[0]["runtime"];
+          type DirectDmRuntimeShape = Parameters<
+            typeof dispatchInboundDirectDmWithRuntime
+          >[0]["runtime"];
           const directDmRuntime = channelRuntime as unknown as DirectDmRuntimeShape;
 
           // Session factory functions for the router
@@ -577,6 +768,7 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             if (existing) return existing;
             return createAgentSession({
               sessionKey: key,
+              sessionContextKind: "unicast",
               agentId: config.agentId,
               boundAgentId,
               config,
@@ -589,9 +781,22 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
 
           const getOrCreateSession = (key: string, _agentId: string): AgentSession => {
             const existing = sessionTracker.get(key);
-            if (existing) return existing;
+            if (existing) {
+              return existing;
+            }
+            // Detect session kind from key prefix so the OutboundAdapter routes
+            // responses to the correct NATS subject:
+            //   disc-*  → a2a.discussion.{discussionId}
+            //   task-*  → a2a.cowork.{taskId}
+            //   anything else → a2a.agent.unicast.{source}
+            const kind: "discussion" | "cowork" | "unicast" = key.startsWith("disc-")
+              ? "discussion"
+              : key.startsWith("task-")
+                ? "cowork"
+                : "unicast";
             return createAgentSession({
               sessionKey: key,
+              sessionContextKind: kind,
               agentId: config.agentId,
               boundAgentId,
               config,
@@ -617,15 +822,24 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             return leastLoaded;
           };
 
+          // A mutable reference to the message router, used by the arbiter's
+          // createCollaborationTopicHandler and by the agentRegistry injection
+          // below. Both are resolved at call-time (well after startup), so
+          // messageRouter is guaranteed to be set when they execute.
+          let messageRouterRef: ReturnType<typeof createMessageRouter> | null = null;
+
           const arbiter = createCollaborationArbiter({
             boundAgentId,
+            getEffectiveAgentId: () => effectiveAgentId,
             natsClient,
             createArbiterSession: (_agentId: string): AgentSession => {
               if (!channelRuntime) {
                 // Stub session when channelRuntime is unavailable
                 const stub: AgentSession = {
                   dispatch: async () => {},
-                  get activeTaskCount() { return 0; },
+                  get activeTaskCount() {
+                    return 0;
+                  },
                 };
                 return stub;
               }
@@ -638,14 +852,17 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
               // Wrap ArbiterSession as AgentSession
               const agentSession: AgentSession = {
                 dispatch: async (envelope: RegistryEnvelope) => {
-                  const text = typeof envelope.payload["text"] === "string"
-                    ? envelope.payload["text"]
-                    : JSON.stringify(envelope.payload);
+                  const text =
+                    typeof envelope.payload["text"] === "string"
+                      ? envelope.payload["text"]
+                      : JSON.stringify(envelope.payload);
                   // For arbiter sessions, dispatch is a no-op since
                   // sendAndAwaitResponse is used directly by the arbiter.
                   void text;
                 },
-                get activeTaskCount() { return 0; },
+                get activeTaskCount() {
+                  return 0;
+                },
               };
               // Attach sendAndAwaitResponse and dispose to the session
               // so the arbiter can use it as an ArbiterSession.
@@ -657,6 +874,23 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             },
             configuredSkills: config.skills,
             /**
+             * Returns the inbound message handler for a given collaboration topic.
+             * Closes over `messageRouterRef` which is set immediately after
+             * createMessageRouter() returns. By the time any broadcast arrives and
+             * the arbiter decides to join, messageRouterRef is always non-null.
+             */
+            createCollaborationTopicHandler: (topic: string) => {
+              return (bytes: Uint8Array): void => {
+                if (messageRouterRef) {
+                  messageRouterRef.createInboundHandler(topic)(bytes);
+                } else {
+                  console.warn(
+                    `[agent-registry] arbiter: createCollaborationTopicHandler called before messageRouter was ready — topic="${topic}"`,
+                  );
+                }
+              };
+            },
+            /**
              * Build capability context from the bound agent's AGENTS.md and TOOLS.md.
              * Injected into every collaboration decision prompt so the LLM can reason
              * about whether the agent is a good fit based on its actual role and skills.
@@ -666,13 +900,13 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
               if (!channelRuntime) return "";
               const rt = channelRuntime as unknown as {
                 agent?: {
-                  resolveAgentWorkspaceDir?: (params: { cfg: unknown; agentId: string }) => string;
+                  resolveAgentWorkspaceDir?: (cfg: unknown, agentId: string) => string;
                 };
                 config?: { current?: () => unknown };
               };
-              const cfg = rt.config?.current?.() ?? {};
+              const rtCfg = rt.config?.current?.() ?? {};
               const workspaceDir =
-                rt.agent?.resolveAgentWorkspaceDir?.({ cfg, agentId: boundAgentId }) ?? null;
+                rt.agent?.resolveAgentWorkspaceDir?.(rtCfg, boundAgentId) ?? null;
               if (!workspaceDir) return "";
 
               const { readFile } = await import("node:fs/promises");
@@ -692,8 +926,12 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
 
               const parts: string[] = [];
               // Truncate to avoid overflowing llm.complete context window
-              if (agentsMd) { parts.push(`### Operating Instructions (AGENTS.md)\n${agentsMd.slice(0, 3000)}`); }
-              if (toolsMd) { parts.push(`### Tool Notes (TOOLS.md)\n${toolsMd.slice(0, 1000)}`); }
+              if (agentsMd) {
+                parts.push(`### Operating Instructions (AGENTS.md)\n${agentsMd.slice(0, 3000)}`);
+              }
+              if (toolsMd) {
+                parts.push(`### Tool Notes (TOOLS.md)\n${toolsMd.slice(0, 1000)}`);
+              }
               return parts.join("\n\n");
             },
           });
@@ -707,10 +945,61 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             getLeastLoadedSession,
           });
 
+          // Resolve the deferred router reference so arbiter and agentRegistry
+          // injection closures can use it at call-time.
+          messageRouterRef = messageRouter;
+
+          // ----------------------------------------------------------------
+          // Inject agentRegistry helpers into channelRuntime so Agent skills
+          // can call runtime.agentRegistry.createDiscussion() directly.
+          //
+          // This runs AFTER messageRouter is created so the subscription
+          // handler can close over the fully constructed router.
+          //
+          // When createDiscussion() / createCowork() succeeds, the creator
+          // immediately subscribes to the returned topic via the MessageRouter
+          // so that incoming messages from joining agents are handled as proper
+          // collaboration sessions (Gap 2 fix).
+          // ----------------------------------------------------------------
+          if (channelRuntime) {
+            const rt = channelRuntime as Record<string, unknown>;
+            rt["agentRegistry"] = {
+              createDiscussion: async (params: CreateDiscussionParams) => {
+                const result = await createDiscussion(params, effectiveAgentId, natsClient);
+                if (result.ok) {
+                  // Creator subscribes to the discussion topic so that messages
+                  // from joining agents are routed through the MessageRouter and
+                  // dispatched to a proper discussion AgentSession.
+                  const handler = messageRouter.createInboundHandler(result.topic);
+                  activeSubscriptions.push(natsClient.subscribe(result.topic, handler));
+                  log?.info?.(
+                    `[agent-registry] creator subscribed to discussion topic "${result.topic}"`,
+                  );
+                }
+                return result;
+              },
+              createCowork: async (params: CreateCoworkParams) => {
+                const result = await createCowork(params, effectiveAgentId, natsClient);
+                if (result.ok) {
+                  // Creator subscribes to the cowork topic (same pattern as discussion).
+                  const handler = messageRouter.createInboundHandler(result.topic);
+                  activeSubscriptions.push(natsClient.subscribe(result.topic, handler));
+                  log?.info?.(
+                    `[agent-registry] creator subscribed to cowork topic "${result.topic}"`,
+                  );
+                }
+                return result;
+              },
+            };
+          }
+
           // ----------------------------------------------------------------
           // Step 3: Register with the Agent Registry
           // ----------------------------------------------------------------
           statusAdapter.setStatus("registering");
+          log?.info?.(
+            `[agent-registry] Registering agent "${config.agentId}" with the Agent Registry...`,
+          );
 
           const registerResult = await registrationManager.register();
           if (!registerResult.ok) {
@@ -722,8 +1011,15 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             return;
           }
 
+          // Update the effective agent_id from the registry response.
+          // This may differ from config.agentId if a suffix was assigned.
+          effectiveAgentId = registerResult.agentId ?? config.agentId;
+
           const topics = registerResult.topics!;
           const ttlMs = registerResult.ttlMs!;
+          log?.info?.(
+            `[agent-registry] Registration successful. effectiveAgentId="${effectiveAgentId}", unicast="${topics.unicast}", broadcast="${topics.broadcast}", TTL: ${ttlMs}ms.`,
+          );
 
           // ----------------------------------------------------------------
           // Step 4: Subscribe to topics
@@ -732,6 +1028,9 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
           const subscribeToTopics = (topicAssignment: typeof topics): void => {
             // Unicast topic
             try {
+              log?.info?.(
+                `[agent-registry] Subscribing to unicast topic: "${topicAssignment.unicast}"`,
+              );
               const unicastSub = natsClient.subscribe(
                 topicAssignment.unicast,
                 messageRouter.createInboundHandler(topicAssignment.unicast),
@@ -747,6 +1046,7 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             // Multicast topics
             for (const multicastTopic of topicAssignment.multicast) {
               try {
+                log?.info?.(`[agent-registry] Subscribing to multicast topic: "${multicastTopic}"`);
                 const multicastSub = natsClient.subscribe(
                   multicastTopic,
                   messageRouter.createInboundHandler(multicastTopic),
@@ -762,6 +1062,9 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
 
             // Broadcast topic
             try {
+              log?.info?.(
+                `[agent-registry] Subscribing to broadcast topic: "${topicAssignment.broadcast}"`,
+              );
               const broadcastSub = natsClient.subscribe(
                 topicAssignment.broadcast,
                 messageRouter.createInboundHandler(topicAssignment.broadcast),
@@ -780,18 +1083,20 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
           // ----------------------------------------------------------------
           // Step 5: Start heartbeat
           // ----------------------------------------------------------------
+          log?.info?.(`[agent-registry] Starting heartbeat manager (interval: ${ttlMs}ms)...`);
           heartbeatManager.start(ttlMs);
 
           // ----------------------------------------------------------------
           // Step 6: Initialize arbiter
           // ----------------------------------------------------------------
+          log?.info?.("[agent-registry] Initializing collaboration arbiter...");
           await arbiter.initialize();
 
           // ----------------------------------------------------------------
           // Step 7: Set status registered
           // ----------------------------------------------------------------
           statusAdapter.setStatus("registered");
-          log?.info?.(`[agent-registry] registered as agent_id="${config.agentId}"`);
+          log?.info?.(`[agent-registry] registered as agent_id="${effectiveAgentId}"`);
 
           // ----------------------------------------------------------------
           // Reconnect handler
@@ -810,6 +1115,9 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
               statusAdapter.setStatus("unavailable");
               return;
             }
+
+            // Update effective agent_id on re-registration
+            effectiveAgentId = reRegisterResult.agentId ?? config.agentId;
 
             const newTopics = reRegisterResult.topics!;
             const newTtlMs = reRegisterResult.ttlMs!;
@@ -831,7 +1139,7 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             heartbeatManager.start(newTtlMs);
 
             statusAdapter.setStatus("registered");
-            log?.info?.(`[agent-registry] re-registered as agent_id="${config.agentId}"`);
+            log?.info?.(`[agent-registry] re-registered as agent_id="${effectiveAgentId}"`);
           };
 
           // ----------------------------------------------------------------

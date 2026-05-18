@@ -13,6 +13,7 @@ import {
   updateSessionAgent,
 } from "../gateway/session-manager.js";
 import type { AppStore, TopologyEdge } from "../store/app-store.js";
+import type { ChatMessage } from "../types/chat-types.js";
 import { extractAgentNameFromKey } from "../utils/session-utils.js";
 
 /**
@@ -31,27 +32,17 @@ function isApprovalMessage(msg: { role?: string; subType?: string }): boolean {
 function routeHistoryToAgentMessages(
   store: AppStore,
   uuid: string,
-  messages: Array<
-    { sessionKey?: string | null; role?: string; subType?: string } & Record<string, unknown>
-  >,
+  messages: ChatMessage[],
   rootAgentId: string,
 ): void {
   for (const msg of messages) {
     if (msg.sessionKey) {
       const agentId = extractAgentNameFromKey(msg.sessionKey);
-      store.appendAgentMessage(
-        uuid,
-        agentId,
-        msg as Parameters<typeof store.appendAgentMessage>[2],
-      );
+      store.appendAgentMessage(uuid, agentId, msg);
       // 子 Agent 的审批消息也追加到根 Agent 的 messagesByAgent，
       // 确保根 Agent 主面板能显示子 Agent 的审批卡片。
       if (agentId !== rootAgentId && isApprovalMessage(msg)) {
-        store.appendAgentMessage(
-          uuid,
-          rootAgentId,
-          msg as Parameters<typeof store.appendAgentMessage>[2],
-        );
+        store.appendAgentMessage(uuid, rootAgentId, msg);
       }
     }
   }

@@ -5,6 +5,8 @@
  * Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8
  */
 
+import { v4 as uuidv4 } from "uuid";
+import { createEnvelope, serializeEnvelope } from "./envelope.js";
 import { createLogger } from "./logger.js";
 import type { HeartbeatManagerOptions, HeartbeatPayload } from "./types.js";
 
@@ -26,7 +28,7 @@ export interface HeartbeatManager {
 
 /**
  * Returns the heartbeat interval in milliseconds for a given TTL.
- * Requirement 5.1: interval = floor(TTL / 3)
+ * Fixed at TTL / 3 (e.g. TTL=180000ms → heartbeat every 60s).
  */
 export function computeHeartbeatInterval(ttlMs: number): number {
   return Math.floor(ttlMs / 3);
@@ -55,18 +57,29 @@ export function buildHeartbeatPayload(
 // Factory
 // ---------------------------------------------------------------------------
 
-export function createHeartbeatManager(
-  options: HeartbeatManagerOptions,
-): HeartbeatManager {
-  const { agentId, natsClient, getActiveSessionCount } = options;
+export function createHeartbeatManager(options: HeartbeatManagerOptions): HeartbeatManager {
+  const { getAgentId, natsClient, getActiveSessionCount } = options;
 
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
 
+  let seq = 0;
+
   function publishHeartbeat(): void {
     try {
+      const agentId = getAgentId();
       const payload = buildHeartbeatPayload(agentId, getActiveSessionCount());
-      const bytes = new TextEncoder().encode(JSON.stringify(payload));
+      const envelope = createEnvelope({
+        message_type: "req",
+        source: agentId,
+        seq: seq++,
+        action: "heartbeat",
+        resource_type: "agent",
+        request_id: uuidv4(),
+        payload: payload as unknown as Record<string, unknown>,
+        reply_to: null,
+      });
+      const bytes = serializeEnvelope(envelope);
       natsClient.publish("registry.agent.heartbeat", bytes);
       log.debug(`heartbeat sent`, {
         agent_id: payload.agent_id,
@@ -76,9 +89,7 @@ export function createHeartbeatManager(
     } catch (error) {
       // Requirement 5.7: log failure with agent_id and error reason; continue on next interval
       log.error(`heartbeat publish failed`, { agentId, error: String(error) });
-      console.error(
-        `[agent-registry] heartbeat publish failed for agent ${agentId}: ${error}`,
-      );
+      console.error(`[agent-registry] heartbeat publish failed for agent ${agentId}: ${error}`);
     }
   }
 
@@ -96,7 +107,7 @@ export function createHeartbeatManager(
       }
 
       const interval = computeHeartbeatInterval(ttlMs);
-      log.info(`heartbeat timer started`, { ttlMs, intervalMs: interval, agentId });
+      log.info(`heartbeat timer started`, { ttlMs, intervalMs: interval, agentId: getAgentId() });
       timer = setInterval(publishHeartbeat, interval);
       running = true;
     },
@@ -111,7 +122,7 @@ export function createHeartbeatManager(
         timer = null;
       }
       running = false;
-      log.info(`heartbeat timer stopped`, { agentId });
+      log.info(`heartbeat timer stopped`, { agentId: getAgentId() });
     },
 
     get isRunning(): boolean {

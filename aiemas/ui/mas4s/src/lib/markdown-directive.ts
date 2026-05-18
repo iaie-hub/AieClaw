@@ -10,7 +10,6 @@ import { AsyncDirective } from "lit/async-directive.js";
 import { DirectiveParameters, Part, directive } from "lit/directive.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import MarkdownIt from "markdown-it";
-// @ts-expect-error
 import * as Sanitizer from "../../../../../vendor/a2ui/renderers/lit/src/0.8/ui/directives/sanitizer.js";
 
 const createMd = () => {
