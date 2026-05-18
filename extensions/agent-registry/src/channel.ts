@@ -30,6 +30,7 @@ import { createChatChannelPlugin } from "openclaw/plugin-sdk/channel-core";
 import type { ChannelPlugin } from "openclaw/plugin-sdk/channel-core";
 import { waitUntilAbort } from "openclaw/plugin-sdk/channel-lifecycle";
 import { dispatchInboundDirectDmWithRuntime } from "openclaw/plugin-sdk/direct-dm";
+import { buildAgentSessionKey, buildAgentMainSessionKey } from "openclaw/plugin-sdk/routing";
 import { createCollaborationArbiter } from "./arbiter.js";
 import type { ArbiterSession } from "./arbiter.js";
 import { parseConfig } from "./config.js";
@@ -757,7 +758,37 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             typeof dispatchInboundDirectDmWithRuntime
           >[0]["runtime"];
           const directDmRuntime: DirectDmRuntimeShape = {
-            channel: channelRuntime as any,
+            channel: {
+              ...channelRuntime,
+              routing: {
+                ...channelRuntime.routing,
+                resolveAgentRoute: (routeParams: any) => {
+                  const route = channelRuntime.routing.resolveAgentRoute(routeParams);
+                  if (boundAgentId) {
+                    route.agentId = boundAgentId;
+                    const dmScope = routeParams.cfg?.session?.dmScope ?? "main";
+                    const identityLinks = routeParams.cfg?.session?.identityLinks;
+                    
+                    route.sessionKey = buildAgentSessionKey({
+                      agentId: boundAgentId,
+                      channel: routeParams.channel,
+                      accountId: routeParams.accountId,
+                      peer: routeParams.peer,
+                      dmScope,
+                      identityLinks,
+                    }).toLowerCase();
+                    
+                    route.mainSessionKey = buildAgentMainSessionKey({
+                      agentId: boundAgentId,
+                      mainKey: "main",
+                    }).toLowerCase();
+                    
+                    route.lastRoutePolicy = route.sessionKey === route.mainSessionKey ? "main" : "session";
+                  }
+                  return route;
+                },
+              },
+            } as any,
           };
 
           // Session factory functions for the router

@@ -13,6 +13,7 @@
  *               8.1, 8.2, 8.3
  */
 
+import os from "node:os";
 import { v4 as uuidv4 } from "uuid";
 import { createEnvelope, deserializeEnvelope, serializeEnvelope } from "./envelope.js";
 import { createLogger } from "./logger.js";
@@ -26,6 +27,37 @@ import type {
 } from "./types.js";
 
 const log = createLogger("registration");
+
+/**
+ * Retrieve the MAC address of the first physical network interface that has an IP address,
+ * skipping loopback/internal interfaces and '127.0.0.1'.
+ * Returns the MAC address in lowercase and stripped of colons/hyphens/spaces to be safe for agent IDs.
+ */
+function getMacSuffix(): string {
+  try {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      const list = interfaces[name];
+      if (!list) continue;
+      for (const info of list) {
+        if (info.internal) continue;
+        if (!info.address) continue;
+        if (info.address === "127.0.0.1" || info.address === "::1") continue;
+        if (!info.mac || info.mac === "00:00:00:00:00:00" || info.mac === "00-00-00-00-00-00") continue;
+
+        // Clean the MAC address (remove colons, hyphens, and convert to lowercase)
+        const cleaned = info.mac.replace(/[: -]/g, "").toLowerCase();
+        if (cleaned.length > 0) {
+          return cleaned;
+        }
+      }
+    }
+  } catch (err) {
+    log.warn("Failed to retrieve network interfaces for MAC suffix:", err);
+  }
+  // Fallback if no valid physical MAC address with an IP is found
+  return "defaultmac";
+}
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -55,8 +87,8 @@ export function createRegistrationManager(
 
   let _assignedTopics: TopicAssignment | null = null;
   let _ttlMs: number | null = null;
-  /** The effective agent_id used for registration (base id + UUID suffix). */
-  let _effectiveAgentId: string = `${config.agentId}-${uuidv4().slice(0, 8)}`;
+  /** The effective agent_id used for registration (base id + MAC address suffix). */
+  let _effectiveAgentId: string = `${config.agentId}-${getMacSuffix()}`;
 
   // -------------------------------------------------------------------------
   // buildAgentCard
