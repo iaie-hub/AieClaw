@@ -324,7 +324,7 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
     if (channelRuntime) {
       return channelRuntime;
     }
-    if (getLoadedChannelPluginOrigin(channelId) === "bundled") {
+    if (getLoadedChannelPluginOrigin(channelId) === "bundled" && channelId !== "agent-registry") {
       const startupRuntime = await resolveStartupChannelRuntime?.();
       if (startupRuntime) {
         return startupRuntime;

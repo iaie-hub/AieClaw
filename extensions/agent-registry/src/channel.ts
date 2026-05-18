@@ -753,13 +753,12 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
           // handler can close over the fully constructed messageRouter.
           // ----------------------------------------------------------------
 
-          // Cast channelRuntime to the DirectDmRuntime shape.
-          // For external channel plugins, the gateway injects the full
-          // PluginRuntimeChannel surface which satisfies DirectDmRuntime.
           type DirectDmRuntimeShape = Parameters<
             typeof dispatchInboundDirectDmWithRuntime
           >[0]["runtime"];
-          const directDmRuntime = channelRuntime as unknown as DirectDmRuntimeShape;
+          const directDmRuntime: DirectDmRuntimeShape = {
+            channel: channelRuntime as any,
+          };
 
           // Session factory functions for the router
           const createSession = (sourceAgentId: string, _agentId: string): AgentSession => {
