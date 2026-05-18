@@ -139,7 +139,6 @@ describe("deserializeEnvelope — unit tests", () => {
     "action",
     "resource_type",
     "payload",
-    "reply_to",
   ] as const;
 
   /** A complete valid envelope object for use in unit tests. */
@@ -183,6 +182,14 @@ describe("deserializeEnvelope — unit tests", () => {
     expect(() => deserializeEnvelope(bytes)).toThrow();
   });
 
+  it("allows missing 'reply_to' and defaults it to null", () => {
+    const incomplete = { ...validEnvelopeObj } as Record<string, unknown>;
+    delete incomplete.reply_to;
+    const bytes = new TextEncoder().encode(JSON.stringify(incomplete));
+    const result = deserializeEnvelope(bytes);
+    expect(result.reply_to).toBeNull();
+  });
+
   // One test per required field — missing field must throw
   for (const field of REQUIRED_FIELDS) {
     it(`throws when required field "${field}" is missing`, () => {
@@ -192,14 +199,11 @@ describe("deserializeEnvelope — unit tests", () => {
       expect(() => deserializeEnvelope(bytes)).toThrow();
     });
 
-    // reply_to is typed as string | null — null is a valid value, only missing key throws
-    if (field !== "reply_to") {
-      it(`throws when required field "${field}" is null`, () => {
-        const withNull = { ...validEnvelopeObj, [field]: null };
-        const bytes = new TextEncoder().encode(JSON.stringify(withNull));
-        expect(() => deserializeEnvelope(bytes)).toThrow();
-      });
-    }
+    it(`throws when required field "${field}" is null`, () => {
+      const withNull = { ...validEnvelopeObj, [field]: null };
+      const bytes = new TextEncoder().encode(JSON.stringify(withNull));
+      expect(() => deserializeEnvelope(bytes)).toThrow();
+    });
   }
 });
 

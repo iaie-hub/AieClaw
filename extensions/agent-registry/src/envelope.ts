@@ -28,7 +28,7 @@ const REQUIRED_NON_NULL_FIELDS: ReadonlyArray<keyof RegistryEnvelope> = [
 ];
 
 /** Fields that must be present (key exists) but may be null. */
-const REQUIRED_PRESENT_FIELDS: ReadonlyArray<keyof RegistryEnvelope> = ["reply_to"];
+const REQUIRED_PRESENT_FIELDS: ReadonlyArray<keyof RegistryEnvelope> = [];
 
 // ---------------------------------------------------------------------------
 // serializeEnvelope
@@ -55,7 +55,6 @@ export function serializeEnvelope(envelope: RegistryEnvelope): Uint8Array {
  * - bytes cannot be decoded as UTF-8
  * - the decoded string is not valid JSON
  * - any required non-nullable field is missing or null/undefined
- * - the `reply_to` field is absent (null is a valid value for reply_to)
  *
  * Requirements: 10.1, 10.6
  */
@@ -90,6 +89,11 @@ export function deserializeEnvelope(bytes: Uint8Array): RegistryEnvelope {
     if (!(field in obj)) {
       throw new Error(`RegistryEnvelope: required field "${field}" is missing`);
     }
+  }
+
+  // reply_to is optional; defaults to null if missing or undefined
+  if (obj.reply_to === undefined) {
+    obj.reply_to = null;
   }
 
   return obj as unknown as RegistryEnvelope;
