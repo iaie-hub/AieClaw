@@ -70,7 +70,7 @@ export interface RegistryEnvelope {
   seq: number;
   /** e.g. "register", "heartbeat", "message", "join" */
   action: string;
-  /** "agent" | "collaboration" | "cowork" | "discussion" */
+  /** "agent" | "cowork" */
   resource_type: string;
   payload: Record<string, unknown>;
   /** Temporary inbox subject for request-reply; null otherwise */
@@ -160,8 +160,7 @@ export interface HeartbeatPayload {
 export type SessionContext =
   | { kind: "unicast"; sourceAgentId: string }
   | { kind: "multicast"; groupId: string }
-  | { kind: "discussion"; discussionId: string }
-  | { kind: "cowork"; taskId: string; isComplete: boolean };
+  | { kind: "cowork"; coworkId: string; isComplete: boolean };
 
 // ---------------------------------------------------------------------------
 // Plugin status
@@ -267,7 +266,7 @@ export interface CollaborationArbiterOptions {
   getCapabilityContext: () => Promise<string>;
   /**
    * Returns the inbound message handler for a given collaboration topic.
-   * Called when the arbiter decides to join a discussion or cowork; the
+   * Called when the arbiter decides to join a cowork; the
    * returned handler is used as the NATS subscription callback so that
    * incoming messages on the topic are routed through the MessageRouter.
    *
@@ -298,7 +297,6 @@ export interface OutboundSendParams {
 
 export interface CollaborationArbiter {
   initialize(): Promise<void>;
-  processDiscussionCreated(payload: Record<string, unknown>): Promise<void>;
   processCoworkCreated(payload: Record<string, unknown>): Promise<void>;
   dispose(): void;
 }

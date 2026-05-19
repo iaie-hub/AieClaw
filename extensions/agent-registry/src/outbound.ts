@@ -6,8 +6,7 @@
  *  1. inboundEnvelope.reply_to is non-empty → publish to reply_to
  *  2. sessionContext.kind === "unicast"    → a2a.agent.unicast.{sourceAgentId}
  *  3. sessionContext.kind === "multicast"  → a2a.agent.unicast.{sourceAgentId} (unicast reply back to sender)
- *  4. sessionContext.kind === "discussion" → a2a.discussion.{discussionId}
- *  5. sessionContext.kind === "cowork"     → a2a.cowork.{taskId}
+ *  4. sessionContext.kind === "cowork"     → a2a.cowork.{coworkId}
  *
  * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 10.4
  */
@@ -41,10 +40,8 @@ function sessionKey(ctx: SessionContext): string {
       return `unicast:${ctx.sourceAgentId}`;
     case "multicast":
       return `multicast:${ctx.groupId}`;
-    case "discussion":
-      return `discussion:${ctx.discussionId}`;
     case "cowork":
-      return `cowork:${ctx.taskId}`;
+      return `cowork:${ctx.coworkId}`;
   }
 }
 
@@ -80,11 +77,8 @@ function resolveSubject(
       if (!inboundSource) return null;
       return `a2a.agent.unicast.${inboundSource}`;
 
-    case "discussion":
-      return `a2a.discussion.${ctx.discussionId}`;
-
     case "cowork":
-      return `a2a.cowork.${ctx.taskId}`;
+      return `a2a.cowork.${ctx.coworkId}`;
   }
 }
 
@@ -95,10 +89,9 @@ function resolveAction(ctx: SessionContext, isSessionComplete: boolean): string 
   switch (ctx.kind) {
     case "unicast":
     case "multicast":
-    case "discussion":
       return "message";
     case "cowork":
-      return isSessionComplete ? "complete" : "progress";
+      return isSessionComplete ? "complete" : "message";
   }
 }
 
@@ -110,8 +103,6 @@ function resolveResourceType(ctx: SessionContext): string {
     case "unicast":
     case "multicast":
       return "agent";
-    case "discussion":
-      return "discussion";
     case "cowork":
       return "cowork";
   }
@@ -124,10 +115,8 @@ function buildPayload(responseText: string, ctx: SessionContext): Record<string,
   const base: Record<string, unknown> = { text: responseText };
 
   switch (ctx.kind) {
-    case "discussion":
-      return { ...base, discussion_id: ctx.discussionId };
     case "cowork":
-      return { ...base, task_id: ctx.taskId };
+      return { ...base, cowork_id: ctx.coworkId };
     default:
       return base;
   }

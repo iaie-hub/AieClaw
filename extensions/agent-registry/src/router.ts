@@ -6,8 +6,7 @@
  *  - a2a.agent.unicast.*   → handleUnicast
  *  - a2a.agent.group.*     → handleMulticast
  *  - a2a.agent.broadcast.* → handleBroadcast
- *  - a2a.discussion.*      → handleCollaborationTopic (topicId = discussionId)
- *  - a2a.cowork.*          → handleCollaborationTopic (topicId = taskId)
+ *  - a2a.cowork.*          → handleCollaborationTopic (topicId = coworkId)
  *
  * Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.10
  */
@@ -46,7 +45,7 @@ function matchesPrefix(prefix: string, topic: string): boolean {
 
 /**
  * Extract the trailing segment after the given prefix.
- * e.g. segmentAfter("a2a.discussion.", "a2a.discussion.disc-123") → "disc-123"
+ * e.g. segmentAfter("a2a.cowork.", "a2a.cowork.cw-123") → "cw-123"
  */
 function segmentAfter(prefix: string, topic: string): string {
   return topic.slice(prefix.length);
@@ -135,16 +134,9 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
     log.debug(`broadcast envelope detail`, fmtEnvelope(envelope));
 
     switch (envelope.action) {
-      case "discussion.created":
-        log.info(`broadcast: discussion.created — forwarding to arbiter`, {
-          discussion_id: envelope.payload["discussion_id"] ?? envelope.payload["id"],
-        });
-        await arbiter.processDiscussionCreated(envelope.payload);
-        break;
-
       case "cowork.created":
         log.info(`broadcast: cowork.created — forwarding to arbiter`, {
-          task_id: envelope.payload["task_id"] ?? envelope.payload["id"],
+          cowork_id: envelope.payload["cowork_id"] ?? envelope.payload["id"],
         });
         await arbiter.processCoworkCreated(envelope.payload);
         break;
@@ -233,16 +225,11 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
         handlerPromise = handleMulticast(envelope);
       } else if (matchesPrefix("a2a.agent.broadcast.", topic)) {
         handlerPromise = handleBroadcast(envelope);
-      } else if (matchesPrefix("a2a.discussion.", topic)) {
-        const discussionId = segmentAfter("a2a.discussion.", topic);
-        // Emit in-process event for real-time UI viewing (no AgentRegistry relay).
-        emitCollabEvent({ topic, message: envelope });
-        handlerPromise = handleCollaborationTopic(discussionId, envelope);
       } else if (matchesPrefix("a2a.cowork.", topic)) {
-        const taskId = segmentAfter("a2a.cowork.", topic);
+        const coworkId = segmentAfter("a2a.cowork.", topic);
         // Emit in-process event for real-time UI viewing (no AgentRegistry relay).
         emitCollabEvent({ topic, message: envelope });
-        handlerPromise = handleCollaborationTopic(taskId, envelope);
+        handlerPromise = handleCollaborationTopic(coworkId, envelope);
       } else {
         // Unknown topic pattern — log and discard
         log.warn(`unrecognized topic pattern — discarding`, { topic });

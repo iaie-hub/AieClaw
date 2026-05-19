@@ -34,8 +34,8 @@ import { buildAgentSessionKey, buildAgentMainSessionKey } from "openclaw/plugin-
 import { createCollaborationArbiter } from "./arbiter.js";
 import type { ArbiterSession } from "./arbiter.js";
 import { parseConfig } from "./config.js";
-import { createDiscussion, createCowork } from "./discussion-initiator.js";
-import type { CreateDiscussionParams, CreateCoworkParams } from "./discussion-initiator.js";
+import { createCowork } from "./discussion-initiator.js";
+import type { CreateCoworkParams } from "./discussion-initiator.js";
 import { createOutboundAdapter } from "./outbound.js";
 import { createMessageRouter } from "./router.js";
 import { createStatusAdapter } from "./status.js";
@@ -119,7 +119,7 @@ class SessionTracker {
 function createAgentSession(params: {
   sessionKey: string;
   /** Controls how outbound responses are routed by the OutboundAdapter. */
-  sessionContextKind: "unicast" | "discussion" | "cowork";
+  sessionContextKind: "unicast" | "cowork";
   agentId: string;
   boundAgentId: string;
   config: AgentRegistryConfig;
@@ -171,7 +171,7 @@ function createAgentSession(params: {
             // Deliver the agent's response back via the outbound adapter.
             // The SessionContext determines which NATS subject the response
             // is published to (unicast → a2a.agent.unicast.{source},
-            // discussion → a2a.discussion.{id}, cowork → a2a.cowork.{id}).
+            // cowork → a2a.cowork.{id}).
             const responseText =
               typeof payload === "object" && payload !== null && "text" in payload
                 ? String((payload as Record<string, unknown>)["text"] ?? "")
@@ -180,11 +180,9 @@ function createAgentSession(params: {
             if (responseText) {
               // Build the correct session context based on the session kind.
               const sessionContext =
-                sessionContextKind === "discussion"
-                  ? ({ kind: "discussion", discussionId: sessionKey } as const)
-                  : sessionContextKind === "cowork"
-                    ? ({ kind: "cowork", taskId: sessionKey, isComplete: false } as const)
-                    : ({ kind: "unicast", sourceAgentId: envelope.source } as const);
+                sessionContextKind === "cowork"
+                  ? ({ kind: "cowork", coworkId: sessionKey, isComplete: false } as const)
+                  : ({ kind: "unicast", sourceAgentId: envelope.source } as const);
 
               await outboundAdapter.send({
                 responseText,
@@ -751,7 +749,7 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
 
           // ----------------------------------------------------------------
           // Inject agentRegistry helpers into channelRuntime so Agent skills
-          // can call runtime.agentRegistry.createDiscussion() directly.
+          // can call runtime.agentRegistry.createCowork() directly.
           // NOTE: moved below messageRouter creation so the subscription
           // handler can close over the fully constructed messageRouter.
           // ----------------------------------------------------------------
@@ -818,14 +816,11 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             }
             // Detect session kind from key prefix so the OutboundAdapter routes
             // responses to the correct NATS subject:
-            //   disc-*  → a2a.discussion.{discussionId}
-            //   task-*  → a2a.cowork.{taskId}
+            //   cw-*    → a2a.cowork.{coworkId}
             //   anything else → a2a.agent.unicast.{source}
-            const kind: "discussion" | "cowork" | "unicast" = key.startsWith("disc-")
-              ? "discussion"
-              : key.startsWith("task-")
-                ? "cowork"
-                : "unicast";
+            const kind: "cowork" | "unicast" = key.startsWith("cowork-")
+              ? "cowork"
+              : "unicast";
             return createAgentSession({
               sessionKey: key,
               sessionContextKind: kind,
@@ -986,12 +981,12 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
 
           // ----------------------------------------------------------------
           // Inject agentRegistry helpers into channelRuntime so Agent skills
-          // can call runtime.agentRegistry.createDiscussion() directly.
+          // can call runtime.agentRegistry.createCowork() directly.
           //
           // This runs AFTER messageRouter is created so the subscription
           // handler can close over the fully constructed router.
           //
-          // When createDiscussion() / createCowork() succeeds, the creator
+          // When createCowork() succeeds, the creator
           // immediately subscribes to the returned topic via the MessageRouter
           // so that incoming messages from joining agents are handled as proper
           // collaboration sessions (Gap 2 fix).
@@ -999,24 +994,12 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
           if (channelRuntime) {
             const rt = channelRuntime as Record<string, unknown>;
             rt["agentRegistry"] = {
-              createDiscussion: async (params: CreateDiscussionParams) => {
-                const result = await createDiscussion(params, effectiveAgentId, natsClient);
-                if (result.ok) {
-                  // Creator subscribes to the discussion topic so that messages
-                  // from joining agents are routed through the MessageRouter and
-                  // dispatched to a proper discussion AgentSession.
-                  const handler = messageRouter.createInboundHandler(result.topic);
-                  activeSubscriptions.push(natsClient.subscribe(result.topic, handler));
-                  log?.info?.(
-                    `[agent-registry] creator subscribed to discussion topic "${result.topic}"`,
-                  );
-                }
-                return result;
-              },
               createCowork: async (params: CreateCoworkParams) => {
                 const result = await createCowork(params, effectiveAgentId, natsClient);
                 if (result.ok) {
-                  // Creator subscribes to the cowork topic (same pattern as discussion).
+                  // Creator subscribes to the cowork topic so that messages
+                  // from joining agents are routed through the MessageRouter and
+                  // dispatched to a proper collaboration AgentSession.
                   const handler = messageRouter.createInboundHandler(result.topic);
                   activeSubscriptions.push(natsClient.subscribe(result.topic, handler));
                   log?.info?.(
