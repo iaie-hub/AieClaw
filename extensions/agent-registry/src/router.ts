@@ -82,6 +82,8 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
       action: envelope.action,
       seq: envelope.seq,
       msg_id: envelope.message_id,
+      request_id: envelope.request_id,
+      reply_to: envelope.reply_to,
     });
     log.debug(`unicast envelope detail`, fmtEnvelope(envelope));
     const session = getOrCreateSession(envelope.source, boundAgentId);
@@ -98,6 +100,8 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
       action: envelope.action,
       seq: envelope.seq,
       msg_id: envelope.message_id,
+      request_id: envelope.request_id,
+      reply_to: envelope.reply_to,
     });
     log.debug(`multicast envelope detail`, fmtEnvelope(envelope));
     let session;
@@ -125,6 +129,8 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
       action: envelope.action,
       source: envelope.source,
       msg_id: envelope.message_id,
+      request_id: envelope.request_id,
+      reply_to: envelope.reply_to,
     });
     log.debug(`broadcast envelope detail`, fmtEnvelope(envelope));
 
@@ -165,6 +171,8 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
       source: envelope.source,
       seq: envelope.seq,
       msg_id: envelope.message_id,
+      request_id: envelope.request_id,
+      reply_to: envelope.reply_to,
     });
     log.debug(`collaboration envelope detail`, fmtEnvelope(envelope));
     const session = getOrCreateSession(topicId, boundAgentId);

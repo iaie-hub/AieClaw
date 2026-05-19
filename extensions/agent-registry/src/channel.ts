@@ -147,7 +147,9 @@ function createAgentSession(params: {
         const messageText =
           typeof envelope.payload["text"] === "string"
             ? envelope.payload["text"]
-            : JSON.stringify(envelope.payload);
+            : typeof envelope.payload["message"] === "string"
+              ? envelope.payload["message"]
+              : JSON.stringify(envelope.payload);
 
         const peer = { kind: "direct" as const, id: envelope.source || sessionKey };
 
@@ -885,7 +887,9 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
                   const text =
                     typeof envelope.payload["text"] === "string"
                       ? envelope.payload["text"]
-                      : JSON.stringify(envelope.payload);
+                      : typeof envelope.payload["message"] === "string"
+                        ? envelope.payload["message"]
+                        : JSON.stringify(envelope.payload);
                   // For arbiter sessions, dispatch is a no-op since
                   // sendAndAwaitResponse is used directly by the arbiter.
                   void text;

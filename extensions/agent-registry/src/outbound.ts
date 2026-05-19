@@ -201,6 +201,8 @@ export function createOutboundAdapter(options: OutboundAdapterOptions): Outbound
         resource_type: resourceType,
         seq,
         msg_id: envelope.message_id,
+        request_id: envelope.request_id,
+        reply_to: envelope.reply_to,
         sessionKind: sessionContext.kind,
         textPreview: responseText.slice(0, 120) + (responseText.length > 120 ? "…" : ""),
       });
