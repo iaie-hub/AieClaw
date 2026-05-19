@@ -973,6 +973,7 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             createSession,
             getOrCreateSession,
             getLeastLoadedSession,
+            getEffectiveAgentId: () => effectiveAgentId,
           });
 
           // Resolve the deferred router reference so arbiter and agentRegistry

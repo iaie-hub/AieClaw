@@ -44,23 +44,84 @@ export interface ArbiterSession {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const DECISION_TIMEOUT_MS = 30_000;
+const DECISION_TIMEOUT_MS = 90_000;
+
+/**
+ * Clean thinking/reasoning blocks and markdown formatting to extract pure JSON content or text.
+ */
+function cleanResponseContent(response: string): string {
+  // Strip any <thinking>...</thinking> block completely
+  let cleanText = response.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim();
+  // Strip markdown JSON code block wrappers if present
+  cleanText = cleanText.replace(/```json\s*([\s\S]*?)\s*```/gi, "$1").trim();
+  cleanText = cleanText.replace(/```\s*([\s\S]*?)\s*```/gi, "$1").trim();
+  return cleanText;
+}
+
+/**
+ * Extract parsed JSON from the clean response text if possible.
+ */
+function tryParseJson(cleanText: string): { decision?: string; skills?: string[] } | null {
+  try {
+    // Attempt to locate potential JSON bounds if there's trailing or leading text around it
+    const jsonStart = cleanText.indexOf("{");
+    const jsonEnd = cleanText.lastIndexOf("}");
+    if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+      const jsonCandidate = cleanText.substring(jsonStart, jsonEnd + 1);
+      const parsed = JSON.parse(jsonCandidate);
+      if (parsed && typeof parsed === "object") {
+        return {
+          decision: typeof parsed.decision === "string" ? parsed.decision : undefined,
+          skills: Array.isArray(parsed.skills) ? parsed.skills.map(String) : undefined,
+        };
+      }
+    }
+  } catch {
+    // Fail silently to trigger fallback text parsing
+  }
+  return null;
+}
 
 /**
  * Return true when the agent's response text is affirmative.
- * Affirmative = the first word (lowercased, trimmed) is "yes".
+ * Supports structured JSON first, falling back to structured XML/tags or first-word heuristic.
  */
 function isAffirmative(response: string): boolean {
-  const first = response.trim().toLowerCase().split(/\s+/)[0] ?? "";
-  return first === "yes";
+  const cleanText = cleanResponseContent(response);
+  
+  // Try JSON parser first
+  const json = tryParseJson(cleanText);
+  if (json && json.decision !== undefined) {
+    return json.decision.toLowerCase() === "yes";
+  }
+
+  // Try parsing structured <decision> tag
+  const tagMatch = cleanText.match(/<decision>\s*(yes|no)(?:[\s\S]*?)<\/decision>/i);
+  if (tagMatch) {
+    return tagMatch[1].toLowerCase() === "yes";
+  }
+
+  // Fallback to checking first word
+  const first = cleanText.toLowerCase().split(/\s+/)[0] ?? "";
+  return first === "yes" || cleanText.toLowerCase().startsWith("yes");
 }
 
 /**
  * Extract offered skills from the agent's cowork response.
- * Scans the response text for any configured skill name (case-insensitive).
+ * Supports structured JSON first, falling back to scanning clean text for configured skill names.
  */
 function extractOfferedSkills(response: string, configuredSkills: string[]): string[] {
-  const lower = response.toLowerCase();
+  const cleanText = cleanResponseContent(response);
+
+  // Try JSON parser first
+  const json = tryParseJson(cleanText);
+  if (json && Array.isArray(json.skills)) {
+    return json.skills.filter((skill) =>
+      configuredSkills.some((s) => s.toLowerCase() === skill.toLowerCase())
+    );
+  }
+
+  const lower = cleanText.toLowerCase();
   return configuredSkills.filter((skill) => lower.includes(skill.toLowerCase()));
 }
 
@@ -203,8 +264,16 @@ export function createCollaborationArbiter(
       `- Description: ${description}\n` +
       `- Tags: ${tags}\n` +
       `- Current conversation: ${conversation}\n\n` +
-      `Based on your capabilities above, should you join this discussion?\n` +
-      `Reply "yes" if you can contribute meaningfully, or "no" if this is outside your scope.`;
+      `## Instructions\n` +
+      `1. Analyze if the topic, description, or tags align with your core responsibilities and capabilities listed in the 'Agent Capability Context' above.\n` +
+      `2. If they align and you can contribute meaningfully, decide to join. Otherwise, decline.\n` +
+      `3. You MUST respond with a JSON object in the following format:\n` +
+      `{\n` +
+      `  "decision": "yes",\n` +
+      `  "reason": "Brief explanation of capability alignment"\n` +
+      `}\n` +
+      `If you decline, set "decision" to "no".\n\n` +
+      `Make sure your response is a valid JSON object. Do not include any other conversational text in your final response.`;
 
     log.debug(`sending discussion decision prompt to bound agent`, {
       discussion_id: discussionId,
@@ -315,9 +384,17 @@ export function createCollaborationArbiter(
       `- Description: ${description}\n` +
       `- Required skills: ${requiredSkills}\n` +
       `- Current context: ${conversation}\n\n` +
-      `Based on your capabilities above, should you join this cowork?\n` +
-      `If yes, list which required skills you can provide.\n` +
-      `Reply "yes [skill1, skill2, ...]" or "no".`;
+      `## Instructions\n` +
+      `1. Analyze if the task, description, or required skills align with your core responsibilities and capabilities listed in the 'Agent Capability Context' above.\n` +
+      `2. If they align and you can provide any of the required skills, decide to join. Otherwise, decline.\n` +
+      `3. You MUST respond with a JSON object in the following format:\n` +
+      `{\n` +
+      `  "decision": "yes",\n` +
+      `  "skills": ["skill1", "skill2"],\n` +
+      `  "reason": "Brief explanation of skill alignment"\n` +
+      `}\n` +
+      `If you decline, set "decision" to "no" and "skills" to [].\n\n` +
+      `Make sure your response is a valid JSON object. Do not include any other conversational text in your final response.`;
 
     log.debug(`sending cowork decision prompt to bound agent`, {
       task_id: taskId,

@@ -249,6 +249,7 @@ export interface MessageRouterOptions {
   createSession: (sourceAgentId: string, agentId: string) => AgentSession;
   getOrCreateSession: (key: string, agentId: string) => AgentSession;
   getLeastLoadedSession: (agentId: string) => AgentSession;
+  getEffectiveAgentId?: () => string;
 }
 
 export interface CollaborationArbiterOptions {

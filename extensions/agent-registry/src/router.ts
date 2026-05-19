@@ -63,8 +63,14 @@ function segmentAfter(prefix: string, topic: string): string {
  * Requirements: 6.1–6.10
  */
 export function createMessageRouter(options: MessageRouterOptions): MessageRouter {
-  const { boundAgentId, arbiter, createSession, getOrCreateSession, getLeastLoadedSession } =
-    options;
+  const {
+    boundAgentId,
+    arbiter,
+    createSession,
+    getOrCreateSession,
+    getLeastLoadedSession,
+    getEffectiveAgentId,
+  } = options;
 
   // -------------------------------------------------------------------------
   // handleUnicast — Requirement 6.3
@@ -199,6 +205,16 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
         msg_id: envelope.message_id,
         resource_type: envelope.resource_type,
       });
+
+      // Filter out messages sent by ourselves (to avoid loopbacks on collaboration topics)
+      if (getEffectiveAgentId && envelope.source === getEffectiveAgentId()) {
+        log.debug(`discarding message sent by ourselves`, {
+          topic,
+          source: envelope.source,
+          msg_id: envelope.message_id,
+        });
+        return;
+      }
 
       // Dispatch to the correct handler based on topic pattern
       let handlerPromise: Promise<void>;

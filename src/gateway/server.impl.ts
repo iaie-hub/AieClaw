@@ -157,9 +157,48 @@ function getChannelRuntime() {
     import("../plugins/runtime/runtime-config.js"),
   ]).then(([channelMod, agentMod, configMod]) => {
     const channelRuntime = channelMod.createRuntimeChannel();
+    let cachedLlmFacade: any = null;
+    const getLlmFacade = () => {
+      cachedLlmFacade ??= {
+        complete: async (params: any) => {
+          const mod = await import("../plugins/runtime/runtime-llm.runtime.js");
+          const llm = mod.createRuntimeLlm({
+            getConfig: getRuntimeConfig,
+            authority: {
+              allowComplete: true,
+              allowAgentIdOverride: true,
+              allowModelOverride: true,
+              allowedModels: ["*"],
+            },
+          });
+          const runtimeLlmLog = log.child("runtime.llm");
+          const systemPrompt = params.systemPrompt ?? "";
+          const requestMessages = params.messages ?? [];
+          try {
+            const result = await llm.complete(params);
+            runtimeLlmLog.info(`plugin llm completion - purpose: ${params.purpose || "none"}, agentId: ${result.agentId || "default"}, model: ${result.model || "default"}`, {
+              systemPrompt,
+              requestMessages,
+              decisionResult: result.text,
+            });
+            return result;
+          } catch (err: any) {
+            runtimeLlmLog.error(`plugin llm completion failed - purpose: ${params.purpose || "none"}: ${err.message || String(err)}`, {
+              systemPrompt,
+              requestMessages,
+            });
+            throw err;
+          }
+        },
+      };
+      return cachedLlmFacade;
+    };
     return Object.assign(channelRuntime, {
       agent: agentMod.createRuntimeAgent(),
       config: configMod.createRuntimeConfig(),
+      get llm() {
+        return getLlmFacade();
+      },
     });
   });
   return cachedChannelRuntimePromise;

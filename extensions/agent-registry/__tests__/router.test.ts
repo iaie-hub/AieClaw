@@ -368,3 +368,32 @@ describe("createInboundHandler — synchronous return", () => {
     expect(result).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Additional: filter out self-sent messages
+// ---------------------------------------------------------------------------
+
+describe("createInboundHandler — self-sent message filtering", () => {
+  it("ignores messages where the source matches getEffectiveAgentId", async () => {
+    const optsWithFilter = {
+      ...options,
+      getEffectiveAgentId: () => "my-registered-id",
+    };
+    const router = createMessageRouter(optsWithFilter);
+    const handler = router.createInboundHandler("a2a.discussion.disc-abc");
+
+    // Message from ourselves
+    const bytesSelf = makeEnvelopeBytes({ source: "my-registered-id" });
+    handler(bytesSelf);
+    await flushAsync();
+
+    expect(optsWithFilter.getOrCreateSession).not.toHaveBeenCalled();
+
+    // Message from someone else should still be handled
+    const bytesOther = makeEnvelopeBytes({ source: "other-agent" });
+    handler(bytesOther);
+    await flushAsync();
+
+    expect(optsWithFilter.getOrCreateSession).toHaveBeenCalledWith("disc-abc", "bound-agent");
+  });
+});
