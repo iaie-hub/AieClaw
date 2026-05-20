@@ -7,6 +7,8 @@ import {
   isInternalNonDeliveryChannel,
   isMarkdownCapableMessageChannel,
   resolveGatewayMessageChannel,
+  isOperatorUiClient,
+  isBrowserOperatorUiClient,
 } from "./message-channel.js";
 
 const emptyRegistry = createTestRegistry([]);
@@ -79,5 +81,22 @@ describe("message-channel", () => {
       ]),
     );
     expect(isMarkdownCapableMessageChannel("demo-markdown-channel")).toBe(true);
+  });
+
+  it("classifies operator UI and browser operator UI clients correctly", () => {
+    expect(isOperatorUiClient({ id: "mas4s-ui" })).toBe(true);
+    expect(isBrowserOperatorUiClient({ id: "mas4s-ui" })).toBe(true);
+
+    expect(isOperatorUiClient({ id: "openclaw-control-ui" })).toBe(true);
+    expect(isBrowserOperatorUiClient({ id: "openclaw-control-ui" })).toBe(true);
+
+    expect(isOperatorUiClient({ id: "openclaw-tui" })).toBe(true);
+    expect(isBrowserOperatorUiClient({ id: "openclaw-tui" })).toBe(false);
+
+    expect(isOperatorUiClient({ id: "webchat-ui" })).toBe(true);
+    expect(isBrowserOperatorUiClient({ id: "webchat-ui" })).toBe(false);
+
+    expect(isOperatorUiClient({ id: "unknown" })).toBe(false);
+    expect(isBrowserOperatorUiClient({ id: "unknown" })).toBe(false);
   });
 });
