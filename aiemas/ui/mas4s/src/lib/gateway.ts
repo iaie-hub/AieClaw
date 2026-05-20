@@ -221,7 +221,7 @@ export class GatewayBrowserClient {
       minProtocol: 4,
       maxProtocol: 4,
       client: {
-        id: "webchat-ui",
+        id: "mas4s-ui",
         version: this.opts.clientVersion ?? "mas4s-ui",
         platform: "web",
         mode: "ui",
