@@ -196,12 +196,10 @@ export function createCollaborationArbiter(
     const coworkId = String(payload["cowork_id"] ?? payload["id"] ?? "");
     const text = String(content["text"] ?? "");
     const description = String(content["description"] ?? "");
-    const mode = String(content["mode"] ?? "discussion");
     const conversation = String(content["conversation"] ?? "");
 
     log.info(`processing cowork.created`, {
       cowork_id: coworkId,
-      mode,
       text: text.slice(0, 100),
     });
 
@@ -212,12 +210,10 @@ export function createCollaborationArbiter(
       ? `## Agent Capability Context\n\n${capabilityContext}\n\n---\n\n`
       : "";
 
-    const modeLabel = mode === "task" ? "cooperative task" : "discussion";
-
     const prompt =
       capabilitySection +
       `## Collaboration Request\n\n` +
-      `A new ${modeLabel} has been created:\n` +
+      `A new collaboration has been created:\n` +
       `- Name: '${text}'\n` +
       `- Description: ${description}\n` +
       `- Current context: ${conversation}\n\n` +

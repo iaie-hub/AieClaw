@@ -631,15 +631,21 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
 
                 const onRegisterMsg = (msg: any) => {
                   if (msg.type === "REGISTERED") {
-                    worker.off("message", onRegisterMsg);
-                    worker.off("error", onError);
-                    worker.off("exit", onExit);
                     if (msg.ok) {
+                      worker.off("message", onRegisterMsg);
+                      worker.off("error", onError);
+                      worker.off("exit", onExit);
                       resolved = true;
                       resolve();
-                    } else {
+                    } else if (!msg.willRetry) {
+                      // Terminal failure — worker will not retry
+                      worker.off("message", onRegisterMsg);
+                      worker.off("error", onError);
+                      worker.off("exit", onExit);
                       reject(new Error(msg.error || "Worker registration failed"));
                     }
+                    // If willRetry is true, keep listening — worker will send
+                    // another REGISTERED message when it succeeds.
                   }
                 };
 

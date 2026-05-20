@@ -22,8 +22,6 @@ export interface CreateCoworkParams {
   name: string;
   /** Detailed description of the collaboration context/goals. */
   description?: string;
-  /** Mode: "discussion" for open topics, "task" for structured multi-agent work. */
-  mode?: "discussion" | "task";
   /** Recent conversation snippets providing context for other agents. */
   conversation?: string[];
 }
@@ -62,7 +60,6 @@ export async function createCowork(
     payload: {
       name: params.name,
       description: params.description ?? "",
-      mode: params.mode ?? "discussion",
       conversation: params.conversation ?? [],
     },
     reply_to: replyInbox,

@@ -14,6 +14,7 @@ import {
   computeHeartbeatInterval,
   buildHeartbeatPayload,
   createHeartbeatManager,
+  heartbeatAckSubject,
 } from "../src/heartbeat.js";
 import type { NATSClient } from "../src/types.js";
 
@@ -80,10 +81,11 @@ describe("HeartbeatManager — unit tests", () => {
       publish: vi.fn(publishImpl ?? (() => undefined)),
       connect: vi.fn(),
       request: vi.fn(),
-      subscribe: vi.fn(),
+      subscribe: vi.fn().mockReturnValue({ subject: "mock", unsubscribe: vi.fn() }),
       unsubscribeAll: vi.fn(),
       drain: vi.fn(),
       close: vi.fn(),
+      newInbox: vi.fn().mockReturnValue("_INBOX.mock"),
       get isConnected() {
         return true;
       },
@@ -97,7 +99,7 @@ describe("HeartbeatManager — unit tests", () => {
   it("start() then stop() cancels the timer (isRunning becomes false)", () => {
     const mockNatsClient = makeMockNatsClient();
     const manager = createHeartbeatManager({
-      agentId: "agent-1",
+      getAgentId: () => "agent-1",
       natsClient: mockNatsClient,
       getActiveSessionCount: () => 0,
     });
@@ -130,7 +132,7 @@ describe("HeartbeatManager — unit tests", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     const manager = createHeartbeatManager({
-      agentId,
+      getAgentId: () => agentId,
       natsClient: mockNatsClient,
       getActiveSessionCount: () => 0,
     });
@@ -165,7 +167,7 @@ describe("HeartbeatManager — unit tests", () => {
     const publishMock = mockNatsClient.publish as ReturnType<typeof vi.fn>;
 
     const manager = createHeartbeatManager({
-      agentId: "agent-restart",
+      getAgentId: () => "agent-restart",
       natsClient: mockNatsClient,
       getActiveSessionCount: () => 0,
     });
@@ -188,6 +190,214 @@ describe("HeartbeatManager — unit tests", () => {
     vi.advanceTimersByTime(1000);
     // Still only 2 total — old timer is cancelled, new timer hasn't fired again yet
     expect(publishMock).toHaveBeenCalledTimes(2);
+
+    manager.stop();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// heartbeatAckSubject helper
+// ---------------------------------------------------------------------------
+
+describe("heartbeatAckSubject", () => {
+  it("returns a2a.agent.heartbeat-ack.{agentId}", () => {
+    expect(heartbeatAckSubject("my-agent-123")).toBe("a2a.agent.heartbeat-ack.my-agent-123");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Registry offline detection via async counting
+// ---------------------------------------------------------------------------
+
+describe("HeartbeatManager — Registry offline detection", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function makeMockNatsClient(): NATSClient {
+    return {
+      publish: vi.fn(),
+      connect: vi.fn(),
+      request: vi.fn(),
+      subscribe: vi.fn().mockReturnValue({ subject: "mock", unsubscribe: vi.fn() }),
+      unsubscribeAll: vi.fn(),
+      drain: vi.fn(),
+      close: vi.fn(),
+      newInbox: vi.fn().mockReturnValue("_INBOX.mock"),
+      get isConnected() {
+        return true;
+      },
+    } as unknown as NATSClient;
+  }
+
+  it("calls onRegistryOffline after 3 consecutive missed acks", () => {
+    const mockNatsClient = makeMockNatsClient();
+    const onRegistryOffline = vi.fn();
+    const onRegistryOnline = vi.fn();
+
+    const manager = createHeartbeatManager({
+      getAgentId: () => "agent-offline-test",
+      natsClient: mockNatsClient,
+      getActiveSessionCount: () => 0,
+      onRegistryOffline,
+      onRegistryOnline,
+    });
+
+    manager.start(9000); // interval = 3000
+
+    // Tick 1: missedCount goes 0→1 (check is 0 < 3, so no offline)
+    vi.advanceTimersByTime(3000);
+    expect(onRegistryOffline).not.toHaveBeenCalled();
+
+    // Tick 2: missedCount goes 1→2
+    vi.advanceTimersByTime(3000);
+    expect(onRegistryOffline).not.toHaveBeenCalled();
+
+    // Tick 3: missedCount goes 2→3
+    vi.advanceTimersByTime(3000);
+    expect(onRegistryOffline).not.toHaveBeenCalled();
+
+    // Tick 4: missedCount is 3 >= 3, triggers offline
+    vi.advanceTimersByTime(3000);
+    expect(onRegistryOffline).toHaveBeenCalledTimes(1);
+
+    // Tick 5: already offline, should not call again
+    vi.advanceTimersByTime(3000);
+    expect(onRegistryOffline).toHaveBeenCalledTimes(1);
+
+    manager.stop();
+  });
+
+  it("resets missedCount and calls onRegistryOnline when ack is received", () => {
+    const mockNatsClient = makeMockNatsClient();
+    const onRegistryOffline = vi.fn();
+    const onRegistryOnline = vi.fn();
+
+    // Capture the subscribe handler so we can simulate ack
+    let ackHandler: ((msg: Uint8Array) => void) | null = null;
+    (mockNatsClient.subscribe as ReturnType<typeof vi.fn>).mockImplementation(
+      (subject: string, handler: (msg: Uint8Array) => void) => {
+        if (subject.startsWith("a2a.agent.heartbeat-ack.")) {
+          ackHandler = handler;
+        }
+        return { subject, unsubscribe: vi.fn() };
+      },
+    );
+
+    const manager = createHeartbeatManager({
+      getAgentId: () => "agent-ack-test",
+      natsClient: mockNatsClient,
+      getActiveSessionCount: () => 0,
+      onRegistryOffline,
+      onRegistryOnline,
+    });
+
+    manager.start(9000); // interval = 3000
+
+    // Tick 1: missedCount 0→1
+    vi.advanceTimersByTime(3000);
+
+    // Tick 2: missedCount 1→2
+    vi.advanceTimersByTime(3000);
+
+    // Simulate ack received → missedCount resets to 0
+    ackHandler!(new Uint8Array(0));
+
+    // Tick 3: missedCount 0→1 (reset worked)
+    vi.advanceTimersByTime(3000);
+    expect(onRegistryOffline).not.toHaveBeenCalled();
+
+    // Tick 4: missedCount 1→2
+    vi.advanceTimersByTime(3000);
+    expect(onRegistryOffline).not.toHaveBeenCalled();
+
+    manager.stop();
+  });
+
+  it("calls onRegistryOnline when ack received after being offline", () => {
+    const mockNatsClient = makeMockNatsClient();
+    const onRegistryOffline = vi.fn();
+    const onRegistryOnline = vi.fn();
+
+    let ackHandler: ((msg: Uint8Array) => void) | null = null;
+    (mockNatsClient.subscribe as ReturnType<typeof vi.fn>).mockImplementation(
+      (subject: string, handler: (msg: Uint8Array) => void) => {
+        if (subject.startsWith("a2a.agent.heartbeat-ack.")) {
+          ackHandler = handler;
+        }
+        return { subject, unsubscribe: vi.fn() };
+      },
+    );
+
+    const manager = createHeartbeatManager({
+      getAgentId: () => "agent-recovery-test",
+      natsClient: mockNatsClient,
+      getActiveSessionCount: () => 0,
+      onRegistryOffline,
+      onRegistryOnline,
+    });
+
+    manager.start(9000); // interval = 3000
+
+    // 4 ticks without ack → offline triggered
+    vi.advanceTimersByTime(3000); // missedCount: 0→1
+    vi.advanceTimersByTime(3000); // missedCount: 1→2
+    vi.advanceTimersByTime(3000); // missedCount: 2→3
+    vi.advanceTimersByTime(3000); // missedCount: 3 >= 3 → offline
+    expect(onRegistryOffline).toHaveBeenCalledTimes(1);
+
+    // Simulate ack received → recovery
+    ackHandler!(new Uint8Array(0));
+    expect(onRegistryOnline).toHaveBeenCalledTimes(1);
+
+    manager.stop();
+  });
+
+  it("subscribes to the correct ack subject based on agentId", () => {
+    const mockNatsClient = makeMockNatsClient();
+    const subscribeMock = mockNatsClient.subscribe as ReturnType<typeof vi.fn>;
+
+    const manager = createHeartbeatManager({
+      getAgentId: () => "my-special-agent",
+      natsClient: mockNatsClient,
+      getActiveSessionCount: () => 0,
+    });
+
+    manager.start(9000);
+
+    expect(subscribeMock).toHaveBeenCalledWith(
+      "a2a.agent.heartbeat-ack.my-special-agent",
+      expect.any(Function),
+    );
+
+    manager.stop();
+  });
+
+  it("sets reply_to in heartbeat envelope to the fixed ack subject", () => {
+    const mockNatsClient = makeMockNatsClient();
+    const publishMock = mockNatsClient.publish as ReturnType<typeof vi.fn>;
+
+    const manager = createHeartbeatManager({
+      getAgentId: () => "agent-reply-to",
+      natsClient: mockNatsClient,
+      getActiveSessionCount: () => 0,
+    });
+
+    manager.start(9000);
+    vi.advanceTimersByTime(3000);
+
+    expect(publishMock).toHaveBeenCalledTimes(1);
+    const [subject, bytes] = publishMock.mock.calls[0];
+    expect(subject).toBe("registry.agent.heartbeat");
+
+    // Decode the envelope and check reply_to
+    const json = new TextDecoder().decode(bytes);
+    const envelope = JSON.parse(json);
+    expect(envelope.reply_to).toBe("a2a.agent.heartbeat-ack.agent-reply-to");
 
     manager.stop();
   });

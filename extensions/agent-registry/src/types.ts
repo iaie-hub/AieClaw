@@ -239,6 +239,10 @@ export interface HeartbeatManagerOptions {
   getAgentId: () => string;
   natsClient: NATSClient;
   getActiveSessionCount: () => number;
+  /** Called when Registry is detected as offline (3 consecutive missed acks). */
+  onRegistryOffline?: () => void;
+  /** Called when Registry recovers (ack received after being offline). */
+  onRegistryOnline?: () => void;
 }
 
 export interface MessageRouterOptions {

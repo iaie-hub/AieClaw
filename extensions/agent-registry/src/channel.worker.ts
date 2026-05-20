@@ -11,10 +11,164 @@ let heartbeatManager: ReturnType<typeof createHeartbeatManager> | null = null;
 const subscriptions = new Map<string, NATSSubscription>();
 let activeSessionCount = 0;
 
+// ---------------------------------------------------------------------------
+// Unified registration retry state
+// ---------------------------------------------------------------------------
+
+/** Whether a registration attempt is currently in progress. */
+let registrationInFlight = false;
+
+/** Number of consecutive failed registration attempts (for backoff). */
+let registrationFailCount = 0;
+
+/** Timer for scheduled registration retries. */
+let registrationRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Whether the agent has ever successfully registered in this worker lifecycle. */
+let hasRegistered = false;
+
+/** Current config/skills/description for retry use. */
+let workerConfig: any = null;
+let workerSkills: any = null;
+let workerDescription: any = null;
+
+/**
+ * Compute retry delay with exponential backoff: 10s, 20s, 40s, 60s (capped).
+ */
+function computeRetryDelay(failCount: number): number {
+  return Math.min(10000 * 2 ** (failCount - 1), 60000);
+}
+
+/**
+ * Unified registration attempt with throttle and backoff.
+ * Used for both initial registration and re-registration after offline detection.
+ * Does NOT throw — reports status via parentPort messages.
+ */
+async function attemptRegistration(): Promise<boolean> {
+  if (registrationInFlight) {
+    return false;
+  }
+
+  registrationInFlight = true;
+  try {
+    const registerResult = await registrationManager!.register();
+    if (!registerResult.ok) {
+      throw new Error(registerResult.error ?? "Registration failed");
+    }
+
+    const effectiveAgentId = registerResult.agentId ?? workerConfig.agentId;
+    const topics = registerResult.topics!;
+    const ttlMs = registerResult.ttlMs!;
+
+    // Clean up old base topic subscriptions if re-registering
+    if (hasRegistered) {
+      const oldBaseSubjects = Array.from(subscriptions.keys()).filter(
+        (subject) =>
+          subject.startsWith("a2a.agent.unicast.") ||
+          subject === "a2a.agent.broadcast.all" ||
+          subject.startsWith("a2a.agent.multicast."),
+      );
+      for (const subject of oldBaseSubjects) {
+        const sub = subscriptions.get(subject);
+        if (sub) {
+          try { sub.unsubscribe(); } catch {}
+          subscriptions.delete(subject);
+        }
+      }
+    }
+
+    // Subscribe base topics
+    subscribeBaseTopics(topics);
+
+    // Start or restart heartbeat
+    if (!heartbeatManager) {
+      heartbeatManager = createHeartbeatManager({
+        getAgentId: () => effectiveAgentId,
+        natsClient: natsClient!,
+        getActiveSessionCount: () => activeSessionCount,
+        onRegistryOffline: () => {
+          parentPort?.postMessage({ type: "STATUS", status: "unavailable" });
+          parentPort?.postMessage({ type: "REGISTRY_OFFLINE" });
+          scheduleRegistrationRetry();
+        },
+        onRegistryOnline: () => {
+          registrationFailCount = 0;
+          cancelRegistrationRetry();
+          parentPort?.postMessage({ type: "STATUS", status: "registered" });
+          parentPort?.postMessage({ type: "REGISTRY_ONLINE" });
+        },
+      });
+    }
+    heartbeatManager.start(ttlMs);
+
+    // Success — reset state
+    hasRegistered = true;
+    registrationFailCount = 0;
+    cancelRegistrationRetry();
+
+    parentPort?.postMessage({ type: "STATUS", status: "registered" });
+    parentPort?.postMessage({
+      type: "REGISTERED",
+      ok: true,
+      agentId: effectiveAgentId,
+      topics,
+      ttlMs,
+    });
+    return true;
+  } catch (err: any) {
+    registrationFailCount++;
+    parentPort?.postMessage({ type: "STATUS", status: "unavailable" });
+
+    if (!hasRegistered) {
+      // Initial registration failed — schedule retry instead of exiting
+      parentPort?.postMessage({
+        type: "REGISTERED",
+        ok: false,
+        error: err.message || String(err),
+        willRetry: true,
+      });
+    }
+    return false;
+  } finally {
+    registrationInFlight = false;
+  }
+}
+
+/**
+ * Schedule the next registration retry with exponential backoff.
+ */
+function scheduleRegistrationRetry(): void {
+  if (registrationRetryTimer !== null) {
+    return; // Already scheduled
+  }
+
+  const delay = computeRetryDelay(registrationFailCount);
+  registrationRetryTimer = setTimeout(async () => {
+    registrationRetryTimer = null;
+    const success = await attemptRegistration();
+    if (!success) {
+      scheduleRegistrationRetry();
+    }
+  }, delay);
+}
+
+/**
+ * Cancel any pending registration retry.
+ */
+function cancelRegistrationRetry(): void {
+  if (registrationRetryTimer !== null) {
+    clearTimeout(registrationRetryTimer);
+    registrationRetryTimer = null;
+  }
+}
+
 parentPort?.on("message", async (msg) => {
   try {
     if (msg.type === "START") {
       const { config, skills, description } = msg;
+      workerConfig = config;
+      workerSkills = skills;
+      workerDescription = description;
 
       // 1. Create and connect NATS client
       parentPort?.postMessage({ type: "STATUS", status: "connecting" });
@@ -26,13 +180,13 @@ parentPort?.on("message", async (msg) => {
         },
         onReconnect: () => {
           parentPort?.postMessage({ type: "STATUS", status: "registering" });
-          void handleReconnect(config, skills, description);
+          void attemptRegistration();
         },
       });
 
       await natsClient.connect();
 
-      // 2. Register
+      // 2. Create registration manager
       parentPort?.postMessage({ type: "STATUS", status: "registering" });
       registrationManager = createRegistrationManager({
         config,
@@ -42,34 +196,12 @@ parentPort?.on("message", async (msg) => {
         getAgentDescription: async () => description,
       });
 
-      const registerResult = await registrationManager.register();
-      if (!registerResult.ok) {
-        throw new Error(registerResult.error ?? "Registration failed");
+      // 3. Attempt registration (unified path)
+      const success = await attemptRegistration();
+      if (!success) {
+        // Schedule retry — worker stays alive
+        scheduleRegistrationRetry();
       }
-
-      const effectiveAgentId = registerResult.agentId ?? config.agentId;
-      const topics = registerResult.topics!;
-      const ttlMs = registerResult.ttlMs!;
-
-      // 3. Subscribe base topics
-      subscribeBaseTopics(topics);
-
-      // 4. Start heartbeat
-      heartbeatManager = createHeartbeatManager({
-        getAgentId: () => effectiveAgentId,
-        natsClient: natsClient!,
-        getActiveSessionCount: () => activeSessionCount,
-      });
-      heartbeatManager.start(ttlMs);
-
-      parentPort?.postMessage({ type: "STATUS", status: "registered" });
-      parentPort?.postMessage({
-        type: "REGISTERED",
-        ok: true,
-        agentId: effectiveAgentId,
-        topics,
-        ttlMs,
-      });
     } else if (msg.type === "PUBLISH") {
       const { subject, payload } = msg;
       natsClient?.publish(subject, payload);
@@ -115,6 +247,7 @@ parentPort?.on("message", async (msg) => {
     } else if (msg.type === "UPDATE_SESSION_COUNT") {
       activeSessionCount = msg.count;
     } else if (msg.type === "STOP") {
+      cancelRegistrationRetry();
       heartbeatManager?.stop();
       if (registrationManager) {
         try {
@@ -166,54 +299,4 @@ function subscribeBaseTopics(topics: any) {
     parentPort?.postMessage({ type: "MESSAGE", subject: topics.broadcast, payload });
   });
   if (broadcastSub) subscriptions.set(topics.broadcast, broadcastSub);
-}
-
-async function handleReconnect(config: any, skills: any, description: any) {
-  try {
-    const registerResult = await registrationManager!.register();
-    if (!registerResult.ok) {
-      throw new Error(registerResult.error ?? "Re-registration failed");
-    }
-
-    const effectiveAgentId = registerResult.agentId ?? config.agentId;
-    const newTopics = registerResult.topics!;
-    const newTtlMs = registerResult.ttlMs!;
-
-    // Clean up old base topic subscriptions from the map and NATS
-    const oldBaseSubjects = [
-      ...Array.from(subscriptions.keys()).filter(
-        (subject) =>
-          subject.startsWith("a2a.agent.unicast.") ||
-          subject === "a2a.agent.broadcast.all" ||
-          subject.startsWith("a2a.agent.multicast."),
-      ),
-    ];
-
-    for (const subject of oldBaseSubjects) {
-      const sub = subscriptions.get(subject);
-      if (sub) {
-        try {
-          sub.unsubscribe();
-        } catch {}
-        subscriptions.delete(subject);
-      }
-    }
-
-    // Subscribe to new base topics
-    subscribeBaseTopics(newTopics);
-
-    // Restart heartbeat with new TTL
-    heartbeatManager?.start(newTtlMs);
-
-    parentPort?.postMessage({ type: "STATUS", status: "registered" });
-    parentPort?.postMessage({
-      type: "REGISTERED",
-      ok: true,
-      agentId: effectiveAgentId,
-      topics: newTopics,
-      ttlMs: newTtlMs,
-    });
-  } catch (err: any) {
-    parentPort?.postMessage({ type: "STATUS", status: "unavailable" });
-  }
 }
