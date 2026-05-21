@@ -34,8 +34,8 @@ import { buildAgentSessionKey, buildAgentMainSessionKey } from "openclaw/plugin-
 import { createCollaborationArbiter } from "./arbiter.js";
 import type { ArbiterSession } from "./arbiter.js";
 import { parseConfig } from "./config.js";
-import { createCowork } from "./cowork-initiator.ts
-import type { CreateCoworkParams } from "./cowork-initiator.ts
+import { createCowork } from "./cowork-initiator.js";
+import type { CreateCoworkParams } from "./cowork-initiator.js";
 import { discoverAgents } from "./agent-discovery.js";
 import type { DiscoverAgentsParams } from "./agent-discovery.js";
 import { sendMessage } from "./unicast-sender.js";
