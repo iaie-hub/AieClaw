@@ -10,8 +10,8 @@
  */
 
 import { v4 as uuidv4 } from "uuid";
-import { createEnvelope, serializeEnvelope, deserializeEnvelope } from "./envelope.js";
-import type { NATSClient } from "./types.js";
+import { createEnvelope, serializeEnvelope, deserializeEnvelope } from "./envelope.ts";
+import type { NATSClient } from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // Cowork types (unified — covers both discussion and task modes)

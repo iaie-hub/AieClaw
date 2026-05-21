@@ -34,8 +34,12 @@ import { buildAgentSessionKey, buildAgentMainSessionKey } from "openclaw/plugin-
 import { createCollaborationArbiter } from "./arbiter.js";
 import type { ArbiterSession } from "./arbiter.js";
 import { parseConfig } from "./config.js";
-import { createCowork } from "./discussion-initiator.js";
-import type { CreateCoworkParams } from "./discussion-initiator.js";
+import { createCowork } from "./cowork-initiator.ts
+import type { CreateCoworkParams } from "./cowork-initiator.ts
+import { discoverAgents } from "./agent-discovery.js";
+import type { DiscoverAgentsParams } from "./agent-discovery.js";
+import { sendMessage } from "./unicast-sender.js";
+import type { SendMessageParams } from "./unicast-sender.js";
 import { createOutboundAdapter } from "./outbound.js";
 import { createMessageRouter } from "./router.js";
 import { createStatusAdapter } from "./status.js";
@@ -1013,6 +1017,14 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
                   );
                 }
                 return result;
+              },
+
+              sendMessage: (params: SendMessageParams) => {
+                return sendMessage(params, effectiveAgentId, natsClient);
+              },
+
+              discoverAgents: async (params?: DiscoverAgentsParams) => {
+                return discoverAgents(params ?? {}, effectiveAgentId, natsClient);
               },
             };
           }
