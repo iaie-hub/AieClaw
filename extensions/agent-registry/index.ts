@@ -1,9 +1,9 @@
 import { defineBundledChannelEntry } from "openclaw/plugin-sdk/channel-entry-contract";
 import type { AnyAgentTool } from "openclaw/plugin-sdk/channel-entry-contract";
 import {
-  discoverAgentsTool,
-  sendMessageTool,
-  createCoworkTool,
+  discoverAgentsToolFactory,
+  sendMessageToolFactory,
+  createCoworkToolFactory,
 } from "./src/tools.js";
 
 export default defineBundledChannelEntry({
@@ -16,8 +16,8 @@ export default defineBundledChannelEntry({
     exportName: "agentRegistryPlugin",
   },
   registerFull(api) {
-    api.registerTool(discoverAgentsTool as unknown as AnyAgentTool, { name: "discover_agents" });
-    api.registerTool(sendMessageTool as unknown as AnyAgentTool, { name: "send_message_to_agent" });
-    api.registerTool(createCoworkTool as unknown as AnyAgentTool, { name: "create_cowork" });
+    api.registerTool(discoverAgentsToolFactory as unknown as (ctx: unknown) => AnyAgentTool, { name: "discover_agents" });
+    api.registerTool(sendMessageToolFactory as unknown as (ctx: unknown) => AnyAgentTool, { name: "send_message_to_agent" });
+    api.registerTool(createCoworkToolFactory as unknown as (ctx: unknown) => AnyAgentTool, { name: "create_cowork" });
   },
 });

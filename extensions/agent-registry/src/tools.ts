@@ -5,6 +5,12 @@
  * `registerFull` callback, making them visible to the Agent's LLM as
  * callable functions in the tool list.
  *
+ * Tools are registered as factory functions (OpenClawPluginToolFactory) so
+ * they receive the OpenClawPluginToolContext at resolution time, which
+ * includes `ctx.sessionKey` — the current OpenClaw session key. This
+ * session key is passed into outbound envelopes so receiving agents can
+ * route responses back to the correct session.
+ *
  * The tools delegate to the runtime API injected by channel.ts into
  * `channelRuntime.agentRegistry`. A module-level reference is set when
  * the channel starts and cleared on teardown.
@@ -58,10 +64,10 @@ function errorResult(error: string) {
 }
 
 // ---------------------------------------------------------------------------
-// discover_agents tool
+// discover_agents tool factory
 // ---------------------------------------------------------------------------
 
-export const discoverAgentsTool = {
+export const discoverAgentsToolFactory = (ctx: { sessionKey?: string }) => ({
   name: "discover_agents",
   label: "Discover Agents",
   description:
@@ -116,13 +122,13 @@ export const discoverAgentsTool = {
       })),
     });
   },
-};
+});
 
 // ---------------------------------------------------------------------------
-// send_message_to_agent tool
+// send_message_to_agent tool factory
 // ---------------------------------------------------------------------------
 
-export const sendMessageTool = {
+export const sendMessageToolFactory = (ctx: { sessionKey?: string }) => ({
   name: "send_message_to_agent",
   label: "Send Message to Agent",
   description:
@@ -166,7 +172,12 @@ export const sendMessageTool = {
       return errorResult("text is required");
     }
 
-    const result = rt.sendMessage({ targetAgentId, text, action });
+    const result = rt.sendMessage({
+      targetAgentId,
+      text,
+      action,
+      senderSessionKey: ctx.sessionKey,
+    });
 
     if (!result.ok) {
       return errorResult(result.error!);
@@ -179,13 +190,13 @@ export const sendMessageTool = {
       note: "Message published. The target agent's reply will arrive asynchronously.",
     });
   },
-};
+});
 
 // ---------------------------------------------------------------------------
-// create_cowork tool
+// create_cowork tool factory
 // ---------------------------------------------------------------------------
 
-export const createCoworkTool = {
+export const createCoworkToolFactory = (ctx: { sessionKey?: string }) => ({
   name: "create_cowork",
   label: "Create Collaboration",
   description:
@@ -229,7 +240,12 @@ export const createCoworkTool = {
       return errorResult("name is required");
     }
 
-    const result = await rt.createCowork({ name, description, conversation });
+    const result = await rt.createCowork({
+      name,
+      description,
+      conversation,
+      senderSessionKey: ctx.sessionKey,
+    });
 
     if (!result.ok) {
       return errorResult(result.error);
@@ -242,4 +258,12 @@ export const createCoworkTool = {
       note: "Collaboration created. Other agents are being notified and will join if they can help.",
     });
   },
-};
+});
+
+// ---------------------------------------------------------------------------
+// Legacy static tool exports (for backward compatibility with existing tests)
+// ---------------------------------------------------------------------------
+
+export const discoverAgentsTool = discoverAgentsToolFactory({});
+export const sendMessageTool = sendMessageToolFactory({});
+export const createCoworkTool = createCoworkToolFactory({});

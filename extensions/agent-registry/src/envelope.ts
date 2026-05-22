@@ -96,6 +96,11 @@ export function deserializeEnvelope(bytes: Uint8Array): RegistryEnvelope {
     obj.reply_to = null;
   }
 
+  // session is optional; defaults to null if missing or undefined
+  if (obj.session === undefined) {
+    obj.session = null;
+  }
+
   return obj as unknown as RegistryEnvelope;
 }
 
@@ -113,7 +118,7 @@ export function deserializeEnvelope(bytes: Uint8Array): RegistryEnvelope {
  */
 export function createEnvelope(
   fields: Omit<RegistryEnvelope, "message_id" | "timestamp"> &
-    Partial<Pick<RegistryEnvelope, "message_id" | "timestamp">>,
+    Partial<Pick<RegistryEnvelope, "message_id" | "timestamp" | "session">>,
 ): RegistryEnvelope {
   return {
     message_id: fields.message_id ?? uuidv4(),
@@ -121,6 +126,7 @@ export function createEnvelope(
     request_id: fields.request_id,
     message_type: fields.message_type,
     source: fields.source,
+    session: fields.session ?? null,
     seq: fields.seq,
     action: fields.action,
     resource_type: fields.resource_type,

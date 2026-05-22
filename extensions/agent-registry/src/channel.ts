@@ -132,6 +132,12 @@ function createAgentSession(params: {
   channelRuntime: Parameters<typeof dispatchInboundDirectDmWithRuntime>[0]["runtime"];
   outboundAdapter: ReturnType<typeof createOutboundAdapter>;
   sessionTracker: SessionTracker;
+  /** Controller for setting/clearing the pending session key override used by resolveAgentRoute. */
+  sessionOverrideCtrl?: {
+    set: (key: string | undefined) => void;
+    resolveStorePath?: () => string;
+    readSessionUpdatedAt?: (storePath: string, sessionKey: string) => number | undefined;
+  };
 }): AgentSession {
   const {
     sessionKey,
@@ -141,7 +147,9 @@ function createAgentSession(params: {
     channelRuntime,
     outboundAdapter,
     sessionTracker,
+    sessionOverrideCtrl,
   } = params;
+  const boundAgentId = params.boundAgentId;
 
   let activeTaskCount = 0;
 
@@ -149,6 +157,34 @@ function createAgentSession(params: {
     async dispatch(envelope: RegistryEnvelope): Promise<void> {
       activeTaskCount++;
       try {
+        // Phase 3: Resolve session key override from envelope.session
+        let resolvedSessionKeyOverride: string | undefined;
+        if (envelope.session && sessionOverrideCtrl) {
+          const parts = envelope.session.split(":");
+          // Format: agent:{agentId}:group:{sessionUuid}
+          if (parts.length >= 4 && parts[0] === "agent" && parts[2] === "group") {
+            const sessionUuid = parts.slice(3).join(":");
+            const candidateKey = `agent:${boundAgentId}:group:${sessionUuid}`;
+
+            // Verify the session exists before overriding
+            let sessionExists = true; // optimistic default
+            if (sessionOverrideCtrl.resolveStorePath && sessionOverrideCtrl.readSessionUpdatedAt) {
+              try {
+                const storePath = sessionOverrideCtrl.resolveStorePath();
+                const updatedAt = sessionOverrideCtrl.readSessionUpdatedAt(storePath, candidateKey);
+                sessionExists = updatedAt !== undefined;
+              } catch {
+                // If we can't check, assume it exists (optimistic)
+                sessionExists = true;
+              }
+            }
+
+            if (sessionExists) {
+              resolvedSessionKeyOverride = candidateKey;
+            }
+          }
+        }
+
         const messageText =
           typeof envelope.payload["text"] === "string"
             ? envelope.payload["text"]
@@ -158,57 +194,60 @@ function createAgentSession(params: {
 
         const peer = { kind: "direct" as const, id: envelope.source || sessionKey };
 
-        await dispatchInboundDirectDmWithRuntime({
-          cfg,
-          runtime: channelRuntime,
-          channel: "agent-registry",
-          channelLabel: "Agent Registry",
-          accountId: agentId,
-          peer,
-          senderId: envelope.source,
-          senderAddress: `agent-registry:${envelope.source}`,
-          recipientAddress: `agent-registry:${agentId}`,
-          conversationLabel: `A2A:${envelope.source}`,
-          rawBody: messageText,
-          messageId: envelope.message_id,
-          timestamp: envelope.timestamp,
-          deliver: async (payload) => {
-            // Deliver the agent's response back via the outbound adapter.
-            // The SessionContext determines which NATS subject the response
-            // is published to (unicast → a2a.agent.unicast.{source},
-            // cowork → a2a.cowork.{id}).
-            const responseText =
-              typeof payload === "object" && payload !== null && "text" in payload
-                ? String((payload as Record<string, unknown>)["text"] ?? "")
-                : "";
+        // Set the override before dispatching so resolveAgentRoute picks it up
+        sessionOverrideCtrl?.set(resolvedSessionKeyOverride);
+        try {
+          await dispatchInboundDirectDmWithRuntime({
+            cfg,
+            runtime: channelRuntime,
+            channel: "agent-registry",
+            channelLabel: "Agent Registry",
+            accountId: agentId,
+            peer,
+            senderId: envelope.source,
+            senderAddress: `agent-registry:${envelope.source}`,
+            recipientAddress: `agent-registry:${agentId}`,
+            conversationLabel: `A2A:${envelope.source}`,
+            rawBody: messageText,
+            messageId: envelope.message_id,
+            timestamp: envelope.timestamp,
+            deliver: async (payload) => {
+              // Deliver the agent's response back via the outbound adapter.
+              const responseText =
+                typeof payload === "object" && payload !== null && "text" in payload
+                  ? String((payload as Record<string, unknown>)["text"] ?? "")
+                  : "";
 
-            if (responseText) {
-              // Build the correct session context based on the session kind.
-              const sessionContext =
-                sessionContextKind === "cowork"
-                  ? ({ kind: "cowork", coworkId: sessionKey, isComplete: false } as const)
-                  : ({ kind: "unicast", sourceAgentId: envelope.source } as const);
+              if (responseText) {
+                const sessionContext =
+                  sessionContextKind === "cowork"
+                    ? ({ kind: "cowork", coworkId: sessionKey, isComplete: false } as const)
+                    : ({ kind: "unicast", sourceAgentId: envelope.source } as const);
 
-              await outboundAdapter.send({
-                responseText,
-                inboundEnvelope: envelope,
-                sessionContext,
-                sessionSeq: 0,
-                isSessionComplete: false,
-              });
-            }
-          },
-          onRecordError: (err) => {
-            console.error(
-              `[agent-registry] session record error for ${sessionKey}: ${String(err)}`,
-            );
-          },
-          onDispatchError: (err, info) => {
-            console.error(
-              `[agent-registry] session dispatch error for ${sessionKey} (${info.kind}): ${String(err)}`,
-            );
-          },
-        });
+                await outboundAdapter.send({
+                  responseText,
+                  inboundEnvelope: envelope,
+                  sessionContext,
+                  sessionSeq: 0,
+                  isSessionComplete: false,
+                  senderSessionKey: resolvedSessionKeyOverride,
+                });
+              }
+            },
+            onRecordError: (err) => {
+              console.error(
+                `[agent-registry] session record error for ${sessionKey}: ${String(err)}`,
+              );
+            },
+            onDispatchError: (err, info) => {
+              console.error(
+                `[agent-registry] session dispatch error for ${sessionKey} (${info.kind}): ${String(err)}`,
+              );
+            },
+          });
+        } finally {
+          sessionOverrideCtrl?.set(undefined);
+        }
       } finally {
         activeTaskCount--;
       }
@@ -765,6 +804,11 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
           // handler can close over the fully constructed messageRouter.
           // ----------------------------------------------------------------
 
+          // Mutable session key override — set by createAgentSession.dispatch()
+          // when an inbound envelope carries a session field, consumed by
+          // resolveAgentRoute to route to the correct OpenClaw session.
+          let pendingSessionKeyOverride: string | undefined;
+
           type DirectDmRuntimeShape = Parameters<
             typeof dispatchInboundDirectDmWithRuntime
           >[0]["runtime"];
@@ -777,29 +821,61 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
                   const route = channelRuntime.routing.resolveAgentRoute(routeParams);
                   if (boundAgentId) {
                     route.agentId = boundAgentId;
-                    const dmScope = routeParams.cfg?.session?.dmScope ?? "main";
-                    const identityLinks = routeParams.cfg?.session?.identityLinks;
-                    
-                    route.sessionKey = buildAgentSessionKey({
-                      agentId: boundAgentId,
-                      channel: routeParams.channel,
-                      accountId: routeParams.accountId,
-                      peer: routeParams.peer,
-                      dmScope,
-                      identityLinks,
-                    }).toLowerCase();
-                    
-                    route.mainSessionKey = buildAgentMainSessionKey({
-                      agentId: boundAgentId,
-                      mainKey: "main",
-                    }).toLowerCase();
-                    
-                    route.lastRoutePolicy = route.sessionKey === route.mainSessionKey ? "main" : "session";
+
+                    if (pendingSessionKeyOverride) {
+                      // Use the session key derived from inbound envelope.session
+                      route.sessionKey = pendingSessionKeyOverride;
+                      route.mainSessionKey = buildAgentMainSessionKey({
+                        agentId: boundAgentId,
+                        mainKey: "main",
+                      }).toLowerCase();
+                      route.lastRoutePolicy = "session";
+                    } else {
+                      const dmScope = routeParams.cfg?.session?.dmScope ?? "main";
+                      const identityLinks = routeParams.cfg?.session?.identityLinks;
+
+                      route.sessionKey = buildAgentSessionKey({
+                        agentId: boundAgentId,
+                        channel: routeParams.channel,
+                        accountId: routeParams.accountId,
+                        peer: routeParams.peer,
+                        dmScope,
+                        identityLinks,
+                      }).toLowerCase();
+
+                      route.mainSessionKey = buildAgentMainSessionKey({
+                        agentId: boundAgentId,
+                        mainKey: "main",
+                      }).toLowerCase();
+
+                      route.lastRoutePolicy = route.sessionKey === route.mainSessionKey ? "main" : "session";
+                    }
                   }
                   return route;
                 },
               },
             } as any,
+          };
+
+          // Session override controller — bridges createAgentSession dispatch
+          // with the resolveAgentRoute override above.
+          const sessionOverrideCtrl = {
+            set: (key: string | undefined) => { pendingSessionKeyOverride = key; },
+            resolveStorePath: () => {
+              try {
+                return channelRuntime.session.resolveStorePath(cfg.session?.store);
+              } catch {
+                return "";
+              }
+            },
+            readSessionUpdatedAt: (storePath: string, sessionKey: string) => {
+              if (!storePath) return undefined;
+              try {
+                return channelRuntime.session.readSessionUpdatedAt({ storePath, sessionKey });
+              } catch {
+                return undefined;
+              }
+            },
           };
 
           // Session factory functions for the router
@@ -817,6 +893,7 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
               channelRuntime: directDmRuntime,
               outboundAdapter,
               sessionTracker,
+              sessionOverrideCtrl,
             });
           };
 
@@ -842,6 +919,7 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
               channelRuntime: directDmRuntime,
               outboundAdapter,
               sessionTracker,
+              sessionOverrideCtrl,
             });
           };
 

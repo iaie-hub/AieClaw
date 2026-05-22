@@ -24,6 +24,8 @@ export interface CreateCoworkParams {
   description?: string;
   /** Recent conversation snippets providing context for other agents. */
   conversation?: string[];
+  /** Sender's current session key, written into the envelope's session field. */
+  senderSessionKey?: string;
 }
 
 export type CreateCoworkResult =
@@ -54,6 +56,7 @@ export async function createCowork(
     request_id: uuidv4(),
     message_type: "req",
     source: agentId,
+    session: params.senderSessionKey ?? null,
     seq: 0,
     action: "cowork_create",
     resource_type: "cowork",

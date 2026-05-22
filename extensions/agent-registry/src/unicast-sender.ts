@@ -26,6 +26,8 @@ export interface SendMessageParams {
   action?: string;
   /** Optional additional payload fields merged into the envelope payload. */
   metadata?: Record<string, unknown>;
+  /** Sender's current session key, written into the envelope's session field. */
+  senderSessionKey?: string;
 }
 
 export interface SendMessageResult {
@@ -77,6 +79,7 @@ export function sendMessage(
     request_id: uuidv4(),
     message_type: "req",
     source: agentId,
+    session: params.senderSessionKey ?? null,
     seq: 0,
     action,
     resource_type: "agent",

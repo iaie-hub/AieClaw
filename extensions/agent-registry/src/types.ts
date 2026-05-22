@@ -66,6 +66,8 @@ export interface RegistryEnvelope {
   timestamp: number;
   /** Sender agent_id; "registry" for Registry-originated messages */
   source: string;
+  /** Sender's current session key; null if not in a session context */
+  session: string | null;
   /** Non-negative integer, monotonically increasing per session */
   seq: number;
   /** e.g. "register", "heartbeat", "message", "join" */
@@ -292,6 +294,8 @@ export interface OutboundSendParams {
   sessionContext: SessionContext;
   sessionSeq: number;
   isSessionComplete: boolean;
+  /** Sender's current session key, written into the outbound envelope's session field. */
+  senderSessionKey?: string;
 }
 
 // ---------------------------------------------------------------------------

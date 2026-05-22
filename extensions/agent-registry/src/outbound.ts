@@ -177,6 +177,7 @@ export function createOutboundAdapter(options: OutboundAdapterOptions): Outbound
         request_id: uuidv4(),
         message_type: "req",
         source: getAgentId(),
+        session: params.senderSessionKey ?? null,
         seq,
         action,
         resource_type: resourceType,

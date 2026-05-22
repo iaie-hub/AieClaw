@@ -28,6 +28,7 @@ const arbRegistryEnvelope: fc.Arbitrary<RegistryEnvelope> = fc.record({
   message_type: fc.constantFrom("req" as const, "res" as const, "event" as const),
   timestamp: fc.integer({ min: 0, max: Number.MAX_SAFE_INTEGER }),
   source: arbNonEmptyString,
+  session: fc.oneof(fc.constant(null), arbNonEmptyString),
   seq: fc.integer({ min: 0, max: 1_000_000 }),
   action: arbNonEmptyString,
   resource_type: fc.constantFrom("agent", "collaboration", "cowork", "discussion"),
@@ -43,6 +44,7 @@ const arbCreateEnvelopeBase = fc.record({
   request_id: fc.uuid(),
   message_type: fc.constantFrom("req" as const, "res" as const, "event" as const),
   source: arbNonEmptyString,
+  session: fc.oneof(fc.constant(null), arbNonEmptyString),
   seq: fc.integer({ min: 0, max: 1_000_000 }),
   action: arbNonEmptyString,
   resource_type: fc.constantFrom("agent", "collaboration", "cowork", "discussion"),
@@ -70,6 +72,7 @@ describe("Feature: agent-registry-channel, Property 1: RegistryEnvelope serializ
         expect(parsed.message_type).toBe(envelope.message_type);
         expect(parsed.timestamp).toBe(envelope.timestamp);
         expect(parsed.source).toBe(envelope.source);
+        expect(parsed.session).toBe(envelope.session);
         expect(parsed.seq).toBe(envelope.seq);
         expect(parsed.action).toBe(envelope.action);
         expect(parsed.resource_type).toBe(envelope.resource_type);
@@ -148,6 +151,7 @@ describe("deserializeEnvelope — unit tests", () => {
     message_type: "req",
     timestamp: 1_700_000_000_000,
     source: "agent-abc",
+    session: null,
     seq: 0,
     action: "register",
     resource_type: "agent",
@@ -190,6 +194,31 @@ describe("deserializeEnvelope — unit tests", () => {
     expect(result.reply_to).toBeNull();
   });
 
+  it("allows missing 'session' and defaults it to null", () => {
+    const incomplete = { ...validEnvelopeObj } as Record<string, unknown>;
+    delete incomplete.session;
+    const bytes = new TextEncoder().encode(JSON.stringify(incomplete));
+    const result = deserializeEnvelope(bytes);
+    expect(result.session).toBeNull();
+  });
+
+  it("accepts session as a valid sessionKey string", () => {
+    const withSession = {
+      ...validEnvelopeObj,
+      session: "agent:agent-001:group:abc12345-def6-7890-abcd-ef1234567890",
+    };
+    const bytes = new TextEncoder().encode(JSON.stringify(withSession));
+    const result = deserializeEnvelope(bytes);
+    expect(result.session).toBe("agent:agent-001:group:abc12345-def6-7890-abcd-ef1234567890");
+  });
+
+  it("accepts session as null", () => {
+    const withNullSession = { ...validEnvelopeObj, session: null };
+    const bytes = new TextEncoder().encode(JSON.stringify(withNullSession));
+    const result = deserializeEnvelope(bytes);
+    expect(result.session).toBeNull();
+  });
+
   // One test per required field — missing field must throw
   for (const field of REQUIRED_FIELDS) {
     it(`throws when required field "${field}" is missing`, () => {
@@ -213,6 +242,7 @@ describe("serializeEnvelope — unit tests", () => {
       request_id: "00000000-0000-4000-8000-000000000002",
       message_type: "req",
       source: "agent-test",
+      session: null,
       seq: 0,
       action: "register",
       resource_type: "agent",
@@ -228,6 +258,7 @@ describe("serializeEnvelope — unit tests", () => {
       request_id: "00000000-0000-4000-8000-000000000002",
       message_type: "req",
       source: "agent-test",
+      session: null,
       seq: 1,
       action: "heartbeat",
       resource_type: "agent",
@@ -243,6 +274,7 @@ describe("serializeEnvelope — unit tests", () => {
       "message_type",
       "timestamp",
       "source",
+      "session",
       "seq",
       "action",
       "resource_type",
@@ -261,6 +293,7 @@ describe("createEnvelope — unit tests", () => {
       request_id: "00000000-0000-4000-8000-000000000002",
       message_type: "req",
       source: "agent-test",
+      session: null,
       seq: 0,
       action: "register",
       resource_type: "agent",
@@ -280,6 +313,7 @@ describe("createEnvelope — unit tests", () => {
       request_id: "00000000-0000-4000-8000-000000000002",
       message_type: "req",
       source: "agent-test",
+      session: null,
       seq: 0,
       action: "register",
       resource_type: "agent",
@@ -296,6 +330,7 @@ describe("createEnvelope — unit tests", () => {
       request_id: "00000000-0000-4000-8000-000000000002",
       message_type: "req",
       source: "agent-test",
+      session: null,
       seq: 0,
       action: "register",
       resource_type: "agent",
@@ -303,5 +338,35 @@ describe("createEnvelope — unit tests", () => {
       reply_to: null,
     });
     expect(envelope.timestamp).toBe(fixedTs);
+  });
+
+  it("defaults session to null when not provided", () => {
+    const envelope = createEnvelope({
+      request_id: "00000000-0000-4000-8000-000000000002",
+      message_type: "req",
+      source: "agent-test",
+      seq: 0,
+      action: "register",
+      resource_type: "agent",
+      payload: {},
+      reply_to: null,
+    } as any);
+    expect(envelope.session).toBeNull();
+  });
+
+  it("preserves a caller-supplied session value", () => {
+    const sessionKey = "agent:agent-test:group:abc123";
+    const envelope = createEnvelope({
+      request_id: "00000000-0000-4000-8000-000000000002",
+      message_type: "req",
+      source: "agent-test",
+      session: sessionKey,
+      seq: 0,
+      action: "message",
+      resource_type: "agent",
+      payload: {},
+      reply_to: null,
+    });
+    expect(envelope.session).toBe(sessionKey);
   });
 });
