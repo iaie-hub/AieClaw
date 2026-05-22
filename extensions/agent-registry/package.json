@@ -12,5 +12,14 @@
   "devDependencies": {
     "@openclaw/plugin-sdk": "workspace:*",
     "fast-check": "^3.23.0"
+  },
+  "openclaw": {
+    "contracts": {
+      "tools": [
+        "discover_agents",
+        "send_message_to_agent",
+        "create_cowork"
+      ]
+    }
   }
 }

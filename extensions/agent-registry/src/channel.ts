@@ -43,6 +43,7 @@ import type { SendMessageParams } from "./unicast-sender.js";
 import { createOutboundAdapter } from "./outbound.js";
 import { createMessageRouter } from "./router.js";
 import { createStatusAdapter } from "./status.js";
+import { setAgentRegistryToolRuntime } from "./tools.js";
 import type {
   AgentRegistryConfig,
   AgentSession,
@@ -1003,7 +1004,7 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
           // ----------------------------------------------------------------
           if (channelRuntime) {
             const rt = channelRuntime as Record<string, unknown>;
-            rt["agentRegistry"] = {
+            const agentRegistryApi = {
               createCowork: async (params: CreateCoworkParams) => {
                 const result = await createCowork(params, effectiveAgentId, natsClient);
                 if (result.ok) {
@@ -1027,6 +1028,11 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
                 return discoverAgents(params ?? {}, effectiveAgentId, natsClient);
               },
             };
+            rt["agentRegistry"] = agentRegistryApi;
+
+            // Bridge the runtime to the registered tools so they can call
+            // the same API at tool-execution time.
+            setAgentRegistryToolRuntime(agentRegistryApi);
           }
 
           // ----------------------------------------------------------------
@@ -1195,6 +1201,9 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             sessionTracker,
             activeSubscriptions,
           });
+
+          // Clear the tool runtime bridge so tools fail gracefully after stop.
+          setAgentRegistryToolRuntime(null);
 
           log?.info?.("[agent-registry] stopped");
         },

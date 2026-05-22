@@ -99,20 +99,23 @@ export async function discoverAgents(
       return { ok: false, error: p.error ?? "registry returned success=false" };
     }
 
-    const agents: DiscoveredAgent[] = (p.agents ?? []).map((raw) => ({
-      agentId: String(raw["agent_id"] ?? raw["agentId"] ?? ""),
-      name: String(raw["name"] ?? ""),
-      description: String(raw["description"] ?? ""),
-      status: String(raw["status"] ?? "unknown"),
-      skills: Array.isArray(raw["skills"])
-        ? (raw["skills"] as Array<Record<string, unknown>>).map((s) => ({
-            id: String(s["id"] ?? ""),
-            name: String(s["name"] ?? ""),
-            description: String(s["description"] ?? ""),
-            tags: Array.isArray(s["tags"]) ? (s["tags"] as string[]).map(String) : [],
-          }))
-        : [],
-    }));
+    const agents: DiscoveredAgent[] = (p.agents ?? []).map((raw) => {
+      const card = raw["card"] && typeof raw["card"] === "object" ? (raw["card"] as Record<string, unknown>) : raw;
+      return {
+        agentId: String(card["agent_id"] ?? card["agentId"] ?? ""),
+        name: String(card["name"] ?? ""),
+        description: String(card["description"] ?? ""),
+        status: String(card["status"] ?? "unknown"),
+        skills: Array.isArray(card["skills"])
+          ? (card["skills"] as Array<Record<string, unknown>>).map((s) => ({
+              id: String(s["id"] ?? ""),
+              name: String(s["name"] ?? ""),
+              description: String(s["description"] ?? ""),
+              tags: Array.isArray(s["tags"]) ? (s["tags"] as string[]).map(String) : [],
+            }))
+          : [],
+      };
+    });
 
     return { ok: true, agents, total: p.total ?? agents.length };
   } catch (err) {
