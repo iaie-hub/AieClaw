@@ -174,8 +174,8 @@ export function createOutboundAdapter(options: OutboundAdapterOptions): Outbound
       const payload = buildPayload(responseText, sessionContext);
 
       const envelope = createEnvelope({
-        request_id: uuidv4(),
-        message_type: "req",
+        request_id: inboundEnvelope.request_id,
+        message_type: "res",
         source: getAgentId(),
         session: params.senderSessionKey ?? null,
         seq,

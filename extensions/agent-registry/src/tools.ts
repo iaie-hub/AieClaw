@@ -19,6 +19,7 @@
 import type { CreateCoworkParams, CreateCoworkResult } from "./cowork-initiator.js";
 import type { DiscoverAgentsParams, DiscoverAgentsResult } from "./agent-discovery.js";
 import type { SendMessageParams, SendMessageResult } from "./unicast-sender.js";
+import type { SendCoworkMessageParams, SendCoworkMessageResult } from "./cowork-sender.js";
 
 // ---------------------------------------------------------------------------
 // Runtime bridge — set by channel.ts startAccount, read by tool execute()
@@ -27,6 +28,7 @@ import type { SendMessageParams, SendMessageResult } from "./unicast-sender.js";
 export interface AgentRegistryToolRuntime {
   createCowork(params: CreateCoworkParams): Promise<CreateCoworkResult>;
   sendMessage(params: SendMessageParams): SendMessageResult;
+  sendCoworkMessage(params: SendCoworkMessageParams): SendCoworkMessageResult;
   discoverAgents(params?: DiscoverAgentsParams): Promise<DiscoverAgentsResult>;
 }
 
@@ -132,10 +134,10 @@ export const sendMessageToolFactory = (ctx: { sessionKey?: string }) => ({
   name: "send_message_to_agent",
   label: "Send Message to Agent",
   description:
-    "Send a direct message to another agent via its unicast channel. " +
-    "The message is published immediately (no synchronous wait). " +
-    "The target agent's reply will arrive asynchronously on your unicast subscription. " +
-    "Use discover_agents first to find the target agent's ID.",
+    "Send a direct message to an agent registered in the external Agent Registry via NATS unicast. " +
+    "Use this tool for agents OUTSIDE your local AIEMAS topology — i.e. agents that are NOT your managed sub-agents. " +
+    "The message is published immediately (no synchronous wait); the target agent's reply arrives asynchronously on your unicast subscription. " +
+    "Use discover_agents first to confirm the target agent's ID and online status.",
   parameters: {
     type: "object",
     properties: {
@@ -261,9 +263,78 @@ export const createCoworkToolFactory = (ctx: { sessionKey?: string }) => ({
 });
 
 // ---------------------------------------------------------------------------
+// send_cowork_message tool factory
+// ---------------------------------------------------------------------------
+
+export const sendCoworkMessageToolFactory = (ctx: { sessionKey?: string }) => ({
+  name: "send_cowork_message",
+  label: "Send Cowork Message",
+  description:
+    "Send a message into an active collaboration session (cowork). " +
+    "The message is published to the cowork topic (a2a.cowork.{coworkId}) and received by all participating agents. " +
+    "Use this to proactively contribute to an ongoing collaboration — e.g. propose ideas, share findings, or assign sub-tasks. " +
+    "Requires an active cowork_id obtained from create_cowork or from a cowork you have joined.",
+  parameters: {
+    type: "object",
+    properties: {
+      cowork_id: {
+        type: "string",
+        description: "The cowork_id of the active collaboration session.",
+      },
+      message: {
+        type: "string",
+        description: "The message content to publish to the collaboration.",
+      },
+      action: {
+        type: "string",
+        description: "Optional action label for the message envelope. Defaults to \"message\".",
+      },
+    },
+    required: ["cowork_id", "message"],
+  },
+  async execute(
+    _toolCallId: string,
+    params: unknown,
+  ) {
+    const p = (params && typeof params === "object" ? params : {}) as Record<string, unknown>;
+    const rt = getRuntime();
+
+    const coworkId = String(p["cowork_id"] ?? "");
+    const message = String(p["message"] ?? "");
+    const action = typeof p["action"] === "string" ? p["action"] : undefined;
+
+    if (!coworkId) {
+      return errorResult("cowork_id is required");
+    }
+    if (!message) {
+      return errorResult("message is required");
+    }
+
+    const result = rt.sendCoworkMessage({
+      coworkId,
+      message,
+      action,
+      senderSessionKey: ctx.sessionKey,
+    });
+
+    if (!result.ok) {
+      return errorResult(result.error!);
+    }
+
+    return jsonResult({
+      success: true,
+      message_id: result.messageId,
+      cowork_id: coworkId,
+      note: "Message published to the collaboration topic. All participating agents will receive it.",
+    });
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Legacy static tool exports (for backward compatibility with existing tests)
 // ---------------------------------------------------------------------------
 
 export const discoverAgentsTool = discoverAgentsToolFactory({});
 export const sendMessageTool = sendMessageToolFactory({});
 export const createCoworkTool = createCoworkToolFactory({});
+export const sendCoworkMessageTool = sendCoworkMessageToolFactory({});

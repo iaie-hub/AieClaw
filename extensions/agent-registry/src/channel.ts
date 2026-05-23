@@ -40,6 +40,8 @@ import { discoverAgents } from "./agent-discovery.js";
 import type { DiscoverAgentsParams } from "./agent-discovery.js";
 import { sendMessage } from "./unicast-sender.js";
 import type { SendMessageParams } from "./unicast-sender.js";
+import { sendCoworkMessage } from "./cowork-sender.js";
+import type { SendCoworkMessageParams } from "./cowork-sender.js";
 import { createOutboundAdapter } from "./outbound.js";
 import { createMessageRouter } from "./router.js";
 import { createStatusAdapter } from "./status.js";
@@ -239,7 +241,7 @@ function createAgentSession(params: {
                   sessionContext,
                   sessionSeq: 0,
                   isSessionComplete: false,
-                  senderSessionKey: resolvedSessionKeyOverride,
+                  senderSessionKey: envelope.session ?? undefined,
                 });
               }
             },
@@ -1117,6 +1119,10 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
 
               sendMessage: (params: SendMessageParams) => {
                 return sendMessage(params, effectiveAgentId, natsClient);
+              },
+
+              sendCoworkMessage: (params: SendCoworkMessageParams) => {
+                return sendCoworkMessage(params, effectiveAgentId, natsClient);
               },
 
               discoverAgents: async (params?: DiscoverAgentsParams) => {

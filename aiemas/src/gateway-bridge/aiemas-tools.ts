@@ -229,7 +229,10 @@ export function createAiemasSessionsSendTool(
     name: "aiemas_sessions_send",
     label: "AIEMAS Session Send",
     description:
-      "【授权专用】AIEMAS Orchestrator Agent 必须且仅能使用此工具向其管理的子 Agent 发送消息。它会自动处理会话级联。只需提供目标的 agentId，系统会自动路由到对应的级联会话。禁止对子 Agent 使用 sessions_send 或 subagents 工具。",
+      "[RESTRICTED — AIEMAS topology only] Send a message to a managed sub-agent within your AIEMAS topology (e.g. aieiaas-resource, aieiaas-model). " +
+      "Handles session cascading automatically — just provide the target agentId. " +
+      "Do NOT use sessions_send or subagents for sub-agent communication. " +
+      "IMPORTANT: For agents registered in the external Agent Registry (not your managed sub-agents), use the send_message_to_agent tool instead.",
 
     parameters: AiemasSessionsSendSchema,
     execute: async (_toolCallId, params) => {

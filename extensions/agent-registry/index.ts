@@ -4,6 +4,7 @@ import {
   discoverAgentsToolFactory,
   sendMessageToolFactory,
   createCoworkToolFactory,
+  sendCoworkMessageToolFactory,
 } from "./src/tools.js";
 
 export default defineBundledChannelEntry({
@@ -19,5 +20,6 @@ export default defineBundledChannelEntry({
     api.registerTool(discoverAgentsToolFactory as unknown as (ctx: unknown) => AnyAgentTool, { name: "discover_agents" });
     api.registerTool(sendMessageToolFactory as unknown as (ctx: unknown) => AnyAgentTool, { name: "send_message_to_agent" });
     api.registerTool(createCoworkToolFactory as unknown as (ctx: unknown) => AnyAgentTool, { name: "create_cowork" });
+    api.registerTool(sendCoworkMessageToolFactory as unknown as (ctx: unknown) => AnyAgentTool, { name: "send_cowork_message" });
   },
 });
