@@ -138,6 +138,8 @@ function createAgentSession(params: {
     resolveStorePath?: () => string;
     readSessionUpdatedAt?: (storePath: string, sessionKey: string) => number | undefined;
   };
+  /** Set to register active outbound sessions for cross-session self-message filtering. */
+  activeOutboundSessions?: Set<string>;
 }): AgentSession {
   const {
     sessionKey,
@@ -148,6 +150,7 @@ function createAgentSession(params: {
     outboundAdapter,
     sessionTracker,
     sessionOverrideCtrl,
+    activeOutboundSessions,
   } = params;
   const boundAgentId = params.boundAgentId;
 
@@ -183,6 +186,12 @@ function createAgentSession(params: {
               resolvedSessionKeyOverride = candidateKey;
             }
           }
+        }
+
+        // Register this session as an active outbound session so the router
+        // can distinguish same-session loopbacks from cross-session messages.
+        if (resolvedSessionKeyOverride && activeOutboundSessions) {
+          activeOutboundSessions.add(resolvedSessionKeyOverride);
         }
 
         const messageText =
@@ -809,6 +818,11 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
           // resolveAgentRoute to route to the correct OpenClaw session.
           let pendingSessionKeyOverride: string | undefined;
 
+          // Tracks session keys that are active outbound sessions on this instance.
+          // Used by the MessageRouter to distinguish same-session loopbacks (discard)
+          // from cross-session communication (process) when source === self.
+          const activeOutboundSessions = new Set<string>();
+
           type DirectDmRuntimeShape = Parameters<
             typeof dispatchInboundDirectDmWithRuntime
           >[0]["runtime"];
@@ -894,6 +908,7 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
               outboundAdapter,
               sessionTracker,
               sessionOverrideCtrl,
+              activeOutboundSessions,
             });
           };
 
@@ -920,6 +935,7 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
               outboundAdapter,
               sessionTracker,
               sessionOverrideCtrl,
+              activeOutboundSessions,
             });
           };
 
@@ -1062,6 +1078,7 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             getOrCreateSession,
             getLeastLoadedSession,
             getEffectiveAgentId: () => effectiveAgentId,
+            activeOutboundSessions,
           });
 
           // Resolve the deferred router reference so arbiter and agentRegistry

@@ -255,6 +255,14 @@ export interface MessageRouterOptions {
   getOrCreateSession: (key: string, agentId: string) => AgentSession;
   getLeastLoadedSession: (agentId: string) => AgentSession;
   getEffectiveAgentId?: () => string;
+  /**
+   * Set of session keys that are currently active outbound sessions on this instance.
+   * Used to distinguish self-messages:
+   * - source === self AND session IN this set → discard (same-session loopback)
+   * - source === self AND session NOT IN this set → process (cross-session communication)
+   * - source === self AND no session field → discard (legacy loopback prevention)
+   */
+  activeOutboundSessions?: Set<string>;
 }
 
 export interface CollaborationArbiterOptions {

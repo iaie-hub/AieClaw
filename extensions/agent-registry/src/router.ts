@@ -69,6 +69,7 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
     getOrCreateSession,
     getLeastLoadedSession,
     getEffectiveAgentId,
+    activeOutboundSessions,
   } = options;
 
   // -------------------------------------------------------------------------
@@ -206,14 +207,40 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
         resource_type: envelope.resource_type,
       });
 
-      // Filter out messages sent by ourselves (to avoid loopbacks on collaboration topics)
+      // Filter out self-messages to avoid loopbacks.
+      // When the same agent has multiple parallel sessions, messages from a
+      // DIFFERENT session (source === self but session differs) must be processed.
+      // Only discard when: source === self AND (no session OR session is one of
+      // our own active outbound sessions).
       if (getEffectiveAgentId && envelope.source === getEffectiveAgentId()) {
-        log.debug(`discarding message sent by ourselves`, {
+        if (!envelope.session) {
+          // No session field — legacy loopback prevention, discard
+          log.debug(`discarding self-message (no session field)`, {
+            topic,
+            source: envelope.source,
+            msg_id: envelope.message_id,
+          });
+          return;
+        }
+
+        if (activeOutboundSessions && activeOutboundSessions.has(envelope.session)) {
+          // Session matches one of our active outbound sessions — same-session loopback, discard
+          log.debug(`discarding self-message (same outbound session)`, {
+            topic,
+            source: envelope.source,
+            session: envelope.session,
+            msg_id: envelope.message_id,
+          });
+          return;
+        }
+
+        // Different session of the same agent — allow processing (cross-session communication)
+        log.info(`allowing self-message from different session`, {
           topic,
           source: envelope.source,
+          session: envelope.session,
           msg_id: envelope.message_id,
         });
-        return;
       }
 
       // Dispatch to the correct handler based on topic pattern
