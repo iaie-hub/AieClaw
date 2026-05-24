@@ -240,6 +240,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     const openedAt = Date.now();
     const connId = randomUUID();
     const { remoteAddr, remotePort, localAddr, localPort, endpoint } = resolveSocketAddress(socket);
+
     const preauthBudgetKey = (
       socket as WebSocket & {
         __openclawPreauthBudgetClaimed?: boolean;

@@ -74,7 +74,7 @@ export const discoverAgentsToolFactory = (ctx: { sessionKey?: string }) => ({
   label: "Discover Agents",
   description:
     "Discover other agents registered in the Agent Registry. " +
-    "Returns a list of online agents with their IDs, names, descriptions, status, and skills. " +
+    "Returns a list of online agents with their IDs, names, descriptions, status, IPs, and skills. " +
     "Use this to find agents before sending them messages or initiating collaboration.",
   parameters: {
     type: "object",
@@ -120,6 +120,7 @@ export const discoverAgentsToolFactory = (ctx: { sessionKey?: string }) => ({
         name: a.name,
         description: a.description,
         status: a.status,
+        ip: a.ip,
         skills: a.skills,
       })),
     });

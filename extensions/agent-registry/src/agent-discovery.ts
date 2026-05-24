@@ -28,6 +28,7 @@ export interface DiscoveredAgent {
   name: string;
   description: string;
   status: string;
+  ip?: string;
   skills: Array<{
     id: string;
     name: string;
@@ -106,6 +107,7 @@ export async function discoverAgents(
         name: String(card["name"] ?? ""),
         description: String(card["description"] ?? ""),
         status: String(card["status"] ?? "unknown"),
+        ip: card["ip"] !== undefined ? String(card["ip"]) : undefined,
         skills: Array.isArray(card["skills"])
           ? (card["skills"] as Array<Record<string, unknown>>).map((s) => ({
               id: String(s["id"] ?? ""),

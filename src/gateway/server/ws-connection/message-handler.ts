@@ -121,7 +121,7 @@ import {
 } from "../../server-constants.js";
 import type { GatewayRequestContext, GatewayRequestHandlers } from "../../server-methods/types.js";
 import { formatError } from "../../server-utils.js";
-import { formatForLog, logWs } from "../../ws-log.js";
+import { formatForLog, logWs, logWsRaw, shouldLogWs } from "../../ws-log.js";
 import { truncateCloseReason } from "../close-reason.js";
 import {
   buildGatewaySnapshot,
@@ -461,6 +461,9 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
     }
 
     const text = rawDataToString(data);
+    if (shouldLogWs()) {
+      logWsRaw("in", connId, text);
+    }
     if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
       console.log(`[ws:msg] IN conn=${connId} raw=${text}`);
     }

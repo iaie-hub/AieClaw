@@ -917,7 +917,7 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             // responses to the correct NATS subject:
             //   cw-*    → a2a.cowork.{coworkId}
             //   anything else → a2a.agent.unicast.{source}
-            const kind: "cowork" | "unicast" = key.startsWith("cowork-")
+            const kind: "cowork" | "unicast" = key.startsWith("cw-") || key.startsWith("cowork-")
               ? "cowork"
               : "unicast";
             return createAgentSession({
