@@ -202,7 +202,30 @@ function resolveStableRootRuntimeAliasCandidate(params) {
         !source.includes("\n//#region "),
     );
   });
-  return wrappers.length === 1 ? wrappers[0] : null;
+  if (wrappers.length === 1) {
+    return wrappers[0];
+  }
+  let newestCandidate = null;
+  let newestMtime = -1;
+  let secondNewestMtime = -1;
+  for (const candidate of candidates) {
+    try {
+      const stat = fsImpl.statSync(path.join(distDir, candidate));
+      if (stat.mtimeMs > newestMtime) {
+        secondNewestMtime = newestMtime;
+        newestMtime = stat.mtimeMs;
+        newestCandidate = candidate;
+      } else if (stat.mtimeMs > secondNewestMtime) {
+        secondNewestMtime = stat.mtimeMs;
+      }
+    } catch {
+      // Ignore stat errors.
+    }
+  }
+  if (newestCandidate && newestMtime - secondNewestMtime >= 1000) {
+    return newestCandidate;
+  }
+  return null;
 }
 
 export function listStableRootRuntimeAliasOutputs(params = {}) {
