@@ -119,8 +119,10 @@ export interface AgentCard {
   icon?: string;
   // Registry extension fields
   agent_id: string;
-  /** Always "00:00:00:00:00:00" — never the host MAC */
+  /** Real host MAC address (e.g. "aa:bb:cc:dd:ee:ff") */
   mac: string;
+  /** Host local IPv4 address (e.g. "192.168.1.100") */
+  ip: string;
   transport: "mq";
   endpoint?: string;
   status: "online" | "idle" | "busy" | "offline";
