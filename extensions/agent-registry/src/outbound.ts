@@ -177,7 +177,9 @@ export function createOutboundAdapter(options: OutboundAdapterOptions): Outbound
         request_id: inboundEnvelope.request_id,
         message_type: "res",
         source: getAgentId(),
-        session: params.senderSessionKey ?? null,
+        // Copy the requester's session from the inbound req so that the
+        // response routes back to the correct UI session on the sender side.
+        session: inboundEnvelope.session,
         seq,
         action,
         resource_type: resourceType,
@@ -190,11 +192,12 @@ export function createOutboundAdapter(options: OutboundAdapterOptions): Outbound
         action,
         resource_type: resourceType,
         seq,
+        session: envelope.session,
         msg_id: envelope.message_id,
         request_id: envelope.request_id,
         reply_to: envelope.reply_to,
         sessionKind: sessionContext.kind,
-        textPreview: responseText.slice(0, 120) + (responseText.length > 120 ? "…" : ""),
+        payload: payload,
       });
       log.debug(`outbound envelope detail`, {
         subject,

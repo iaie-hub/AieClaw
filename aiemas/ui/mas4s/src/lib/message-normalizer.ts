@@ -97,6 +97,22 @@ function stripInboundMetadata(text: string): string {
  * 将 gateway 返回的原始消息对象规范化为统一的 NormalizedMessage 结构。
  */
 export function normalizeMessage(message: unknown): NormalizedMessage {
+  if (typeof message === "string") {
+    try {
+      const parsed = JSON.parse(message);
+      if (parsed && typeof parsed === "object") {
+        return normalizeMessage(parsed);
+      }
+    } catch {
+      // Ignored: not a valid JSON string, treat as raw text string
+    }
+    return {
+      role: "unknown",
+      content: [{ type: "text", text: message }],
+      timestamp: Date.now(),
+    };
+  }
+
   const m = message as Record<string, unknown>;
   let role = typeof m.role === "string" ? m.role : "unknown";
   let subType: string | undefined = undefined;

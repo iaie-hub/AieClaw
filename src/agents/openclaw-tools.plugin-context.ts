@@ -22,6 +22,7 @@ export type OpenClawPluginToolOptions = {
   requesterAgentIdOverride?: string;
   senderIsOwner?: boolean;
   sessionId?: string;
+  runId?: string;
   sandboxBrowserBridgeUrl?: string;
   allowHostBrowserControl?: boolean;
   sandboxed?: boolean;
@@ -73,6 +74,7 @@ export function resolveOpenClawPluginToolInputs(params: {
       agentId: sessionAgentId,
       sessionKey: options?.agentSessionKey,
       sessionId: options?.sessionId,
+      runId: options?.runId,
       activeModel,
       browser: {
         sandboxBridgeUrl: options?.sandboxBrowserBridgeUrl,

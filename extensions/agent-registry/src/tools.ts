@@ -130,7 +130,7 @@ export const discoverAgentsToolFactory = (ctx: { sessionKey?: string }) => ({
 // send_message_to_agent tool factory
 // ---------------------------------------------------------------------------
 
-export const sendMessageToolFactory = (ctx: { sessionKey?: string }) => ({
+export const sendMessageToolFactory = (ctx: { sessionKey?: string; runId?: string }) => ({
   name: "send_message_to_agent",
   label: "Send Message to Agent",
   description:
@@ -179,6 +179,7 @@ export const sendMessageToolFactory = (ctx: { sessionKey?: string }) => ({
       text,
       action,
       senderSessionKey: ctx.sessionKey,
+      runId: ctx.runId,
     });
 
     if (!result.ok) {

@@ -28,6 +28,8 @@ export interface SendMessageParams {
   metadata?: Record<string, unknown>;
   /** Sender's current session key, written into the envelope's session field. */
   senderSessionKey?: string;
+  /** Active run ID of the turn, written as envelope's request_id. */
+  runId?: string;
 }
 
 export interface SendMessageResult {
@@ -76,7 +78,7 @@ export function sendMessage(
   const replyTo = `a2a.agent.unicast.${agentId}`;
 
   const envelope = createEnvelope({
-    request_id: uuidv4(),
+    request_id: params.runId ?? uuidv4(),
     message_type: "req",
     source: agentId,
     session: params.senderSessionKey ?? null,

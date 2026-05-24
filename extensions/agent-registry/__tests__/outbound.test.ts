@@ -141,7 +141,7 @@ describe("Feature: agent-registry-channel, Property 4: seq is monotonically incr
         arbInboundEnvelope,
         async (n, agentId, sessionContext, inboundEnvelope) => {
           const { mockNatsClient, published } = makeMockNatsClient();
-          const adapter = createOutboundAdapter({ agentId, natsClient: mockNatsClient });
+          const adapter = createOutboundAdapter({ getAgentId: () => agentId, natsClient: mockNatsClient });
 
           // Make N send() calls sequentially with the same session context
           for (let i = 0; i < n; i++) {
@@ -181,7 +181,7 @@ describe("Feature: agent-registry-channel, Property 13: Outbound envelope wraps 
         arbInboundEnvelope,
         async (responseText, agentId, sessionContext, inboundEnvelope) => {
           const { mockNatsClient, published } = makeMockNatsClient();
-          const adapter = createOutboundAdapter({ agentId, natsClient: mockNatsClient });
+          const adapter = createOutboundAdapter({ getAgentId: () => agentId, natsClient: mockNatsClient });
 
           await adapter.send({
             responseText,
@@ -196,8 +196,8 @@ describe("Feature: agent-registry-channel, Property 13: Outbound envelope wraps 
 
           // source === agentId
           expect(envelope.source).toBe(agentId);
-          // message_type === "req"
-          expect(envelope.message_type).toBe("req");
+          // message_type === "res"
+          expect(envelope.message_type).toBe("res");
           // message_id is a valid UUID v4
           expect(envelope.message_id).toMatch(UUID_V4_RE);
           // timestamp is a non-negative integer
@@ -232,7 +232,7 @@ describe("OutboundAdapter — unit tests", () => {
   // -------------------------------------------------------------------------
 
   it("publishes to reply_to subject when reply_to is non-empty", async () => {
-    const adapter = createOutboundAdapter({ agentId: "my-agent", natsClient: mockNatsClient });
+    const adapter = createOutboundAdapter({ getAgentId: () => "my-agent", natsClient: mockNatsClient });
 
     await adapter.send(
       makeSendParams({
@@ -246,7 +246,7 @@ describe("OutboundAdapter — unit tests", () => {
   });
 
   it("reply_to takes priority over session context routing", async () => {
-    const adapter = createOutboundAdapter({ agentId: "my-agent", natsClient: mockNatsClient });
+    const adapter = createOutboundAdapter({ getAgentId: () => "my-agent", natsClient: mockNatsClient });
 
     // Even with a cowork context, reply_to wins
     await adapter.send(
@@ -265,7 +265,7 @@ describe("OutboundAdapter — unit tests", () => {
   // -------------------------------------------------------------------------
 
   it("cowork with isSessionComplete: true produces action 'complete'", async () => {
-    const adapter = createOutboundAdapter({ agentId: "my-agent", natsClient: mockNatsClient });
+    const adapter = createOutboundAdapter({ getAgentId: () => "my-agent", natsClient: mockNatsClient });
 
     await adapter.send(
       makeSendParams({
@@ -284,7 +284,7 @@ describe("OutboundAdapter — unit tests", () => {
   // -------------------------------------------------------------------------
 
   it("cowork with isSessionComplete: false produces action 'progress'", async () => {
-    const adapter = createOutboundAdapter({ agentId: "my-agent", natsClient: mockNatsClient });
+    const adapter = createOutboundAdapter({ getAgentId: () => "my-agent", natsClient: mockNatsClient });
 
     await adapter.send(
       makeSendParams({
@@ -299,7 +299,7 @@ describe("OutboundAdapter — unit tests", () => {
   });
 
   it("cowork publishes to a2a.cowork.{taskId}", async () => {
-    const adapter = createOutboundAdapter({ agentId: "my-agent", natsClient: mockNatsClient });
+    const adapter = createOutboundAdapter({ getAgentId: () => "my-agent", natsClient: mockNatsClient });
 
     await adapter.send(
       makeSendParams({
@@ -316,7 +316,7 @@ describe("OutboundAdapter — unit tests", () => {
   // -------------------------------------------------------------------------
 
   it("discussion produces action 'message' and includes discussion_id in payload", async () => {
-    const adapter = createOutboundAdapter({ agentId: "my-agent", natsClient: mockNatsClient });
+    const adapter = createOutboundAdapter({ getAgentId: () => "my-agent", natsClient: mockNatsClient });
 
     await adapter.send(
       makeSendParams({
@@ -331,7 +331,7 @@ describe("OutboundAdapter — unit tests", () => {
   });
 
   it("discussion publishes to a2a.discussion.{discussionId}", async () => {
-    const adapter = createOutboundAdapter({ agentId: "my-agent", natsClient: mockNatsClient });
+    const adapter = createOutboundAdapter({ getAgentId: () => "my-agent", natsClient: mockNatsClient });
 
     await adapter.send(
       makeSendParams({
@@ -349,7 +349,7 @@ describe("OutboundAdapter — unit tests", () => {
   it("logs a warning and does not publish when unicast sourceAgentId is empty", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const adapter = createOutboundAdapter({ agentId: "my-agent", natsClient: mockNatsClient });
+    const adapter = createOutboundAdapter({ getAgentId: () => "my-agent", natsClient: mockNatsClient });
 
     await adapter.send(
       makeSendParams({
@@ -370,7 +370,7 @@ describe("OutboundAdapter — unit tests", () => {
   // -------------------------------------------------------------------------
 
   it("unicast publishes to a2a.agent.unicast.{sourceAgentId}", async () => {
-    const adapter = createOutboundAdapter({ agentId: "my-agent", natsClient: mockNatsClient });
+    const adapter = createOutboundAdapter({ getAgentId: () => "my-agent", natsClient: mockNatsClient });
 
     await adapter.send(
       makeSendParams({
@@ -387,7 +387,7 @@ describe("OutboundAdapter — unit tests", () => {
   // -------------------------------------------------------------------------
 
   it("seq starts at 0 for the first send on a fresh adapter", async () => {
-    const adapter = createOutboundAdapter({ agentId: "my-agent", natsClient: mockNatsClient });
+    const adapter = createOutboundAdapter({ getAgentId: () => "my-agent", natsClient: mockNatsClient });
 
     await adapter.send(makeSendParams());
 
@@ -396,7 +396,7 @@ describe("OutboundAdapter — unit tests", () => {
   });
 
   it("seq increments by 1 for each successive send within the same session", async () => {
-    const adapter = createOutboundAdapter({ agentId: "my-agent", natsClient: mockNatsClient });
+    const adapter = createOutboundAdapter({ getAgentId: () => "my-agent", natsClient: mockNatsClient });
     const ctx: SessionContext = { kind: "unicast", sourceAgentId: "sender-agent" };
 
     for (let i = 0; i < 5; i++) {
@@ -411,7 +411,7 @@ describe("OutboundAdapter — unit tests", () => {
   });
 
   it("different session contexts maintain independent seq counters", async () => {
-    const adapter = createOutboundAdapter({ agentId: "my-agent", natsClient: mockNatsClient });
+    const adapter = createOutboundAdapter({ getAgentId: () => "my-agent", natsClient: mockNatsClient });
 
     const ctxA: SessionContext = { kind: "unicast", sourceAgentId: "agent-a" };
     const ctxB: SessionContext = { kind: "unicast", sourceAgentId: "agent-b" };

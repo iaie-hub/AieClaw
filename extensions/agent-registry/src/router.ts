@@ -11,6 +11,7 @@
  * Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.10
  */
 
+import { emitAgentEvent } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { emitCollabEvent } from "openclaw/plugin-sdk/collab-runtime";
 import { deserializeEnvelope } from "./envelope.js";
 import { createLogger, fmtEnvelope } from "./logger.js";
@@ -199,15 +200,49 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
         return;
       }
 
-      log.debug(`parsed envelope on topic "${topic}"`, {
+      log.info(`← inbound message`, {
+        topic,
         action: envelope.action,
         source: envelope.source,
         seq: envelope.seq,
+        session: envelope.session,
         msg_id: envelope.message_id,
         resource_type: envelope.resource_type,
+        payload: envelope.payload,
       });
 
-      // Filter out self-messages to avoid loopbacks.
+      // 1. 如果是响应消息 (res)，直接通过实时事件发送给 UI 显示，跳过 LLM 处理。
+      // 注意：必须放在防环拦截器之前，否则在单 Agent 场景中（自己发给自己）UI 就收不到自己回的 res 消息了。
+      if (envelope.message_type === "res") {
+        log.info(`directly emitting res message to UI, bypassing LLM`, {
+          topic,
+          source: envelope.source,
+          session: envelope.session,
+          request_id: envelope.request_id,
+          msg_id: envelope.message_id,
+          payload: envelope.payload,
+        });
+        if (envelope.session) {
+          emitAgentEvent({
+            runId: envelope.request_id,
+            sessionKey: envelope.session,
+            stream: "agent",
+            data: {
+              role: "assistant",
+              text: typeof envelope.payload["text"] === "string" ? envelope.payload["text"] : JSON.stringify(envelope.payload),
+              senderLabel: envelope.source,
+            },
+          });
+        } else {
+          log.warn(`res message has no session field — cannot route to UI`, {
+            request_id: envelope.request_id,
+            msg_id: envelope.message_id,
+          });
+        }
+        return;
+      }
+
+      // 2. Filter out self-messages to avoid loopbacks for req messages.
       // When the same agent has multiple parallel sessions, messages from a
       // DIFFERENT session (source === self but session differs) must be processed.
       // Only discard when: source === self AND (no session OR session is one of
@@ -215,7 +250,7 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
       if (getEffectiveAgentId && envelope.source === getEffectiveAgentId()) {
         if (!envelope.session) {
           // No session field — legacy loopback prevention, discard
-          log.debug(`discarding self-message (no session field)`, {
+          log.info(`[LOOPBACK] discarding self-message (no session field)`, {
             topic,
             source: envelope.source,
             msg_id: envelope.message_id,
@@ -225,7 +260,7 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
 
         if (activeOutboundSessions && activeOutboundSessions.has(envelope.session)) {
           // Session matches one of our active outbound sessions — same-session loopback, discard
-          log.debug(`discarding self-message (same outbound session)`, {
+          log.info(`[LOOPBACK] discarding self-message (same outbound session)`, {
             topic,
             source: envelope.source,
             session: envelope.session,

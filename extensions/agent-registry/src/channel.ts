@@ -190,12 +190,6 @@ function createAgentSession(params: {
           }
         }
 
-        // Register this session as an active outbound session so the router
-        // can distinguish same-session loopbacks from cross-session messages.
-        if (resolvedSessionKeyOverride && activeOutboundSessions) {
-          activeOutboundSessions.add(resolvedSessionKeyOverride);
-        }
-
         const messageText =
           typeof envelope.payload["text"] === "string"
             ? envelope.payload["text"]
@@ -1104,6 +1098,9 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             const agentRegistryApi = {
               createCowork: async (params: CreateCoworkParams) => {
                 const result = await createCowork(params, effectiveAgentId, natsClient);
+                if (result.ok && params.senderSessionKey && activeOutboundSessions) {
+                  activeOutboundSessions.add(params.senderSessionKey);
+                }
                 if (result.ok) {
                   // Creator subscribes to the cowork topic so that messages
                   // from joining agents are routed through the MessageRouter and
@@ -1118,10 +1115,16 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
               },
 
               sendMessage: (params: SendMessageParams) => {
+                if (params.senderSessionKey && activeOutboundSessions) {
+                  activeOutboundSessions.add(params.senderSessionKey);
+                }
                 return sendMessage(params, effectiveAgentId, natsClient);
               },
 
               sendCoworkMessage: (params: SendCoworkMessageParams) => {
+                if (params.senderSessionKey && activeOutboundSessions) {
+                  activeOutboundSessions.add(params.senderSessionKey);
+                }
                 return sendCoworkMessage(params, effectiveAgentId, natsClient);
               },
 

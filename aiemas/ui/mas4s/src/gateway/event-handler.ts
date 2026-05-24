@@ -492,6 +492,10 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
       senderLabel: effectiveSenderLabel ?? normalized.senderLabel,
       subType: undefined,
     };
+    console.info(
+      `[mas4s:event-handler] stream=agent received. runId=${runId}, sessionUuid=${sessionUuid}, agentId=${agentId}, role=${chatMsg.role}, senderLabel=${chatMsg.senderLabel}, content length=${chatMsg.content.length}, content=`,
+      chatMsg.content
+    );
     debugLog(
       `[mas4s:event-handler] Updating/Appending A2A agent input message (role=${chatMsg.role})`,
       chatMsg,
