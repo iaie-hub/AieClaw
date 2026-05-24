@@ -1417,6 +1417,19 @@ export async function startGatewayServer(
     const mas4sIntegration = await initMas4sIntegration(log, cfgAtStart);
     setMas4sIntegrationRef(mas4sIntegration);
 
+    // Merge mas4s integration handlers into the gateway method registry so that
+    // methods like system.status are dispatchable via the pre-built registry path.
+    if (Object.keys(mas4sIntegration.extraHandlers).length > 0) {
+      Object.assign(extraHandlers, mas4sIntegration.extraHandlers);
+      Object.assign(attachedGatewayExtraHandlers, mas4sIntegration.extraHandlers);
+      attachedGatewayMethodRegistry = buildAttachedGatewayMethodRegistry(pluginRegistry);
+      runtimeState.gatewayMethods.splice(
+        0,
+        runtimeState.gatewayMethods.length,
+        ...listAttachedGatewayMethods(),
+      );
+    }
+
     // [MOVED] warmupAgentCaches was here but it contains CPU-intensive synchronous
     // operations (model discovery, normalization, provider hooks) that saturate the
     // event loop for minutes on resource-constrained machines, blocking startListening()
