@@ -1,5 +1,13 @@
 export type DialogKind = "none" | "invite";
-export type NavItem = "workspace" | "usage" | "agents" | "skills" | "cron" | "users" | "settings";
+export type NavItem =
+  | "workspace"
+  | "usage"
+  | "agents"
+  | "skills"
+  | "cron"
+  | "users"
+  | "discussions"
+  | "settings";
 
 export interface UIStateCallback {
   setNav(nav: NavItem): void;

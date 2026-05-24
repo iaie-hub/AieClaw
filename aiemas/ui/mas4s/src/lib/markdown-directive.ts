@@ -10,8 +10,15 @@ import { AsyncDirective } from "lit/async-directive.js";
 import { DirectiveParameters, Part, directive } from "lit/directive.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import MarkdownIt from "markdown-it";
-// @ts-expect-error
-import * as Sanitizer from "../../../../../vendor/a2ui/renderers/lit/src/0.8/ui/directives/sanitizer.js";
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 const createMd = () => {
   const md = new MarkdownIt({
@@ -24,7 +31,7 @@ const createMd = () => {
         iframe.sandbox = "";
         return iframe.innerHTML;
       }
-      return Sanitizer.escapeNodeText(str);
+      return escapeHtml(str);
     },
   });
   // Register KaTeX plugin: $...$ inline, $$...$$ block

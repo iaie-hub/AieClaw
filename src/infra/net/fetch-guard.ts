@@ -1,6 +1,10 @@
 import type { Dispatcher } from "undici";
 import { logWarn } from "../../logger.js";
 import { buildTimeoutAbortSignal } from "../../utils/fetch-timeout.js";
+import {
+  normalizeHeadersInitForFetch,
+  normalizeRequestInitHeadersForFetch,
+} from "../fetch-headers.js";
 import { hasProxyEnvConfigured, shouldUseEnvHttpProxyForUrl } from "./proxy-env.js";
 import { retainSafeHeadersForCrossOriginRedirect as retainSafeRedirectHeaders } from "./redirect-headers.js";
 import {
@@ -12,6 +16,7 @@ import {
   assertHostnameAllowedWithPolicy,
   closeDispatcher,
   createPinnedDispatcher,
+  resolveSsrFPolicyForUrl,
   resolvePinnedHostnameWithPolicy,
   type LookupFn,
   type PinnedDispatcherPolicy,
@@ -277,7 +282,7 @@ function dropBodyHeaders(headers?: HeadersInit): HeadersInit | undefined {
   if (!headers) {
     return headers;
   }
-  const nextHeaders = new Headers(headers);
+  const nextHeaders = new Headers(normalizeHeadersInitForFetch(headers));
   nextHeaders.delete("content-encoding");
   nextHeaders.delete("content-language");
   nextHeaders.delete("content-length");
@@ -368,7 +373,9 @@ export async function fetchWithSsrFGuard(params: GuardedFetchOptions): Promise<G
 
   const visited = new Set<string>([params.url]);
   let currentUrl = params.url;
-  let currentInit = params.init ? { ...params.init } : undefined;
+  let currentInit = normalizeRequestInitHeadersForFetch(
+    params.init ? { ...params.init } : undefined,
+  );
   let redirectCount = 0;
 
   while (true) {
@@ -389,6 +396,8 @@ export async function fetchWithSsrFGuard(params: GuardedFetchOptions): Promise<G
     }
 
     let dispatcher: Dispatcher | null = null;
+    // Resolve inside the redirect loop so exact-origin trust never carries across origins.
+    const policyForUrl = resolveSsrFPolicyForUrl(parsedUrl, params.policy);
     try {
       const usesTrustedExplicitProxyMode =
         mode === GUARDED_FETCH_MODE.TRUSTED_EXPLICIT_PROXY &&
@@ -409,7 +418,7 @@ export async function fetchWithSsrFGuard(params: GuardedFetchOptions): Promise<G
       // Trusted env-proxy and pinDns=false can skip local DNS pinning, so keep
       // the pre-DNS hostname/IP policy checks from the pinned path.
       if (canUseTrustedEnvProxy || params.pinDns === false) {
-        assertHostnameAllowedWithPolicy(parsedUrl.hostname, params.policy);
+        assertHostnameAllowedWithPolicy(parsedUrl.hostname, policyForUrl);
       }
 
       if (canUseTrustedEnvProxy) {
@@ -417,29 +426,29 @@ export async function fetchWithSsrFGuard(params: GuardedFetchOptions): Promise<G
       } else if (canUseManagedProxy) {
         await resolvePinnedHostnameWithPolicy(parsedUrl.hostname, {
           lookupFn: params.lookupFn,
-          policy: params.policy,
+          policy: policyForUrl,
         });
         dispatcher = createHttp1EnvHttpProxyAgent(undefined, timeoutMs);
       } else if (usesTrustedExplicitProxyMode) {
         // Explicit proxy targets are still checked against the caller's hostname
         // policy, but the proxy does the DNS resolution for the final target.
-        assertHostnameAllowedWithPolicy(parsedUrl.hostname, params.policy);
+        assertHostnameAllowedWithPolicy(parsedUrl.hostname, policyForUrl);
         dispatcher = createPolicyDispatcherWithoutPinnedDns(params.dispatcherPolicy, timeoutMs);
       } else if (params.pinDns === false) {
         await resolvePinnedHostnameWithPolicy(parsedUrl.hostname, {
           lookupFn: params.lookupFn,
-          policy: params.policy,
+          policy: policyForUrl,
         });
         dispatcher = createPolicyDispatcherWithoutPinnedDns(params.dispatcherPolicy, timeoutMs);
       } else {
         const pinned = await resolvePinnedHostnameWithPolicy(parsedUrl.hostname, {
           lookupFn: params.lookupFn,
-          policy: params.policy,
+          policy: policyForUrl,
         });
         dispatcher = createPinnedDispatcher(
           pinned,
           params.dispatcherPolicy,
-          params.policy,
+          policyForUrl,
           timeoutMs,
         );
       }

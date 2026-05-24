@@ -1,0 +1,25 @@
+{
+  "name": "@openclaw/agent-registry",
+  "version": "2026.5.14",
+  "private": true,
+  "description": "OpenClaw Agent Registry A2A channel plugin",
+  "type": "module",
+  "dependencies": {
+    "nats": "^2.29.0",
+    "uuid": "^11.1.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@openclaw/plugin-sdk": "workspace:*",
+    "fast-check": "^3.23.0"
+  },
+  "openclaw": {
+    "contracts": {
+      "tools": [
+        "discover_agents",
+        "send_message_to_agent",
+        "create_cowork"
+      ]
+    }
+  }
+}

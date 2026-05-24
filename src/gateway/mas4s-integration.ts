@@ -223,6 +223,13 @@ export async function initMas4sIntegration(
       }
     };
 
+    // ── Real-time collaboration event forwarding ───────────────────────────
+    // Delegate entirely to the aiemas bridge layer (AGENTS.md §1: new aiemas
+    // functionality must be enclosed in aiemas/src, gateway just calls the hook).
+    const { startCollabBroadcast } =
+      await import("../../aiemas/src/gateway-bridge/collab-broadcast.js");
+    void startCollabBroadcast(broadcastToAll);
+
     // ── SOP Tracker + Progress Watcher integration ──────────────────────────
     const { SOPTracker, ProgressWatcher } = await import("../../aiemas/src/sop-tracker/index.js");
     const { homedir: _homedir } = await import("node:os");
@@ -626,6 +633,7 @@ export async function initMas4sIntegration(
       extraHandlers,
       agentCtx as unknown as import("../../aiemas/src/gateway-bridge/aiemas-agent.js").AgentContext,
     );
+
     log.info(`[mas4s] final extraHandlers keys: ${Object.keys(extraHandlers).join(", ")}`);
 
     return {
@@ -636,11 +644,12 @@ export async function initMas4sIntegration(
           upgradeReq,
           authCtx as unknown as import("../../aiemas/src/gateway-bridge/aiemas-auth.js").AuthContext,
         ),
-      onClientDisconnected: (client) =>
+      onClientDisconnected: (client) => {
         authMod.onClientDisconnected(
           client as unknown as import("../../aiemas/src/gateway-bridge/aiemas-utils.js").GatewayClient,
           authCtx as unknown as import("../../aiemas/src/gateway-bridge/aiemas-auth.js").AuthContext,
-        ),
+        );
+      },
       onSessionCreated: (sessionKey, label, client) =>
         sessionMod.onSessionCreated(
           sessionKey,

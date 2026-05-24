@@ -1,14 +1,23 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   loadEvidenceManifest,
   renderEvidenceComment,
 } from "../../scripts/mantis/publish-pr-evidence.mjs";
 
+const tempDirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 function writeFixtureManifest() {
   const dir = mkdtempSync(path.join(tmpdir(), "mantis-evidence-test-"));
+  tempDirs.push(dir);
   mkdirSync(path.join(dir, "baseline"), { recursive: true });
   mkdirSync(path.join(dir, "candidate"), { recursive: true });
   writeFileSync(path.join(dir, "baseline", "timeline.png"), "baseline timeline");
@@ -67,34 +76,37 @@ function writeFixtureManifest() {
 }
 
 describe("scripts/mantis/publish-pr-evidence", () => {
-  it("renders a manifest-driven PR comment with inline screenshots and video links", () => {
+  it("renders a manifest-driven PR comment that points at the Actions artifact bundle", () => {
     const manifest = loadEvidenceManifest(writeFixtureManifest());
     const body = renderEvidenceComment({
-      artifactRoot: "mantis/discord/pr-1/run-1",
       artifactUrl: "https://github.com/openclaw/openclaw/actions/runs/1/artifacts/2",
       manifest,
       marker: "<!-- mantis-discord-status-reactions -->",
-      rawBase:
-        "https://raw.githubusercontent.com/openclaw/openclaw/qa-artifacts/mantis/discord/pr-1/run-1",
       requestSource: "workflow_dispatch",
       runUrl: "https://github.com/openclaw/openclaw/actions/runs/1",
-      treeUrl: "https://github.com/openclaw/openclaw/tree/qa-artifacts/mantis/discord/pr-1/run-1",
     });
 
     expect(body).toContain("<!-- mantis-discord-status-reactions -->");
     expect(body).toContain("Summary: Mantis reran the scenario.");
-    expect(body).toContain("| Baseline queued-only | Candidate queued -> thinking -> done |");
     expect(body).toContain(
-      '<img src="https://raw.githubusercontent.com/openclaw/openclaw/qa-artifacts/mantis/discord/pr-1/run-1/baseline.png"',
+      "- Artifact: https://github.com/openclaw/openclaw/actions/runs/1/artifacts/2",
     );
+    expect(body).toContain("Artifact files:");
+    expect(body).toContain("- Baseline queued-only: `baseline.png`");
+    expect(body).toContain("- Candidate queued -> thinking -> done: `candidate.png`");
+    expect(body).toContain("- Baseline change MP4: `baseline-change.mp4`");
     expect(body).toContain(
-      "[Baseline change MP4](https://raw.githubusercontent.com/openclaw/openclaw/qa-artifacts/mantis/discord/pr-1/run-1/baseline-change.mp4)",
+      "Raw QA files: https://github.com/openclaw/openclaw/actions/runs/1/artifacts/2",
     );
     expect(body).toContain("- Overall: `true`");
+    expect(body).not.toContain("qa-artifacts");
+    expect(body).not.toContain("raw.githubusercontent.com");
+    expect(body).not.toContain("<img ");
   });
 
   it("allows failure manifests to omit optional visual artifacts", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "mantis-evidence-test-"));
+    tempDirs.push(dir);
     writeFileSync(path.join(dir, "summary.json"), JSON.stringify({ status: "fail" }));
     writeFileSync(path.join(dir, "report.md"), "bootstrap failed before screenshot");
     const manifestPath = path.join(dir, "mantis-evidence.json");
@@ -150,24 +162,22 @@ describe("scripts/mantis/publish-pr-evidence", () => {
       "mantis-evidence.json",
     ]);
     const body = renderEvidenceComment({
-      artifactRoot: "mantis/slack/pr-1/run-1",
       artifactUrl: "https://github.com/openclaw/openclaw/actions/runs/1/artifacts/2",
       manifest,
       marker: "<!-- mantis-slack-desktop-smoke -->",
-      rawBase:
-        "https://raw.githubusercontent.com/openclaw/openclaw/qa-artifacts/mantis/slack/pr-1/run-1",
       requestSource: "workflow_dispatch",
       runUrl: "https://github.com/openclaw/openclaw/actions/runs/1",
-      treeUrl: "https://github.com/openclaw/openclaw/tree/qa-artifacts/mantis/slack/pr-1/run-1",
     });
 
     expect(body).toContain("Summary: Mantis could not finish VM setup.");
     expect(body).toContain("- Overall: `false`");
     expect(body).not.toContain("<img ");
+    expect(body).not.toContain("qa-artifacts");
   });
 
   it("rejects artifact paths that escape the manifest directory", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "mantis-evidence-test-"));
+    tempDirs.push(dir);
     const manifestPath = path.join(dir, "mantis-evidence.json");
     writeFileSync(
       manifestPath,

@@ -30,8 +30,25 @@ Agent 严格遵循以下四步 SOP 流程执行任务：
 - **详细设计**：[mas4s_5execution_run.md](../1skills/mas4s_5execution_run.md)
 - **技能调用**：[`mas4s-execution-run`](file:///Users/admin/.openclaw/skills/mas4s-execution-run/SKILL.md)
 - **输入**：`eval_protocol.json`（阶段 3 PREP）+ 阶段 4 冻结的代码与数据。
-- **动作**：依据评估协议（PREP）中的预注册指令，自动启动主干评测脚本（如 `evaluation_pipeline.py`）。自动运行所有提案方法、基线对比、消融实验以及敏感性分析。所有输出全部无损落盘，并锁定时间戳。
-- **输出**：`execution_manifest.json`（完整实验执行清单）。
+- **动作**：
+  1.  **资产集结**：将阶段 4 产出的 `Dockerfile`、`evaluation_pipeline.py`、`method_implementation.py`、`baseline_wrappers.py` 及数据集同步至当前执行工作空间。
+  2.  **规划与调度**：依据评估协议（PREP）生成 `execution_manifest.json` 与 `run_orchestrator.py`。
+- **输出**：`execution_manifest.json`（完整实验执行清单）+ 物理对齐的实验代码库。
+
+#### 步骤 2.1：物理执行与结果持久化 (Physical Execution)
+
+在 `mas4s-execution-run` 完成资产同步后，人类研究员或自动化脚本需在 **执行任务的工作目录** 下执行以下指令以启动容器化实验：
+
+1.  **构建实验镜像**：
+    ```bash
+    docker build -t mas4s_exp:{run_id} .
+    ```
+2.  **挂载运行（核心环节）**：
+    为了确保容器内生成的实验结果能实时回传至宿主机的任务空间，必须使用 `-v` 参数进行卷挂载运行：
+    ```bash
+    docker run -it --rm -v $(pwd):/app mas4s_exp:{run_id} python run_orchestrator.py
+    ```
+    _注：`run_orchestrator.py` 会按照清单顺序依次调用 `evaluation_pipeline.py` 并将结果保存至 `./results/` 目录下。_
 
 ### 步骤 3：运行监控与异常记录 (Monitor & Logging)
 

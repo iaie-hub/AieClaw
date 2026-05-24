@@ -129,12 +129,12 @@ export class SOPTracker {
       return;
     }
 
-    // Auto-complete/skip: when a later step starts, earlier pending → skipped,
-    // earlier running → completed (next step starting implies previous finished).
+    // Auto-complete: when a later step starts, earlier pending/running → completed.
+    // Previous steps in "pending" are treated as completed (not skipped) because
+    // the SOP may have been restarted mid-flow and those steps already ran in a
+    // prior execution.
     for (let i = 0; i < stepIndex; i++) {
-      if (state.steps[i].status === "pending") {
-        state.steps[i].status = "skipped";
-      } else if (state.steps[i].status === "running") {
+      if (state.steps[i].status === "pending" || state.steps[i].status === "running") {
         state.steps[i].status = "completed";
         state.steps[i].completedAt = timestamp;
         if (state.steps[i].startedAt) {
@@ -200,11 +200,11 @@ export class SOPTracker {
     }
     const step = state.steps[stepIndex];
 
-    // Auto-complete/skip: earlier pending → skipped, earlier running → completed.
+    // Auto-complete: earlier pending/running → completed (not skipped).
+    // Pending steps before the current one are assumed to have completed in a
+    // prior execution when the SOP resumes after a restart.
     for (let i = 0; i < stepIndex; i++) {
-      if (state.steps[i].status === "pending") {
-        state.steps[i].status = "skipped";
-      } else if (state.steps[i].status === "running") {
+      if (state.steps[i].status === "pending" || state.steps[i].status === "running") {
         state.steps[i].status = "completed";
         state.steps[i].completedAt = timestamp;
         if (state.steps[i].startedAt) {

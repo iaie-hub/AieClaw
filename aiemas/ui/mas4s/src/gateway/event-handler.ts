@@ -7,6 +7,7 @@ import type { MasSession } from "../types/session-types.js";
 import { parseSenderPrefix } from "../utils/message-format.js";
 import { extractUuidFromKey, extractAgentNameFromKey } from "../utils/session-utils.js";
 import { addEventHandler } from "./client.js";
+import { dispatchCollabMessage } from "./collab-api.js";
 
 const TOOL_OUTPUT_CHAR_LIMIT = 120_000;
 
@@ -286,6 +287,12 @@ export function registerEventHandlers(): void {
         }
         break;
       }
+      // ── Real-time collab events (a2a.discussion.* / a2a.cowork.*) ───────
+      case "collab.message": {
+        const { topic, data } = evt.payload as { topic: string; data: unknown };
+        dispatchCollabMessage({ topic, data });
+        break;
+      }
     }
   });
 }
@@ -485,6 +492,10 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
       senderLabel: effectiveSenderLabel ?? normalized.senderLabel,
       subType: undefined,
     };
+    console.info(
+      `[mas4s:event-handler] stream=agent received. runId=${runId}, sessionUuid=${sessionUuid}, agentId=${agentId}, role=${chatMsg.role}, senderLabel=${chatMsg.senderLabel}, content length=${chatMsg.content.length}, content=`,
+      chatMsg.content
+    );
     debugLog(
       `[mas4s:event-handler] Updating/Appending A2A agent input message (role=${chatMsg.role})`,
       chatMsg,

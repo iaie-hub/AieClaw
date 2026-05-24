@@ -28,10 +28,7 @@ import {
   INTERNAL_MESSAGE_CHANNEL,
   type InternalMessageChannel,
 } from "./message-channel-constants.js";
-import {
-  normalizeMessageChannel,
-  type DeliverableMessageChannel,
-} from "./message-channel-normalize.js";
+import { normalizeMessageChannel } from "./message-channel-normalize.js";
 
 export { GATEWAY_CLIENT_NAMES, GATEWAY_CLIENT_MODES };
 export type { GatewayClientName, GatewayClientMode };
@@ -51,13 +48,14 @@ export function isOperatorUiClient(client?: GatewayClientInfoLike | null): boole
   return (
     clientId === GATEWAY_CLIENT_NAMES.CONTROL_UI ||
     clientId === GATEWAY_CLIENT_NAMES.TUI ||
-    clientId === GATEWAY_CLIENT_NAMES.WEBCHAT_UI
+    clientId === GATEWAY_CLIENT_NAMES.WEBCHAT_UI ||
+    clientId === GATEWAY_CLIENT_NAMES.MAS4S_UI
   );
 }
 
 export function isBrowserOperatorUiClient(client?: GatewayClientInfoLike | null): boolean {
   const clientId = normalizeGatewayClientName(client?.id);
-  return clientId === GATEWAY_CLIENT_NAMES.CONTROL_UI;
+  return clientId === GATEWAY_CLIENT_NAMES.CONTROL_UI || clientId === GATEWAY_CLIENT_NAMES.MAS4S_UI;
 }
 
 export function isInternalMessageChannel(raw?: string | null): raw is InternalMessageChannel {

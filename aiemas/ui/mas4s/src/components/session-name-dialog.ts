@@ -1,6 +1,7 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { AgentInfo } from "../store/app-store.js";
+import { getClient } from "../gateway/client.js";
 
 interface ConfirmDetail {
   label: string;
@@ -19,6 +20,8 @@ export class SessionNameDialog extends LitElement {
   @state() private _value = "";
   @state() private _agentId?: string;
   @state() private _reasoningLevel: "stream" | "on" | "off" = "stream";
+  @state() private _loadingAgents = false;
+  @state() private _fetchedAgents: AgentInfo[] | null = null;
 
   static styles = css`
     .name-overlay {
@@ -223,9 +226,34 @@ export class SessionNameDialog extends LitElement {
     this._agentId = this.initialAgentId;
     this._reasoningLevel = this.initialReasoningLevel;
 
-    // Default agentId if not set and creating
-    if (this.mode === "create" && !this._agentId && this.agents.length > 0) {
-      this._agentId = this.agents[0].id;
+    // 新建会话时从后端实时查询 Agent 列表，确保新建/删除 agent 后能及时反映
+    if (this.mode === "create") {
+      this._loadingAgents = true;
+      getClient()
+        .request<{ agents: { id: string; name?: string; description?: string }[] }>(
+          "agents.list",
+          {},
+        )
+        .then((res) => {
+          this._fetchedAgents = res.agents || [];
+          // Default agentId if not set
+          if (!this._agentId && this._fetchedAgents.length > 0) {
+            this._agentId = this._fetchedAgents[0].id;
+          }
+          this._loadingAgents = false;
+        })
+        .catch((err) => {
+          console.warn("[session-name-dialog] agents.list failed, falling back to cache:", err);
+          this._fetchedAgents = null;
+          // Fallback: use cached agents from property
+          if (!this._agentId && this.agents.length > 0) {
+            this._agentId = this.agents[0].id;
+          }
+          this._loadingAgents = false;
+        });
+    } else {
+      // Rename mode doesn't need agent list
+      this._fetchedAgents = null;
     }
   }
 
@@ -291,21 +319,26 @@ export class SessionNameDialog extends LitElement {
                 <div class="agent-selector">
                   <span class="agent-selector-label">选择执行 Agent</span>
                   <div class="agent-options">
-                    ${this.agents.length === 0
-                      ? html`<div class="agent-option">未发现可用 Agent</div>`
-                      : this.agents.map(
-                          (a) => html`
-                            <div
-                              class="agent-option ${a.id === this._agentId ? "active" : ""}"
-                              @click=${() => this._onAgentSelect(a.id)}
-                            >
-                              <div class="agent-option-name">${a.name || a.id}</div>
-                              ${a.description
-                                ? html`<div class="agent-option-desc">${a.description}</div>`
-                                : ""}
-                            </div>
-                          `,
-                        )}
+                    ${this._loadingAgents
+                      ? html`<div class="agent-option">加载中...</div>`
+                      : (() => {
+                          const agentList = this._fetchedAgents ?? this.agents;
+                          return agentList.length === 0
+                            ? html`<div class="agent-option">未发现可用 Agent</div>`
+                            : agentList.map(
+                                (a) => html`
+                                  <div
+                                    class="agent-option ${a.id === this._agentId ? "active" : ""}"
+                                    @click=${() => this._onAgentSelect(a.id)}
+                                  >
+                                    <div class="agent-option-name">${a.name || a.id}</div>
+                                    ${a.description
+                                      ? html`<div class="agent-option-desc">${a.description}</div>`
+                                      : ""}
+                                  </div>
+                                `,
+                              );
+                        })()}
                   </div>
                 </div>
               `

@@ -885,7 +885,6 @@ export class MainWorkspace extends LitElement {
           .progressLogs=${this.progressLogs}
           .currentStepIndex=${this.currentStepIndex}
           .sopCompletedAt=${this.sopCompletedAt}
-          @resolve=${this._onResolve}
           @load-more-history=${this._onLoadMoreHistory}
           @abort-chat=${this._onAbortChat}
         ></agent-panel>

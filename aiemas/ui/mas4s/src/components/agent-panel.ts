@@ -474,7 +474,10 @@ export class AgentPanel extends LitElement {
       if (isUserSent) {
         this._justSentUserMsg = true;
       }
-      this._isAtBottom = wasAtBottom || !!isUserSent;
+
+      // 当 Agent 正在运行时（isChatting），始终保持自动滚动到底部，
+      // 确保实时消息和事件始终可见。
+      this._isAtBottom = wasAtBottom || !!isUserSent || this.isChatting;
 
       if (
         this._loadingMore &&
@@ -542,19 +545,21 @@ export class AgentPanel extends LitElement {
       } else if (this._isAtBottom || (sessionChanged && !this._anchorRestore)) {
         const _container = this._container;
         const msgList = this.shadowRoot?.querySelector("message-list") as MessageList | null;
+        // 当 Agent 运行中时使用 instant 滚动，避免 smooth 动画跟不上快速到达的消息
+        const scrollBehavior: ScrollBehavior = this.isChatting ? "auto" : "smooth";
         if (msgList) {
           void msgList.updateComplete.then(() => {
             requestAnimationFrame(() => {
               const textBottomTarget =
                 msgList.offsetTop + msgList.offsetHeight + 30 - _container.clientHeight;
               if (_container.scrollTop < textBottomTarget) {
-                _container.scrollTo({ top: textBottomTarget, behavior: "smooth" });
+                _container.scrollTo({ top: textBottomTarget, behavior: scrollBehavior });
               }
             });
           });
         } else if (_container) {
           requestAnimationFrame(() => {
-            _container.scrollTo({ top: _container.scrollHeight, behavior: "smooth" });
+            _container.scrollTo({ top: _container.scrollHeight, behavior: scrollBehavior });
           });
         }
       }
