@@ -45,7 +45,7 @@ export function registerChatHandlers(
         );
       }
       console.log(
-        `[aiemas:chat] Recieved chat.send for sessionKey=${String(params["sessionKey"])}, client=${opts.client.connId}`,
+        `[aiemas:chat] Recieved chat.send for sessionKey=${String(params["sessionKey"])}, client=${opts.client?.connId ?? "none"}`,
       );
 
       // Proxy respond to capture results and ensure transparency
@@ -157,7 +157,7 @@ export function filterBroadcast(
   payload: unknown,
   clients: GatewayClient[],
   ctx: ChatContext,
-): Set<string> {
+): Set<string> | null {
   const { plugin, getMasAuth } = ctx;
   const connectedUsers = new Map<string, MasAuthContext>();
   for (const client of clients) {
@@ -198,11 +198,7 @@ export function filterBroadcast(
   const targets = plugin.bridge.filterBroadcastTargets(event, payload, connectedUsers);
   if (!targets) {
     // null targets means broadcast to all
-    return new Set(
-      Array.from(clients)
-        .map((c) => c.connId)
-        .filter((id): id is string => !!id),
-    );
+    return null;
   }
 
   // Map userIds back to connIds

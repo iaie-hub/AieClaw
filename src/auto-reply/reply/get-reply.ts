@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import {
+  resolveAutoFallbackPrimaryProbe,
   resolveAgentConfig,
   resolveAgentDir,
   resolveAgentWorkspaceDir,
@@ -44,7 +45,8 @@ import { runPreparedReply } from "./get-reply-run.js";
 import { finalizeInboundContext } from "./inbound-context.js";
 import { hasInboundMedia } from "./inbound-media.js";
 import { emitPreAgentMessageHooks } from "./message-preprocess-hooks.js";
-import { createFastTestModelSelectionState } from "./model-selection.js";
+import { createFastTestModelSelectionState, createModelSelectionState } from "./model-selection.js";
+import { sanitizePendingFinalDeliveryText } from "./pending-final-delivery.js";
 import { initSessionState } from "./session.js";
 import {
   isStaleHeartbeatAutoFallbackOverride,
@@ -160,7 +162,9 @@ function hasLinkCandidate(ctx: MsgContext): boolean {
 async function applyMediaUnderstandingIfNeeded(params: {
   ctx: MsgContext;
   cfg: OpenClawConfig;
+  agentId?: string;
   agentDir?: string;
+  workspaceDir?: string;
   activeModel: { provider: string; model: string };
 }): Promise<boolean> {
   if (!hasInboundMedia(params.ctx)) {
@@ -331,7 +335,9 @@ export async function getReplyFromConfig(
       applyMediaUnderstandingIfNeeded({
         ctx: finalized,
         cfg,
+        agentId,
         agentDir,
+        workspaceDir,
         activeModel: { provider, model },
       }),
     );
@@ -386,7 +392,7 @@ export async function getReplyFromConfig(
   } = sessionState;
 
   if (sessionEntry?.pendingFinalDelivery && sessionEntry.pendingFinalDeliveryText) {
-    const text = sessionEntry.pendingFinalDeliveryText;
+    const text = sanitizePendingFinalDeliveryText(sessionEntry.pendingFinalDeliveryText);
 
     // If it's a heartbeat, we definitely want to try delivering the lost reply now.
     // If it's a user message, we deliver the lost reply first, then continue.
@@ -429,7 +435,8 @@ export async function getReplyFromConfig(
         sessionEntry.pendingFinalDeliveryLastAttemptAt = updatedAt;
         sessionEntry.pendingFinalDeliveryAttemptCount = attemptCount;
         sessionEntry.pendingFinalDeliveryLastError = null;
-        sessionEntry.pendingFinalDeliveryText = heartbeatPending.replayText;
+        const replayText = sanitizePendingFinalDeliveryText(heartbeatPending.replayText);
+        sessionEntry.pendingFinalDeliveryText = replayText;
         sessionEntry.updatedAt = updatedAt;
         if (sessionKey && sessionStore) {
           sessionStore[sessionKey] = sessionEntry;
@@ -440,7 +447,7 @@ export async function getReplyFromConfig(
             storePath,
             sessionKey,
             update: async () => ({
-              pendingFinalDeliveryText: heartbeatPending.replayText,
+              pendingFinalDeliveryText: replayText,
               pendingFinalDeliveryLastAttemptAt: updatedAt,
               pendingFinalDeliveryAttemptCount: attemptCount,
               pendingFinalDeliveryLastError: null,
@@ -448,7 +455,7 @@ export async function getReplyFromConfig(
             }),
           });
         }
-        return { text: heartbeatPending.replayText };
+        return { text: replayText };
       }
     }
   }
@@ -533,6 +540,16 @@ export async function getReplyFromConfig(
     provider = storedModelOverride.provider ?? defaultProvider;
     model = storedModelOverride.model;
   }
+  const canApplyAutoFallbackPrimaryProbe =
+    !hasResolvedHeartbeatModelOverride && !staleHeartbeatAutoFallbackOverride;
+  const autoFallbackPrimaryProbe = canApplyAutoFallbackPrimaryProbe
+    ? resolveAutoFallbackPrimaryProbe({
+        entry: sessionEntry,
+        sessionKey,
+        primaryProvider,
+        primaryModel,
+      })
+    : undefined;
   const hasEffectiveSessionModelOverride =
     hasSessionModelOverride && !staleHeartbeatAutoFallbackOverride;
   if (
@@ -595,16 +612,15 @@ export async function getReplyFromConfig(
         resolvedBlockStreamingBreak: "text_end",
         modelState: createFastTestModelSelectionState({
           agentCfg,
-          provider,
-          model,
+          provider: autoFallbackPrimaryProbe?.provider ?? provider,
+          model: autoFallbackPrimaryProbe?.model ?? model,
         }),
-        provider,
-        model,
+        provider: autoFallbackPrimaryProbe?.provider ?? provider,
+        model: autoFallbackPrimaryProbe?.model ?? model,
         perMessageQueueMode: undefined,
         perMessageQueueOptions: undefined,
         typing,
         opts: resolvedOpts,
-        defaultProvider,
         defaultModel,
         timeoutMs,
         isNewSession,
@@ -617,6 +633,7 @@ export async function getReplyFromConfig(
         storePath,
         workspaceDir,
         abortedLastRun,
+        autoFallbackPrimaryProbe,
       }),
     );
   }
@@ -760,6 +777,61 @@ export async function getReplyFromConfig(
   directives = inlineActionResult.directives;
   cleanedBody = inlineActionResult.cleanedBody;
   abortedLastRun = inlineActionResult.abortedLastRun ?? abortedLastRun;
+  const runAutoFallbackPrimaryProbe = directives.hasModelDirective
+    ? undefined
+    : autoFallbackPrimaryProbe;
+  const runProvider = runAutoFallbackPrimaryProbe?.provider ?? provider;
+  const runModel = runAutoFallbackPrimaryProbe?.model ?? model;
+  let runModelState = modelState;
+  if (runAutoFallbackPrimaryProbe) {
+    runModelState = await createModelSelectionState({
+      cfg,
+      agentId,
+      agentCfg,
+      sessionEntry,
+      sessionStore,
+      sessionKey,
+      parentSessionKey:
+        sessionEntry.parentSessionKey ??
+        sessionCtx.ModelParentSessionKey ??
+        sessionCtx.ParentSessionKey,
+      storePath,
+      defaultProvider,
+      defaultModel,
+      primaryProvider,
+      primaryModel,
+      provider: runProvider,
+      model: runModel,
+      hasModelDirective: false,
+      skipStoredModelOverride: true,
+      hasResolvedHeartbeatModelOverride,
+      isHeartbeat: opts?.isHeartbeat === true,
+    });
+    const hasExplicitThinkLevel =
+      resolvedOpts?.thinkingLevelOverride !== undefined ||
+      directives.thinkLevel !== undefined ||
+      (!directives.clearThinkLevel && sessionEntry.thinkingLevel !== undefined) ||
+      agentCfg?.thinkingDefault !== undefined;
+    if (!hasExplicitThinkLevel) {
+      resolvedThinkLevel = await runModelState.resolveDefaultThinkingLevel();
+    }
+    const agentEntry = resolveAgentConfig(cfg, agentId);
+    const rawSessionReasoningLevel = sessionEntry.reasoningLevel;
+    const canUseReasoningState =
+      command.isAuthorizedSender ||
+      command.senderIsOwner ||
+      (Array.isArray(ctx.GatewayClientScopes) &&
+        ctx.GatewayClientScopes.includes("operator.admin"));
+    const hasExplicitReasoningLevel =
+      directives.reasoningLevel !== undefined ||
+      (rawSessionReasoningLevel != null && canUseReasoningState) ||
+      (rawSessionReasoningLevel != null && !canUseReasoningState) ||
+      agentEntry?.reasoningDefault != null ||
+      agentCfg?.reasoningDefault != null;
+    if (!hasExplicitReasoningLevel && resolvedThinkLevel === "off") {
+      resolvedReasoningLevel = await runModelState.resolveDefaultReasoningLevel();
+    }
+  }
 
   // Allow plugins to intercept and return a synthetic reply before the LLM runs.
   if (!useFastTestBootstrap) {
@@ -837,14 +909,13 @@ export async function getReplyFromConfig(
       blockStreamingEnabled,
       blockReplyChunking,
       resolvedBlockStreamingBreak,
-      modelState,
-      provider,
-      model,
+      modelState: runModelState,
+      provider: runProvider,
+      model: runModel,
       perMessageQueueMode,
       perMessageQueueOptions,
       typing,
       opts: resolvedOpts,
-      defaultProvider,
       defaultModel,
       timeoutMs,
       isNewSession,
@@ -857,6 +928,7 @@ export async function getReplyFromConfig(
       storePath,
       workspaceDir,
       abortedLastRun,
+      autoFallbackPrimaryProbe: runAutoFallbackPrimaryProbe,
     }),
   );
 }

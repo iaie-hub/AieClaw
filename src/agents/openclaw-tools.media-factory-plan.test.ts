@@ -204,6 +204,36 @@ describe("optional media tool factory planning", () => {
     });
   });
 
+  it("does not plan media factories from workspace-scoped metadata without workspace context", () => {
+    const config: OpenClawConfig = {};
+    installSnapshot(
+      config,
+      [
+        createPlugin({
+          id: "image-owner",
+          contracts: { imageGenerationProviders: ["image-owner"] },
+          setupProviders: [{ id: "image-owner", envVars: ["IMAGE_OWNER_API_KEY"] }],
+        }),
+      ],
+      undefined,
+      "/workspace/a",
+    );
+
+    expect(
+      resolveOptionalMediaToolFactoryPlan({
+        config,
+        authStore: createAuthStore(["image-owner"]),
+      }).imageGenerate,
+    ).toBe(false);
+    expect(
+      resolveOptionalMediaToolFactoryPlan({
+        config,
+        workspaceDir: "/workspace/a",
+        authStore: createAuthStore(["image-owner"]),
+      }).imageGenerate,
+    ).toBe(true);
+  });
+
   it("keeps explicit model configs on the factory path", () => {
     const config: OpenClawConfig = {
       agents: {
@@ -852,19 +882,27 @@ describe("optional media tool factory planning", () => {
 
   it("does not register the image tool without cheap vision availability evidence", async () => {
     const config: OpenClawConfig = {};
-    installSnapshot(config, [
-      createPlugin({
-        id: "media-owner",
-        contracts: { mediaUnderstandingProviders: ["media-owner"] },
-        setupProviders: [{ id: "media-owner", envVars: ["MEDIA_OWNER_API_KEY"] }],
-      }),
-    ]);
+    const workspaceDir = "/tmp/openclaw-workspace";
+    vi.stubEnv("MEDIA_OWNER_API_KEY", "");
+    installSnapshot(
+      config,
+      [
+        createPlugin({
+          id: "media-owner",
+          contracts: { mediaUnderstandingProviders: ["media-owner"] },
+          setupProviders: [{ id: "media-owner", envVars: ["MEDIA_OWNER_API_KEY"] }],
+        }),
+      ],
+      undefined,
+      workspaceDir,
+    );
 
     expect(
       (
         await createOpenClawToolsForTest({
           config,
           agentDir: "/tmp/openclaw-agent",
+          workspaceDir,
           authProfileStore: createAuthStore(),
           disablePluginTools: true,
         })

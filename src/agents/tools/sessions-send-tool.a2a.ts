@@ -193,7 +193,7 @@ export async function runSessionsSendA2AFlow(params: {
   }
 }
 
-export const __testing = {
+export const testing = {
   setDepsForTest(overrides?: Partial<{ callGateway: GatewayCaller }>) {
     sessionsSendA2ADeps = overrides
       ? {
@@ -203,3 +203,4 @@ export const __testing = {
       : defaultSessionsSendA2ADeps;
   },
 };
+export { testing as __testing };
