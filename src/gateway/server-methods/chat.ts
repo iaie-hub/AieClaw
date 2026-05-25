@@ -2172,6 +2172,7 @@ export const chatHandlers: GatewayRequestHandlers = {
     });
   },
   "chat.send": async ({ params, respond, context, client }) => {
+    console.log(`[gateway:chat.send] Entered core chat.send method. params sessionKey=${String(params?.sessionKey)}, clientRunId=${String(params?.clientRunId || params?.idempotencyKey)}`);
     let agentRunStarted = false;
     if (!validateChatSendParams(params)) {
       respond(
@@ -2262,6 +2263,7 @@ export const chatHandlers: GatewayRequestHandlers = {
       return;
     }
     const rawSessionKey = p.sessionKey;
+    console.log(`[gateway:chat.send] Loading session entry for rawSessionKey=${rawSessionKey}...`);
     const {
       cfg,
       entry,
@@ -2277,6 +2279,7 @@ export const chatHandlers: GatewayRequestHandlers = {
         },
       },
     );
+    console.log(`[gateway:chat.send] Loaded session. canonicalKey=${sessionKey}, entryExists=${!!entry}`);
     const requestedSessionId = normalizeOptionalText(p.sessionId);
     const backingSessionId = entry?.sessionId ?? requestedSessionId;
     const deletedAgentId = resolveDeletedAgentIdFromSessionKey(cfg, sessionKey);
@@ -2476,6 +2479,7 @@ export const chatHandlers: GatewayRequestHandlers = {
     }
 
     try {
+      console.log(`[gateway:chat.send] Registering abort controller...`);
       const activeRunAbort = registerChatAbortController({
         chatAbortControllers: context.chatAbortControllers,
         runId: clientRunId,
@@ -2489,7 +2493,9 @@ export const chatHandlers: GatewayRequestHandlers = {
         authProviderId: resolvedSessionAuthProvider,
         kind: "chat-send",
       });
+      console.log(`[gateway:chat.send] Abort controller registered. registered=${activeRunAbort.registered}`);
       if (!activeRunAbort.registered) {
+        console.log(`[gateway:chat.send] Abort controller not registered (already running/in flight). Responding in_flight.`);
         respond(true, { runId: clientRunId, status: "in_flight" as const }, undefined, {
           cached: true,
           runId: clientRunId,
@@ -2511,7 +2517,9 @@ export const chatHandlers: GatewayRequestHandlers = {
         runId: clientRunId,
         status: "started" as const,
       };
+      console.log(`[gateway:chat.send] Calling respond() with started status, runId=${clientRunId}...`);
       respond(true, ackPayload, undefined, { runId: clientRunId });
+      console.log(`[gateway:chat.send] respond() completed.`);
       const persistedImagesPromise = persistChatSendImages({
         images: parsedImages,
         imageOrder,

@@ -50,16 +50,17 @@ export function registerChatHandlers(
 
       // Proxy respond to capture results and ensure transparency
       const wrappedRespond: typeof respond = (ok, payload, error, meta) => {
-        if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
-          console.log(
-            `[aiemas:chat.send] bridge respond ok=${ok} payloadKeys=${Object.keys(payload || {}).join(",")}`,
-          );
-        }
+        console.log(`[aiemas:chat.send] bridge respond callback triggered: ok=${ok}, clientRunId=${String(params["clientRunId"] || params["idempotencyKey"])}`);
         respond(ok, payload, error, meta);
       };
 
       try {
+        console.log(`[aiemas:chat.send] Invoking coreChatSend for sessionKey=${String(params["sessionKey"])}...`);
         await coreChatSend({ ...opts, respond: wrappedRespond });
+        console.log(`[aiemas:chat.send] coreChatSend finished execution.`);
+      } catch (err) {
+        console.error(`[aiemas:chat.send] coreChatSend threw an error:`, err);
+        throw err;
       } finally {
         // Post-send side effects (SOP tracking, etc.)
         try {
