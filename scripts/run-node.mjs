@@ -33,6 +33,7 @@ import {
   runNodeWatchedPaths,
 } from "./run-node-watch-paths.mjs";
 import { listCoreRuntimePostBuildOutputs, runRuntimePostBuild } from "./runtime-postbuild.mjs";
+import { readPublicPluginSdkDistFileNames } from "./stage-bundled-plugin-runtime.mjs";
 
 export { isBuildRelevantRunNodePath, isRestartRelevantRunNodePath, runNodeWatchedPaths };
 
@@ -428,11 +429,16 @@ const listRequiredOpenClawExtensionAliasOutputs = (deps) => {
     return [];
   }
 
+  const publicDistFileNames = readPublicPluginSdkDistFileNames({
+    repoRoot: deps.cwd,
+    pluginSdkDir,
+  });
+
   const aliasDir = path.join(distRoot, "extensions", "node_modules", "openclaw");
   return [
     path.join(aliasDir, "package.json"),
     ...dirents
-      .filter((dirent) => dirent.isFile() && path.extname(dirent.name) === ".js")
+      .filter((dirent) => dirent.isFile() && path.extname(dirent.name) === ".js" && (!publicDistFileNames || publicDistFileNames.has(dirent.name)))
       .map((dirent) => path.join(aliasDir, "plugin-sdk", dirent.name)),
   ].toSorted((left, right) => left.localeCompare(right));
 };

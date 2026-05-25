@@ -127,7 +127,7 @@ function collectLegacyPublicPluginSdkDistFileNames(params) {
   return fileNames.size > 0 ? fileNames : undefined;
 }
 
-function readPublicPluginSdkDistFileNames(params) {
+export function readPublicPluginSdkDistFileNames(params) {
   const packageJson = tryReadJsonFile(path.join(params.repoRoot, "package.json"));
   if (!packageJson || typeof packageJson !== "object" || Array.isArray(packageJson)) {
     return collectLegacyPublicPluginSdkDistFileNames(params);

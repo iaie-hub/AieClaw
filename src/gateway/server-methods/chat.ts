@@ -3172,6 +3172,7 @@ export const chatHandlers: GatewayRequestHandlers = {
           );
         })
         .catch(async (err) => {
+          context.logGateway.error(`webchat dispatch inbound failed: ${formatForLog(err)}`);
           void rewriteUserTranscriptMedia().catch((rewriteErr) => {
             context.logGateway.warn(
               `webchat transcript media rewrite failed after error: ${formatForLog(rewriteErr)}`,
