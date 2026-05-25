@@ -284,18 +284,15 @@ export async function resolveBootstrapFilesForRun(params: {
   contextMode?: BootstrapContextMode;
   runKind?: BootstrapContextRunKind;
 }): Promise<WorkspaceBootstrapFile[]> {
-  const perfStart = Date.now();
   const excludeHeartbeatBootstrapFile = shouldExcludeHeartbeatBootstrapFile(params);
   const sessionKey = params.sessionKey ?? params.sessionId;
   const workspaceSetupCompleted = await isWorkspaceSetupCompletedForContext(params.workspaceDir);
-  const perfAfterSetupCheck = Date.now();
   const rawFiles = params.sessionKey
     ? await getOrLoadBootstrapFiles({
         workspaceDir: params.workspaceDir,
         sessionKey: params.sessionKey,
       })
     : await loadWorkspaceBootstrapFiles(params.workspaceDir);
-  const perfAfterLoadFiles = Date.now();
   const bootstrapFiles = applyContextModeFilter({
     files: filterCompletedWorkspaceBootstrapFile(
       filterBootstrapFilesForSession(rawFiles, sessionKey),
@@ -314,30 +311,16 @@ export async function resolveBootstrapFilesForRun(params: {
     sessionId: params.sessionId,
     agentId: params.agentId,
   });
-  const perfAfterHookOverrides = Date.now();
   const filteredUpdated = filterCompletedWorkspaceBootstrapFile(
     updated,
     workspaceSetupCompleted,
     params.workspaceDir,
   );
-  const result = sanitizeBootstrapFiles(
+  return sanitizeBootstrapFiles(
     filterHeartbeatBootstrapFile(filteredUpdated, excludeHeartbeatBootstrapFile),
     params.workspaceDir,
     params.warn,
   );
-  const perfEnd = Date.now();
-  const totalMs = perfEnd - perfStart;
-  if (totalMs > 500) {
-    console.log(
-      `[perf:bootstrap-files] resolveBootstrapFilesForRun totalMs=${totalMs} ` +
-        `setupCheck=${perfAfterSetupCheck - perfStart}ms ` +
-        `loadFiles=${perfAfterLoadFiles - perfAfterSetupCheck}ms ` +
-        `hookOverrides=${perfAfterHookOverrides - perfAfterLoadFiles}ms ` +
-        `sanitize=${perfEnd - perfAfterHookOverrides}ms ` +
-        `fileCount=${result.length} sessionKey=${params.sessionKey ?? "none"}`,
-    );
-  }
-  return result;
 }
 
 export async function resolveBootstrapContextForRun(params: {

@@ -63,8 +63,6 @@ export function resolveOpenClawPluginToolsForOptions(params: {
     return [];
   }
 
-  const perfStart = Date.now();
-
   const deliveryContext = normalizeDeliveryContext({
     channel: params.options?.agentChannel,
     to: params.options?.agentTo,
@@ -103,14 +101,12 @@ export function resolveOpenClawPluginToolsForOptions(params: {
         return undefined;
       }
     : undefined;
-  const perfAfterAuthSetup = Date.now();
   const pluginToolInputs = resolveOpenClawPluginToolInputs({
     options: params.options,
     resolvedConfig: params.resolvedConfig,
     runtimeConfig: resolveCurrentRuntimeConfig(),
     getRuntimeConfig: resolveCurrentRuntimeConfig,
   });
-  const perfAfterInputs = Date.now();
   const pluginTools = resolvePluginTools({
     ...pluginToolInputs,
     context: {
@@ -124,23 +120,9 @@ export function resolveOpenClawPluginToolsForOptions(params: {
     allowGatewaySubagentBinding: params.options?.allowGatewaySubagentBinding,
     ...(hasAuthForProvider ? { hasAuthForProvider } : {}),
   });
-  const perfAfterResolve = Date.now();
 
-  const result = applyPluginToolDeliveryDefaults({
+  return applyPluginToolDeliveryDefaults({
     tools: pluginTools,
     deliveryContext,
   });
-  const perfEnd = Date.now();
-  const totalMs = perfEnd - perfStart;
-  if (totalMs > 500) {
-    console.log(
-      `[perf:plugin-tools] resolveOpenClawPluginToolsForOptions totalMs=${totalMs} ` +
-        `authSetup=${perfAfterAuthSetup - perfStart}ms ` +
-        `inputs=${perfAfterInputs - perfAfterAuthSetup}ms ` +
-        `resolvePluginTools=${perfAfterResolve - perfAfterInputs}ms ` +
-        `deliveryDefaults=${perfEnd - perfAfterResolve}ms ` +
-        `toolCount=${result.length}`,
-    );
-  }
-  return result;
 }

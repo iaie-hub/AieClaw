@@ -2172,7 +2172,6 @@ export const chatHandlers: GatewayRequestHandlers = {
     });
   },
   "chat.send": async ({ params, respond, context, client }) => {
-    const chatSendPerfStart = Date.now();
     let agentRunStarted = false;
     if (!validateChatSendParams(params)) {
       respond(
@@ -2513,11 +2512,6 @@ export const chatHandlers: GatewayRequestHandlers = {
         status: "started" as const,
       };
       respond(true, ackPayload, undefined, { runId: clientRunId });
-      if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
-        context.logGateway.info(
-          `[perf:chat.send] ack sent: preAckMs=${Date.now() - chatSendPerfStart} sessionKey=${sessionKey} runId=${clientRunId}`,
-        );
-      }
       const persistedImagesPromise = persistChatSendImages({
         images: parsedImages,
         imageOrder,
@@ -2836,11 +2830,6 @@ export const chatHandlers: GatewayRequestHandlers = {
       }
       registerAgentRunContext(clientRunId, { sessionKey, isControlUiVisible: true });
 
-      if (process.env.OPENCLAW_MAS4S_DEBUG === "1") {
-        context.logGateway.info(
-          `[perf:chat.send] dispatch start: preDispatchMs=${Date.now() - chatSendPerfStart} sessionKey=${sessionKey} runId=${clientRunId}`,
-        );
-      }
       void measureDiagnosticsTimelineSpan(
         "gateway.chat_send.dispatch_inbound",
         () =>

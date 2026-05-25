@@ -201,7 +201,83 @@ function applyResolvedTransportFallback(params: {
   };
 }
 
+// ---------------------------------------------------------------------------
+// [AIEMAS 优化] 方案 5a：normalizeResolvedModel 进程级缓存
+// 解决冲突时务必保留此缓存实现。
+//
+// normalizeResolvedModel 内部调用 plugin 的 normalize/compat/transport hook，
+// 首次调用耗时 10-15s（plugin runtime 模块懒加载）。这些 hook 只依赖 provider
+// 类型和 model 标识，不依赖 apiKey、agentDir 等运行时变量。
+// 缓存 key 为 provider + model.id + model.api + model.baseUrl。
+//
+// 效果：后续 agent 的 resolveModel 从 7-15s 降到 ~1.3s。
+// 参考：aiemas/docs/mas4s/multi-agent/multi-agent-perf.md
+// ---------------------------------------------------------------------------
+
+const NORMALIZE_RESOLVED_MODEL_CACHE_KEY = Symbol.for("openclaw.normalizeResolvedModelCache");
+
+type NormalizeResolvedModelCache = Map<string, Model<Api>>;
+
+function getNormalizeResolvedModelCache(): NormalizeResolvedModelCache {
+  const g = globalThis as typeof globalThis & {
+    [NORMALIZE_RESOLVED_MODEL_CACHE_KEY]?: NormalizeResolvedModelCache;
+  };
+  if (!g[NORMALIZE_RESOLVED_MODEL_CACHE_KEY]) {
+    g[NORMALIZE_RESOLVED_MODEL_CACHE_KEY] = new Map();
+  }
+  return g[NORMALIZE_RESOLVED_MODEL_CACHE_KEY];
+}
+
+function buildNormalizeResolvedModelCacheKey(params: {
+  provider: string;
+  model: Model<Api>;
+  runtimeHooks?: ProviderRuntimeHooks;
+}): string | null {
+  // Only cache when using default runtime hooks (the common case).
+  // Custom/static/skip hooks are used in special contexts and should not be cached.
+  if (
+    params.runtimeHooks &&
+    params.runtimeHooks !== DEFAULT_PROVIDER_RUNTIME_HOOKS
+  ) {
+    return null;
+  }
+  const m = params.model;
+  return `${params.provider}\0${m.id}\0${m.api ?? ""}\0${m.baseUrl ?? ""}\0${m.transport ?? ""}`;
+}
+
+/** @internal Exported for testing only. */
+export function _resetNormalizeResolvedModelCacheForTest(): void {
+  getNormalizeResolvedModelCache().clear();
+}
+
 function normalizeResolvedModel(params: {
+  provider: string;
+  model: Model<Api>;
+  cfg?: OpenClawConfig;
+  agentDir?: string;
+  workspaceDir?: string;
+  runtimeHooks?: ProviderRuntimeHooks;
+}): Model<Api> {
+  // [AIEMAS 优化] 方案 5a：进程级缓存。解决冲突时务必保留。
+  const cache = getNormalizeResolvedModelCache();
+  const cacheKey = buildNormalizeResolvedModelCacheKey(params);
+  if (cacheKey) {
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+  }
+
+  const result = normalizeResolvedModelUncached(params);
+
+  if (cacheKey) {
+    cache.set(cacheKey, result);
+  }
+
+  return result;
+}
+
+function normalizeResolvedModelUncached(params: {
   provider: string;
   model: Model<Api>;
   cfg?: OpenClawConfig;

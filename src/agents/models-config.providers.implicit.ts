@@ -30,6 +30,95 @@ import { findNormalizedProviderValue, normalizeProviderId } from "./provider-id.
 
 const log = createSubsystemLogger("agents/model-providers");
 
+// ---------------------------------------------------------------------------
+// [AIEMAS 优化] 方案 1：resolveImplicitProviders 进程级缓存
+// 解决冲突时务必保留此缓存实现。
+//
+// resolveImplicitProviders 的结果只依赖 config 中 provider 的结构（baseUrl、api、
+// models）和 env 变量，与 agentDir 无关。在函数入口增加进程级缓存，key 为 provider
+// 结构 + env 的 fingerprint（排除 apiKey 等 secret 字段），无 TTL。
+// 并发调用通过 pending Promise 去重，避免重复执行。
+//
+// 效果：14 agents 预热从 341s 降到 70s（后续 agent ensureModelsJson 从 ~24s 降到 ~1s）。
+// 参考：aiemas/docs/mas4s/multi-agent/multi-agent-perf.md
+// ---------------------------------------------------------------------------
+
+const IMPLICIT_PROVIDERS_CACHE_KEY = Symbol.for("openclaw.resolveImplicitProvidersCache");
+
+type ImplicitProvidersCacheEntry = {
+  pending: Promise<NonNullable<OpenClawConfig["models"]>["providers"]>;
+};
+
+type ImplicitProvidersCache = Map<string, ImplicitProvidersCacheEntry>;
+
+function getImplicitProvidersCache(): ImplicitProvidersCache {
+  const g = globalThis as typeof globalThis & {
+    [IMPLICIT_PROVIDERS_CACHE_KEY]?: ImplicitProvidersCache;
+  };
+  if (!g[IMPLICIT_PROVIDERS_CACHE_KEY]) {
+    g[IMPLICIT_PROVIDERS_CACHE_KEY] = new Map();
+  }
+  return g[IMPLICIT_PROVIDERS_CACHE_KEY];
+}
+
+/**
+ * Build a cache key for resolveImplicitProviders.
+ *
+ * The result depends on:
+ * - config.models.providers structure (baseUrl, api, models[].id) — NOT apiKey/secrets
+ * - env variables relevant to provider discovery (OPENCLAW_LIVE_TEST, etc.)
+ * - pluginMetadataSnapshot identity (plugin list)
+ * - providerDiscoveryProviderIds filter
+ * - providerDiscoveryEntriesOnly flag
+ * - workspaceDir (affects plugin discovery filter)
+ *
+ * It does NOT depend on agentDir (only used for auth profile resolution which
+ * doesn't affect the provider list structure).
+ */
+function buildImplicitProvidersCacheKey(params: ImplicitProviderParams): string {
+  const env = params.env ?? process.env;
+  // Provider structure fingerprint (same approach as normalizeProviders cache)
+  const explicitProviders = params.config?.models?.providers;
+  const providerStructure = explicitProviders
+    ? Object.entries(explicitProviders)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(
+          ([key, p]) =>
+            `${key}:${p?.baseUrl ?? ""}:${p?.api ?? ""}:${Array.isArray(p?.models) ? (p.models as Array<{ id?: string }>).map((m) => m?.id ?? "").join(",") : ""}`,
+        )
+        .join("|")
+    : "";
+
+  // Env variables that affect provider discovery
+  const envFingerprint = [
+    env.OPENCLAW_LIVE_TEST ?? "",
+    env.OPENCLAW_LIVE_GATEWAY ?? "",
+    env.LIVE ?? "",
+    env.OPENCLAW_TEST_ONLY_PROVIDER_PLUGIN_IDS ?? "",
+    env.OPENCLAW_LIVE_PROVIDER_DISCOVERY_TIMEOUT_MS ?? "",
+  ].join("\0");
+
+  // Plugin metadata identity (plugin IDs that own providers)
+  const pluginIds = params.pluginMetadataSnapshot?.index
+    ? Object.keys(params.pluginMetadataSnapshot.index).sort().join(",")
+    : "none";
+
+  // Discovery filter
+  const discoveryFilter = params.providerDiscoveryProviderIds
+    ? [...params.providerDiscoveryProviderIds].sort().join(",")
+    : "all";
+
+  const entriesOnly = params.providerDiscoveryEntriesOnly === true ? "1" : "0";
+  const workspaceDir = params.workspaceDir ?? "";
+
+  return `${providerStructure}\x01${envFingerprint}\x01${pluginIds}\x01${discoveryFilter}\x01${entriesOnly}\x01${workspaceDir}`;
+}
+
+/** @internal Exported for testing only. */
+export function _resetImplicitProvidersCacheForTest(): void {
+  getImplicitProvidersCache().clear();
+}
+
 const PROVIDER_IMPLICIT_MERGERS: Partial<
   Record<
     string,
@@ -479,6 +568,34 @@ async function runProviderCatalogWithTimeout(
 }
 
 export async function resolveImplicitProviders(
+  params: ImplicitProviderParams,
+): Promise<NonNullable<OpenClawConfig["models"]>["providers"]> {
+  // [AIEMAS 优化] 方案 1：进程级缓存 — 相同 provider 结构 + env → 相同结果。解决冲突时务必保留。
+  const cache = getImplicitProvidersCache();
+  const cacheKey = buildImplicitProvidersCacheKey(params);
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    return cached.pending;
+  }
+
+  const pending = resolveImplicitProvidersUncached(params);
+  cache.set(cacheKey, { pending });
+
+  try {
+    const result = await pending;
+    // Replace pending with a resolved promise for faster subsequent access
+    cache.set(cacheKey, { pending: Promise.resolve(result) });
+    return result;
+  } catch (err) {
+    // On failure, remove from cache so next call retries
+    if (cache.get(cacheKey)?.pending === pending) {
+      cache.delete(cacheKey);
+    }
+    throw err;
+  }
+}
+
+async function resolveImplicitProvidersUncached(
   params: ImplicitProviderParams,
 ): Promise<NonNullable<OpenClawConfig["models"]>["providers"]> {
   const providers: Record<string, ProviderConfig> = {};

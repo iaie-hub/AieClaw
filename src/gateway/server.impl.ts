@@ -1618,14 +1618,17 @@ export async function startGatewayServer(
     await startupTrace.measure("http.listen", () => startListening());
     startupTrace.mark("http.bound");
 
-    // Background warmup: run agent cache warmup after the server is accepting
-    // connections so it doesn't block WebSocket handshakes. Failures are non-fatal.
-    import("./agent-perf-warmup.js")
-      .then((mod) => {
-        console.log(`[perf:warmup] starting background warmup (server already listening)`);
-        return mod.warmupAgentCaches(cfgAtStart);
-      })
-      .catch(() => {});
+    // [AIEMAS 优化] 方案 6：阻塞式预热。解决冲突时务必保留。
+    // 预热必须在接受用户请求前完成，消除 event loop 竞争。
+    // 非阻塞预热会导致请求处理期间 event loop 延迟高达 18s，所有 I/O 被放大 3-5 倍。
+    // 参考：aiemas/docs/mas4s/multi-agent/multi-agent-perf.md
+    try {
+      console.log(`[perf:warmup] starting blocking warmup (server bound, not yet accepting requests)`);
+      const { warmupAgentCaches } = await import("./agent-perf-warmup.js");
+      await warmupAgentCaches(cfgAtStart);
+    } catch (err) {
+      console.warn(`[perf:warmup] blocking warmup failed (non-fatal): ${String(err)}`);
+    }
 
     const sessionDeliveryRecoveryMaxEnqueuedAt = Date.now();
     let postAttachRuntimeReturned = false;

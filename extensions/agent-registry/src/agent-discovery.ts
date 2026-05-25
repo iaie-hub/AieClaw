@@ -56,7 +56,6 @@ export async function discoverAgents(
   agentId: string,
   natsClient: NATSClient,
 ): Promise<DiscoverAgentsResult> {
-  const perfStart = Date.now();
   const replyInbox = natsClient.newInbox();
 
   const envelope = createEnvelope({
@@ -74,7 +73,6 @@ export async function discoverAgents(
   });
 
   try {
-    const perfBeforePublish = Date.now();
     const responseBytes = await new Promise<Uint8Array>((resolve, reject) => {
       const timer = setTimeout(() => {
         sub.unsubscribe();
@@ -82,26 +80,14 @@ export async function discoverAgents(
       }, 10_000);
 
       const sub = natsClient.subscribe(replyInbox, (bytes) => {
-        const perfResponseReceived = Date.now();
-        console.log(
-          `[perf:discover-agents] NATS response received: ` +
-            `sincePublish=${perfResponseReceived - perfBeforePublish}ms ` +
-            `responseBytes=${bytes.length}`,
-        );
         clearTimeout(timer);
         sub.unsubscribe();
         resolve(bytes);
       });
 
       natsClient.publish("registry.agent.discover", serializeEnvelope(envelope));
-      console.log(
-        `[perf:discover-agents] NATS request published: ` +
-          `setupMs=${Date.now() - perfStart} ` +
-          `inbox=${replyInbox} agentId=${agentId}`,
-      );
     });
 
-    const perfBeforeParse = Date.now();
     const response = deserializeEnvelope(responseBytes);
     const p = response.payload as {
       agents?: Array<Record<string, unknown>>;
@@ -133,21 +119,9 @@ export async function discoverAgents(
       };
     });
 
-    const perfEnd = Date.now();
-    console.log(
-      `[perf:discover-agents] complete: totalMs=${perfEnd - perfStart} ` +
-        `setup=${perfBeforePublish - perfStart}ms ` +
-        `natsRoundTrip=${perfBeforeParse - perfBeforePublish}ms ` +
-        `parse=${perfEnd - perfBeforeParse}ms ` +
-        `agentCount=${agents.length}`,
-    );
-
     return { ok: true, agents, total: p.total ?? agents.length };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.log(
-      `[perf:discover-agents] error: totalMs=${Date.now() - perfStart} error=${message}`,
-    );
     return { ok: false, error: message };
   }
 }

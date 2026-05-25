@@ -113,8 +113,6 @@ export function createNATSClient(options: NATSClientOptions): NATSClient {
     const key = `${subject}#${subIndex++}`;
     subscriptions.set(key, sub);
 
-    log.info(`subscribed to topic`, { subject, key });
-
     // Iterate messages in a background async loop.
     (async () => {
       for await (const msg of sub) {
