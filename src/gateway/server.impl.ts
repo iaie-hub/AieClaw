@@ -1621,7 +1621,10 @@ export async function startGatewayServer(
     // Background warmup: run agent cache warmup after the server is accepting
     // connections so it doesn't block WebSocket handshakes. Failures are non-fatal.
     import("./agent-perf-warmup.js")
-      .then((mod) => mod.warmupAgentCaches(cfgAtStart))
+      .then((mod) => {
+        console.log(`[perf:warmup] starting background warmup (server already listening)`);
+        return mod.warmupAgentCaches(cfgAtStart);
+      })
       .catch(() => {});
 
     const sessionDeliveryRecoveryMaxEnqueuedAt = Date.now();

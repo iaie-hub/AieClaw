@@ -132,6 +132,7 @@ export async function resolveSandboxContext(params: {
   sessionKey?: string;
   workspaceDir?: string;
 }): Promise<SandboxContext | null> {
+  const perfStart = Date.now();
   const resolved = resolveSandboxSession(params);
   if (!resolved) {
     return null;
@@ -141,6 +142,7 @@ export async function resolveSandboxContext(params: {
   if (cfg.prune.idleHours !== 0 || cfg.prune.maxAgeDays !== 0) {
     await (await import("./prune.js")).maybePruneSandboxes(cfg);
   }
+  const perfAfterPrune = Date.now();
 
   const { agentWorkspaceDir, scopeKey, workspaceDir } = await ensureSandboxWorkspaceLayout({
     cfg,
@@ -149,6 +151,7 @@ export async function resolveSandboxContext(params: {
     config: params.config,
     workspaceDir: params.workspaceDir,
   });
+  const perfAfterLayout = Date.now();
 
   const docker = await resolveSandboxDockerUser({
     docker: cfg.docker,
@@ -164,6 +167,7 @@ export async function resolveSandboxContext(params: {
     agentWorkspaceDir,
     cfg: resolvedCfg,
   });
+  const perfAfterBackend = Date.now();
   await updateRegistry({
     containerName: backend.runtimeId,
     backendId: backend.id,
@@ -174,6 +178,18 @@ export async function resolveSandboxContext(params: {
     image: backend.configLabel ?? resolvedCfg.docker.image,
     configLabelKind: backend.configLabelKind ?? "Image",
   });
+  const perfAfterRegistry = Date.now();
+  const totalMs = perfAfterRegistry - perfStart;
+  if (totalMs > 1000) {
+    console.log(
+      `[perf:sandbox-context] resolveSandboxContext totalMs=${totalMs} ` +
+        `prune=${perfAfterPrune - perfStart}ms ` +
+        `layout=${perfAfterLayout - perfAfterPrune}ms ` +
+        `backend=${perfAfterBackend - perfAfterLayout}ms ` +
+        `registry=${perfAfterRegistry - perfAfterBackend}ms ` +
+        `sessionKey=${params.sessionKey ?? "none"}`,
+    );
+  }
 
   const resolvedBrowserConfig = resolvedCfg.browser.enabled
     ? resolveBrowserConfig(params.config?.browser, params.config)

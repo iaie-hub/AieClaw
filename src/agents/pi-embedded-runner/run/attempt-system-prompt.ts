@@ -50,6 +50,7 @@ function appendRuntimeExtraSystemPrompt(params: {
 export function buildAttemptSystemPrompt(
   params: BuildAttemptSystemPromptParams,
 ): AttemptSystemPrompt {
+  const perfStart = Date.now();
   const baseSystemPrompt = params.systemPromptOverrideText
     ? appendModelIdentitySystemPrompt({
         systemPrompt: appendRuntimeExtraSystemPrompt({
@@ -65,6 +66,7 @@ export function buildAttemptSystemPrompt(
         model: params.embeddedSystemPrompt.runtimeInfo.model,
       })
     : buildEmbeddedSystemPrompt(params.embeddedSystemPrompt);
+  const perfAfterBase = Date.now();
 
   const systemPrompt = params.isRawModelRun
     ? ""
@@ -77,6 +79,16 @@ export function buildAttemptSystemPrompt(
           systemPrompt: baseSystemPrompt,
         },
       });
+  const perfEnd = Date.now();
+  const totalMs = perfEnd - perfStart;
+  if (totalMs > 1000) {
+    console.log(
+      `[perf:system-prompt] buildAttemptSystemPrompt totalMs=${totalMs} ` +
+        `basePrompt=${perfAfterBase - perfStart}ms ` +
+        `transform=${perfEnd - perfAfterBase}ms ` +
+        `promptLen=${systemPrompt.length}`,
+    );
+  }
 
   return {
     baseSystemPrompt,

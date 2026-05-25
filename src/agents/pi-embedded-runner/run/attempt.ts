@@ -1227,6 +1227,7 @@ export async function runEmbeddedAttempt(
 
   await fs.mkdir(resolvedWorkspace, { recursive: true });
 
+  const perfEmbeddedRunStart = Date.now();
   const sandboxSessionKey =
     params.sandboxSessionKey?.trim() || params.sessionKey?.trim() || params.sessionId;
   const sandbox = await resolveSandboxContext({
@@ -1250,6 +1251,11 @@ export async function runEmbeddedAttempt(
     sessionAgentId,
   });
   prepStages.mark("workspace-sandbox");
+  if (Date.now() - perfEmbeddedRunStart > 1000) {
+    log.warn(
+      `[perf:embedded-run] workspace-sandbox slow: ${Date.now() - perfEmbeddedRunStart}ms runId=${params.runId} sessionKey=${params.sessionKey}`,
+    );
+  }
 
   let restoreSkillEnv: (() => void) | undefined;
   let aborted = Boolean(params.abortSignal?.aborted);
@@ -1589,6 +1595,14 @@ export async function runEmbeddedAttempt(
       },
     });
     prepStages.mark("bootstrap-context");
+    {
+      const bootstrapElapsed = Date.now() - perfEmbeddedRunStart;
+      if (bootstrapElapsed > 5000) {
+        log.warn(
+          `[perf:embedded-run] bootstrap-context slow: totalElapsed=${bootstrapElapsed}ms runId=${params.runId} sessionKey=${params.sessionKey}`,
+        );
+      }
+    }
     const remappedContextFiles = remapInjectedContextFilesToWorkspace({
       files: resolvedContextFiles,
       sourceWorkspaceDir: resolvedWorkspace,
@@ -2086,6 +2100,14 @@ export async function runEmbeddedAttempt(
     const systemPromptOverride = attemptSystemPrompt.systemPromptOverride;
     let systemPromptText = systemPromptOverride();
     prepStages.mark("system-prompt");
+    {
+      const systemPromptElapsed = Date.now() - perfEmbeddedRunStart;
+      if (systemPromptElapsed > 10000) {
+        log.warn(
+          `[perf:embedded-run] system-prompt slow: totalElapsed=${systemPromptElapsed}ms promptLen=${systemPromptText?.length ?? 0} runId=${params.runId} sessionKey=${params.sessionKey}`,
+        );
+      }
+    }
 
     const compactionTimeoutMs = resolveCompactionTimeoutMs(params.config);
     const sessionWriteLockOptions = resolveEmbeddedAttemptSessionWriteLockOptions({
@@ -2775,6 +2797,14 @@ export async function runEmbeddedAttempt(
       }
       prepStages.mark("stream-setup");
       emitPrepStageSummary("stream-ready");
+      {
+        const streamReadyElapsed = Date.now() - perfEmbeddedRunStart;
+        if (streamReadyElapsed > 10000) {
+          log.warn(
+            `[perf:embedded-run] stream-ready slow: totalElapsed=${streamReadyElapsed}ms runId=${params.runId} sessionKey=${params.sessionKey}`,
+          );
+        }
+      }
 
       const cacheObservabilityEnabled = Boolean(cacheTrace) || log.isEnabled("debug");
       const promptCacheToolNames = collectPromptCacheToolNames(
