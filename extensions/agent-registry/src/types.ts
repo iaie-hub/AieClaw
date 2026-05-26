@@ -254,7 +254,7 @@ export interface MessageRouterOptions {
   natsClient: NATSClient;
   arbiter: CollaborationArbiter;
   createSession: (sourceAgentId: string, agentId: string) => AgentSession;
-  getOrCreateSession: (key: string, agentId: string) => AgentSession;
+  getOrCreateSession: (key: string, agentId: string, envelope?: RegistryEnvelope) => AgentSession;
   getLeastLoadedSession: (agentId: string) => AgentSession;
   getEffectiveAgentId?: () => string;
   /**

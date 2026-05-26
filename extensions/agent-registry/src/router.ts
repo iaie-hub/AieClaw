@@ -52,6 +52,21 @@ function segmentAfter(prefix: string, topic: string): string {
   return topic.slice(prefix.length);
 }
 
+/**
+ * Derive the SessionTracker key for a unicast message using source + session.
+ *
+ * When the envelope carries a session field, the key includes both source and
+ * session to isolate parallel conversations from the same agent. When session
+ * is absent (legacy or external agents), falls back to source-only for backward
+ * compatibility.
+ */
+function deriveUnicastSessionKey(source: string, session: string | null): string {
+  if (session) {
+    return `unicast:${source}:${session}`;
+  }
+  return `unicast:${source}`;
+}
+
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
@@ -88,7 +103,8 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
       payload: envelope.payload,
     });
     log.debug(`unicast envelope detail`, fmtEnvelope(envelope));
-    const session = getOrCreateSession(envelope.source, boundAgentId);
+    const key = deriveUnicastSessionKey(envelope.source, envelope.session);
+    const session = getOrCreateSession(key, boundAgentId, envelope);
     await session.dispatch(envelope);
   }
 

@@ -81,19 +81,23 @@ type ResolvedAgentRegistryAccount = {
 /**
  * Tracks active agent sessions so the heartbeat can report the correct count.
  * Each session is keyed by its sessionKey.
+ *
+ * Sessions are never automatically cleaned up — they persist for the lifetime
+ * of the channel connection. This ensures that ongoing conversations retain
+ * their OpenClaw session context regardless of idle periods between messages.
  */
 class SessionTracker {
   readonly sessions = new Map<string, AgentSession>();
-  onUpdate?: (count: number) => void;
+  onActiveTaskCountChange?: (totalActiveTasks: number) => void;
 
   add(key: string, session: AgentSession): void {
     this.sessions.set(key, session);
-    this.onUpdate?.(this.count());
+    // New sessions start with 0 active tasks — no count change needed.
   }
 
   remove(key: string): void {
     this.sessions.delete(key);
-    this.onUpdate?.(this.count());
+    this.onActiveTaskCountChange?.(this.totalActiveTaskCount());
   }
 
   get(key: string): AgentSession | undefined {
@@ -104,9 +108,23 @@ class SessionTracker {
     return this.sessions.size;
   }
 
+  /** Sum of activeTaskCount across all tracked sessions. */
+  totalActiveTaskCount(): number {
+    let total = 0;
+    for (const session of this.sessions.values()) {
+      total += session.activeTaskCount;
+    }
+    return total;
+  }
+
+  /** Notify the worker of the current total active task count. */
+  notifyActiveTaskCount(): void {
+    this.onActiveTaskCountChange?.(this.totalActiveTaskCount());
+  }
+
   clear(): void {
     this.sessions.clear();
-    this.onUpdate?.(this.count());
+    this.onActiveTaskCountChange?.(0);
   }
 }
 
@@ -142,6 +160,14 @@ function createAgentSession(params: {
   };
   /** Set to register active outbound sessions for cross-session self-message filtering. */
   activeOutboundSessions?: Set<string>;
+  /**
+   * Fixed OpenClaw session key derived from the inbound envelope's session field
+   * at AgentSession creation time. When set, dispatch() uses this value directly
+   * instead of dynamically parsing envelope.session on each call — eliminating
+   * the pendingSessionKeyOverride race condition for parallel sessions from the
+   * same source agent.
+   */
+  fixedOpenClawSessionKey?: string;
 }): AgentSession {
   const {
     sessionKey,
@@ -153,6 +179,7 @@ function createAgentSession(params: {
     sessionTracker,
     sessionOverrideCtrl,
     activeOutboundSessions,
+    fixedOpenClawSessionKey,
   } = params;
   const boundAgentId = params.boundAgentId;
 
@@ -161,10 +188,17 @@ function createAgentSession(params: {
   const session: AgentSession = {
     async dispatch(envelope: RegistryEnvelope): Promise<void> {
       activeTaskCount++;
+      sessionTracker.notifyActiveTaskCount();
       try {
-        // Phase 3: Resolve session key override from envelope.session
+        // Resolve the OpenClaw session key override.
+        // When fixedOpenClawSessionKey is set (session was known at creation time),
+        // use it directly — no dynamic parsing needed, no race condition.
+        // When not set (legacy session=null path), fall back to dynamic resolution
+        // from envelope.session for backward compatibility.
         let resolvedSessionKeyOverride: string | undefined;
-        if (envelope.session && sessionOverrideCtrl) {
+        if (fixedOpenClawSessionKey) {
+          resolvedSessionKeyOverride = fixedOpenClawSessionKey;
+        } else if (envelope.session && sessionOverrideCtrl) {
           const parts = envelope.session.split(":");
           // Format: agent:{agentId}:group:{sessionUuid}
           if (parts.length >= 4 && parts[0] === "agent" && parts[2] === "group") {
@@ -255,6 +289,7 @@ function createAgentSession(params: {
         }
       } finally {
         activeTaskCount--;
+        sessionTracker.notifyActiveTaskCount();
       }
     },
 
@@ -765,8 +800,8 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             },
           };
 
-          sessionTracker.onUpdate = (count) => {
-            worker.postMessage({ type: "UPDATE_SESSION_COUNT", count });
+          sessionTracker.onActiveTaskCountChange = (totalActiveTasks) => {
+            worker.postMessage({ type: "UPDATE_SESSION_COUNT", count: totalActiveTasks });
           };
 
           try {
@@ -908,7 +943,7 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             });
           };
 
-          const getOrCreateSession = (key: string, _agentId: string): AgentSession => {
+          const getOrCreateSession = (key: string, _agentId: string, envelope?: RegistryEnvelope): AgentSession => {
             const existing = sessionTracker.get(key);
             if (existing) {
               return existing;
@@ -920,6 +955,21 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             const kind: "cowork" | "unicast" = key.startsWith("cw-") || key.startsWith("cowork-")
               ? "cowork"
               : "unicast";
+
+            // Derive fixedOpenClawSessionKey from the envelope's session field
+            // at creation time. This binds the AgentSession to a specific OpenClaw
+            // session key, eliminating the pendingSessionKeyOverride race condition.
+            let fixedOpenClawSessionKey: string | undefined;
+            const envelopeSession = envelope?.session;
+            if (envelopeSession) {
+              const parts = envelopeSession.split(":");
+              // Format: agent:{agentId}:group:{sessionUuid}
+              if (parts.length >= 4 && parts[0] === "agent" && parts[2] === "group") {
+                const sessionUuid = parts.slice(3).join(":");
+                fixedOpenClawSessionKey = `agent:${boundAgentId}:group:${sessionUuid}`;
+              }
+            }
+
             return createAgentSession({
               sessionKey: key,
               sessionContextKind: kind,
@@ -932,6 +982,7 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
               sessionTracker,
               sessionOverrideCtrl,
               activeOutboundSessions,
+              fixedOpenClawSessionKey,
             });
           };
 
