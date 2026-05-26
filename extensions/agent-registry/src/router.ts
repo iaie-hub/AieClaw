@@ -227,13 +227,45 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
           payload: envelope.payload,
         });
         if (envelope.session) {
+          // 实时流改造：将响应文本组装为标准的 "assistant" 和 "lifecycle" 闭环事件
+          // 使用唯一的 message_id 作为 runId，在主会话与参与者会话底部实现增量实时追加
+          const text = typeof envelope.payload["text"] === "string"
+            ? envelope.payload["text"]
+            : JSON.stringify(envelope.payload);
+
+          // 触发 "assistant" 流输入事件
           emitAgentEvent({
-            runId: envelope.request_id,
+            runId: envelope.message_id,
             sessionKey: envelope.session,
-            stream: "agent",
+            stream: "assistant",
             data: {
+              text,
+              delta: text,
+              senderLabel: envelope.source,
+            },
+          });
+
+          // 触发 "lifecycle" 正常结束事件完成闭环
+          emitAgentEvent({
+            runId: envelope.message_id,
+            sessionKey: envelope.session,
+            stream: "lifecycle",
+            data: {
+              phase: "end",
+            },
+          });
+
+          // 持久化到 transcript，使用 content array 格式与 emitChatFinal 对齐，
+          // 确保 preserveOptimisticTailMessages 签名匹配去重
+          emitSessionTranscriptUpdate({
+            sessionFile: envelope.session,
+            sessionKey: envelope.session,
+            messageId: envelope.message_id,
+            message: {
               role: "assistant",
-              text: typeof envelope.payload["text"] === "string" ? envelope.payload["text"] : JSON.stringify(envelope.payload),
+              content: [{ type: "text", text }],
+              timestamp: Date.now(),
+              sourceAgentId: envelope.source,
               senderLabel: envelope.source,
             },
           });
@@ -245,23 +277,6 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
         }
         if (matchesPrefix("a2a.cowork.", topic)) {
           emitCollabEvent({ topic, message: envelope });
-        }
-        if (envelope.session) {
-          const text =
-            typeof envelope.payload["text"] === "string"
-              ? envelope.payload["text"]
-              : JSON.stringify(envelope.payload);
-          emitSessionTranscriptUpdate({
-            sessionFile: envelope.session,
-            sessionKey: envelope.session,
-            messageId: envelope.message_id,
-            message: {
-              role: "agent",
-              content: text,
-              timestamp: Date.now(),
-              sourceAgentId: envelope.source,
-            },
-          });
         }
         return;
       }
@@ -318,8 +333,8 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
                 sessionKey: envelope.session,
                 messageId: envelope.message_id,
                 message: {
-                  role: "agent",
-                  content: text,
+                  role: "assistant",
+                  content: [{ type: "text", text }],
                   timestamp: Date.now(),
                   sourceAgentId: envelope.source,
                 },

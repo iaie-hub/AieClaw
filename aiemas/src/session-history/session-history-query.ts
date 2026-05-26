@@ -160,15 +160,17 @@ export function queryHistoryRange(
   const messages = merged.slice(offset, offset + pageSize);
 
   // ── Enrich with senderLabel ────────────────────────────────────────────────
-  // Only resolve display names for user messages; assistant/tool messages
-  // render as "Agent" in the UI (senderLabel=null), matching real-time behavior.
+  // Resolve display names for messages with known sender identity:
+  // - agent role: use sourceAgentId
+  // - assistant role with sourceAgentId: A2A response from another agent (e.g. cowork)
+  // - user role: resolve via userId display name lookup
   const { resolveDisplayName } = params;
   const enriched: StoredMessageWithSender[] = messages.map(
     (m) =>
       Object.assign(m, {
         senderLabel:
-          m.role === "agent" && m.sourceAgentId
-            ? `Agent: ${m.sourceAgentId}`
+          (m.role === "agent" || m.role === "assistant") && m.sourceAgentId
+            ? m.sourceAgentId
             : m.role === "user" && m.userId && resolveDisplayName
               ? (resolveDisplayName(m.userId) ?? null)
               : null,

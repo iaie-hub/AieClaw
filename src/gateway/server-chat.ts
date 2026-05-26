@@ -237,6 +237,7 @@ export function createAgentEventHandler({
   };
 
   const pendingTerminalLifecycleErrors = new Map<string, PendingTerminalLifecycleError>();
+  const runSenderLabels = new Map<string, string>();
 
   type AgentTextThrottleStream = "assistant" | "thinking";
 
@@ -633,6 +634,8 @@ export function createAgentEventHandler({
     chatRunState.deltaSentAt.delete(clientRunId);
     clearAgentTextThrottleState(clientRunId);
     const spawnedBy = resolveSpawnedBy(sessionKey);
+    const senderLabel = runSenderLabels.get(sourceRunId);
+    runSenderLabels.delete(sourceRunId);
     if (jobState === "done") {
       const payload = {
         runId: clientRunId,
@@ -647,6 +650,7 @@ export function createAgentEventHandler({
                 role: "assistant",
                 content: [{ type: "text", text }],
                 timestamp: Date.now(),
+                ...(senderLabel && { senderLabel }),
               }
             : undefined,
       };
@@ -812,6 +816,9 @@ export function createAgentEventHandler({
   };
 
   return (evt: AgentEventPayload) => {
+    if (evt.stream === "assistant" && typeof evt.data?.senderLabel === "string") {
+      runSenderLabels.set(evt.runId, evt.data.senderLabel);
+    }
     const lifecyclePhase =
       evt.stream === "lifecycle" && typeof evt.data?.phase === "string" ? evt.data.phase : null;
     if (lifecyclePhase !== null && lifecyclePhase !== "error") {

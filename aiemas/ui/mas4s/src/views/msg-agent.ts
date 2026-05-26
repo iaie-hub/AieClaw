@@ -596,9 +596,11 @@ export class MsgAgent extends LitElement {
   }
 
   render() {
-    const agentName = this.message.sessionKey
-      ? extractAgentNameFromKey(this.message.sessionKey)
-      : (this.message.senderLabel ?? "Agent");
+    const agentName = this.message.senderLabel
+      ? this.message.senderLabel
+      : this.message.sessionKey
+        ? extractAgentNameFromKey(this.message.sessionKey)
+        : "Agent";
     const ts = this.message.timestamp;
     const timeStr = ts
       ? (() => {

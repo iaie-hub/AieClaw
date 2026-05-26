@@ -546,13 +546,16 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
       content.push({ type: "thinking", thinking: thinkingText });
     }
     content.push({ type: "text", text: data.text });
+    const dataRecord = data as Record<string, unknown>;
+    const assistantSenderLabel =
+      typeof dataRecord.senderLabel === "string" ? dataRecord.senderLabel : null;
     const streamMsg: ChatMessage = {
       role: "assistant",
       content,
       timestamp: Date.now(),
       id: runId,
       sessionKey, // 需求 9.1
-      senderLabel: null,
+      senderLabel: assistantSenderLabel,
     };
 
     // 路由到 messagesByAgent
