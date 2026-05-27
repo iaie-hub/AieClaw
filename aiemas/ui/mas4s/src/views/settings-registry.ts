@@ -12,16 +12,11 @@ import {
 } from "../utils/registry-validators.js";
 
 /**
- * AgentRegistry 设置页面配置区域组件。
- * - API Key 输入框（密码类型 + 显示/隐藏切换）、失焦时格式验证
- * - NATS 配置表单: URL、Token、Agent ID、Agent Name、Bound Agent ID
- * - 保存按钮: 调用 saveRegistryConfig，显示成功/失败提示
- * - 加载时回填已保存配置（API Key 掩码显示）
- * - Admin 角色限制: 非 Admin 隐藏 NATS 配置编辑区域
+ * AgentRegistry 设置页面配置区域组件（Register 页签内容）。
  */
 @customElement("settings-registry")
 export class SettingsRegistry extends LitElement {
-  /** Gateway client instance passed from parent */
+  /** Gateway client instance passed from parent settings-view */
   @property({ attribute: false }) client!: GatewayBrowserClient;
 
   /** Current user role */
@@ -49,8 +44,6 @@ export class SettingsRegistry extends LitElement {
 
   @state() private _boundAgentId = "";
 
-  @state() private _activeTab: "register" = "register";
-
   // ── UI state ────────────────────────────────────────────────────────────────
 
   @state() private _saving = false;
@@ -61,83 +54,10 @@ export class SettingsRegistry extends LitElement {
 
   static styles = css`
     :host {
-      display: flex;
-      flex-direction: column;
-      flex: 1;
-      height: 100%;
-      background: white;
-      overflow: hidden;
-    }
-
-    .header-area {
-      flex-shrink: 0;
-      padding: 24px 32px 0;
-      background: white;
-      border-bottom: 1px solid #e8edf5;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    .header-text {
-      flex: 1;
-    }
-
-    .page-title {
-      font-size: 24px;
-      font-weight: 600;
-      color: #1e293b;
-      margin: 0;
-    }
-
-    .subtitle {
-      font-size: 14px;
-      color: #64748b;
-      margin: 6px 0 0;
-    }
-
-    .tabs {
-      display: flex;
-      gap: 32px;
-      margin-top: 8px;
-    }
-
-    .tab-item {
-      padding: 0 4px 12px;
-      font-size: 14px;
-      font-weight: 600;
-      color: #64748b;
-      cursor: pointer;
-      position: relative;
-    }
-
-    .tab-item:hover {
-      color: #1e293b;
-    }
-
-    .tab-item.active {
-      color: #3b82f6;
-    }
-
-    .tab-item.active::after {
-      content: "";
-      position: absolute;
-      bottom: -1px;
-      left: 0;
-      right: 0;
-      height: 2px;
-      background: #3b82f6;
-      border-radius: 2px 2px 0 0;
-      z-index: 1;
-    }
-
-    .content-area {
-      flex: 1;
+      display: block;
+      width: 100%;
       padding: 32px;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
+      box-sizing: border-box;
     }
 
     .settings-container {
@@ -371,7 +291,7 @@ export class SettingsRegistry extends LitElement {
       this._agentName = config.agentName ?? "";
       this._boundAgentId = config.boundAgentId ?? "";
     } catch {
-      // Config load failed — leave fields empty, user can fill in
+      // Config load failed — leave fields empty
     } finally {
       this._loading = false;
     }
@@ -398,7 +318,6 @@ export class SettingsRegistry extends LitElement {
   };
 
   private _onAgentIdBlur = () => {
-    // Auto-generate default if empty on first config
     if (this._agentId.trim() === "") {
       this._agentId = `Agent-${crypto.randomUUID()}`;
       this._agentIdError = "";
@@ -420,7 +339,6 @@ export class SettingsRegistry extends LitElement {
   // ── Save handler ────────────────────────────────────────────────────────────
 
   private _hasValidationErrors(): boolean {
-    // Re-validate all non-empty fields
     if (this._apiKey.trim()) {
       const r = validateApiKey(this._apiKey);
       if (!r.valid) {
@@ -518,94 +436,61 @@ export class SettingsRegistry extends LitElement {
   render() {
     if (this._loading) {
       return html`
-        <div class="header-area">
-          <div class="header-text">
-            <h1 class="page-title">系统设置</h1>
-            <p class="subtitle">管理 AgentRegistry 注册中心和 NATS 连接配置</p>
-          </div>
-          <div class="tabs">
-            <div
-              class="tab-item ${this._activeTab === "register" ? "active" : ""}"
-              @click=${() => (this._activeTab = "register")}
-            >
-              Register
-            </div>
-          </div>
-        </div>
-        <div class="content-area">
-          <div class="loading-state">
-            <div class="spinner"></div>
-            <div>加载配置中…</div>
-          </div>
+        <div class="loading-state">
+          <div class="spinner"></div>
+          <div>加载配置中…</div>
         </div>
       `;
     }
 
     return html`
-      <div class="header-area">
-        <div class="header-text">
-          <h1 class="page-title">系统设置</h1>
-          <p class="subtitle">管理 AgentRegistry 注册中心和 NATS 连接配置</p>
-        </div>
-        <div class="tabs">
-          <div
-            class="tab-item ${this._activeTab === "register" ? "active" : ""}"
-            @click=${() => (this._activeTab = "register")}
-          >
-            Register
-          </div>
-        </div>
-      </div>
+      <div class="settings-container">
+        <h2 class="section-title">AgentRegistry 配置</h2>
 
-      <div class="content-area">
-        <div class="settings-container">
-          <h2 class="section-title">AgentRegistry 配置</h2>
-
-          <!-- API Key -->
-          <div class="form-group">
-            <label class="form-label">API Key</label>
-            <div class="input-wrapper">
-              <input
-                class="form-input with-toggle ${this._apiKeyError ? "has-error" : ""}"
-                type="${this._apiKeyVisible ? "text" : "password"}"
-                placeholder="api-ar-..."
-                .value=${this._apiKey}
-                @input=${(e: Event) => {
-                  this._apiKey = (e.target as HTMLInputElement).value;
-                  this._apiKeyError = "";
-                }}
-                @blur=${this._onApiKeyBlur}
-                autocomplete="off"
-              />
-              <button
-                class="toggle-visibility"
-                type="button"
-                @click=${() => {
-                  this._apiKeyVisible = !this._apiKeyVisible;
-                }}
-                title="${this._apiKeyVisible ? "隐藏" : "显示"}"
-                aria-label="${this._apiKeyVisible ? "隐藏 API Key" : "显示 API Key"}"
-              >
-                ${this._apiKeyVisible ? "隐藏" : "显示"}
-              </button>
-            </div>
-            ${this._apiKeyError ? html`<div class="field-error">${this._apiKeyError}</div>` : ""}
-          </div>
-
-          <!-- NATS Config (Admin only) -->
-          ${this.role === "admin" ? this._renderNatsSection() : ""}
-
-          <!-- Save -->
-          <div class="save-row">
-            <button class="btn-save" ?disabled=${this._saving} @click=${this._handleSave}>
-              ${this._saving ? "保存中…" : "保存配置"}
+        <!-- API Key -->
+        <div class="form-group">
+          <label class="form-label">API Key</label>
+          <div class="input-wrapper">
+            <input
+              class="form-input with-toggle ${this._apiKeyError ? "has-error" : ""}"
+              type="${this._apiKeyVisible ? "text" : "password"}"
+              placeholder="api-ar-..."
+              .value=${this._apiKey}
+              @input=${(e: Event) => {
+                this._apiKey = (e.target as HTMLInputElement).value;
+                this._apiKeyError = "";
+              }}
+              @blur=${this._onApiKeyBlur}
+              autocomplete="off"
+            />
+            <button
+              class="toggle-visibility"
+              type="button"
+              @click=${() => {
+                this._apiKeyVisible = !this._apiKeyVisible;
+              }}
+              title="${this._apiKeyVisible ? "隐藏" : "显示"}"
+              aria-label="${this._apiKeyVisible ? "隐藏 API Key" : "显示 API Key"}"
+            >
+              ${this._apiKeyVisible ? "隐藏" : "显示"}
             </button>
-            ${this._toastMsg
-              ? html`<span class="toast ${this._toastError ? "error" : "success"}"
-                  >${this._toastMsg}</span
-                >`
-              : ""}
           </div>
+          ${this._apiKeyError ? html`<div class="field-error">${this._apiKeyError}</div>` : ""}
+        </div>
+
+        <!-- NATS Config (Admin only) -->
+        ${this.role === "admin" ? this._renderNatsSection() : ""}
+
+        <!-- Save -->
+        <div class="save-row">
+          <button class="btn-save" ?disabled=${this._saving} @click=${this._handleSave}>
+            ${this._saving ? "保存中…" : "保存配置"}
+          </button>
+          ${this._toastMsg
+            ? html`<span class="toast ${this._toastError ? "error" : "success"}"
+                >${this._toastMsg}</span
+              >`
+            : ""}
         </div>
       </div>
     `;
