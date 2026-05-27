@@ -5,7 +5,7 @@ import type { GatewayBrowserClient } from "../lib/gateway.js";
 import type { AgentInfo } from "../store/app-store.js";
 
 /**
- * 系统设置整体框架布局组件（setttings.ts）。
+ * 系统设置整体框架布局组件（settings.ts）。
  * 管理设置大标题、Skills 样式的页签导航切换，并支持按页签异步渲染独立设置组件。
  */
 @customElement("settings-view")

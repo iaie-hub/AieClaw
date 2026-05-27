@@ -4,7 +4,7 @@ import { getClient } from "../gateway/client.js";
 import type { AppStore } from "../store/app-store.js";
 import { extractAgentNameFromKey } from "../utils/session-utils.js";
 import "./clawhub-view.js";
-import "./setttings.js";
+import "./settings.js";
 
 export interface AppShellHandlers {
   onLoginSuccess: () => void;
