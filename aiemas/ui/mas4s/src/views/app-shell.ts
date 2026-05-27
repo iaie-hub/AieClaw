@@ -1,7 +1,10 @@
 import { html, type TemplateResult } from "lit";
 import type { NavItem, DialogKind } from "../controllers/ui-state-controller.js";
+import { getClient } from "../gateway/client.js";
 import type { AppStore } from "../store/app-store.js";
 import { extractAgentNameFromKey } from "../utils/session-utils.js";
+import "./clawhub-view.js";
+import "./setttion.js";
 
 export interface AppShellHandlers {
   onLoginSuccess: () => void;
@@ -104,99 +107,114 @@ export function renderMain(
         ? html` <user-list-view style="flex: 1; overflow: hidden"></user-list-view> `
         : activeNav === "discussions"
           ? html` <discussion-panel style="flex: 1; overflow: hidden"></discussion-panel> `
-          : html`
-              <main-workspace
-                .activeNav=${activeNav}
-                .session=${store.activeSession ?? null}
-                .messages=${(() => {
-                  if (!store.activeSessionUuid || !store.activeSession) {
-                    return [];
-                  }
-                  const rootAgentId = extractAgentNameFromKey(store.activeSession.key);
-                  const agentMsgs = store.getAgentMessages(store.activeSessionUuid, rootAgentId);
-                  // 优先使用 messagesByAgent 中的根 Agent 消息；
-                  // 若为空则回退到 messagesBySession（兼容尚未路由的场景）
-                  return agentMsgs.length > 0
-                    ? agentMsgs
-                    : (store.messagesBySession.get(store.activeSessionUuid) ?? []);
-                })()}
-                .pendingApprovals=${store.pendingApprovals}
-                .resolvedApprovals=${store.resolvedApprovals}
-                .isChatting=${store.activeSessionUuid
-                  ? (store.isChattingBySession.get(store.activeSessionUuid) ?? false)
-                  : false}
-                .hasSummary=${store.activeSessionUuid
-                  ? store.getHistoryMeta(store.activeSessionUuid).hasSummary
-                  : false}
-                .truncated=${store.activeSessionUuid
-                  ? store.getHistoryMeta(store.activeSessionUuid).truncated
-                  : false}
-                .hasMoreHistory=${(() => {
-                  if (!store.activeSessionUuid) {
-                    return false;
-                  }
-                  const meta = store.getHistoryMeta(store.activeSessionUuid);
-                  // Use page < totalPages as the authoritative signal.
-                  // totalMsgCount cannot be compared against loaded message count because
-                  // splitHistoryMessage expands one raw message into multiple render bubbles,
-                  // causing loaded > totalMsgCount even when earlier pages still exist.
-                  return meta.page < meta.totalPages;
-                })()}
-                .sopSteps=${store.activeSessionUuid
-                  ? (store.sopStepsBySession.get(store.activeSessionUuid)?.steps ?? [])
-                  : []}
-                .sopLabel=${store.activeSessionUuid
-                  ? (store.sopStepsBySession.get(store.activeSessionUuid)?.sopLabel ?? "")
-                  : ""}
-                .sopIcon=${store.activeSessionUuid
-                  ? (store.sopStepsBySession.get(store.activeSessionUuid)?.sopIcon ?? "")
-                  : ""}
-                .activeProgress=${store.activeSessionUuid
-                  ? (store.activeProgressBySession.get(store.activeSessionUuid) ?? null)
-                  : null}
-                .progressLogs=${store.activeSessionUuid
-                  ? (store.progressLogsBySession.get(store.activeSessionUuid) ?? [])
-                  : []}
-                .currentStepIndex=${store.activeSessionUuid
-                  ? (store.sopStepsBySession.get(store.activeSessionUuid)?.currentStepIndex ?? -1)
-                  : -1}
-                .sopCompletedAt=${store.activeSessionUuid
-                  ? store.sopStepsBySession.get(store.activeSessionUuid)?.completedAt
-                  : undefined}
-                .viewMode=${store.activeSessionUuid
-                  ? store.getViewMode(store.activeSessionUuid)
-                  : "single"}
-                .subAgentMessages=${store.activeSessionUuid
-                  ? store.getSubAgentMessages(store.activeSessionUuid)
-                  : new Map()}
-                .subAgents=${store.activeSessionUuid
-                  ? store.getSubAgentList(store.activeSessionUuid)
-                  : []}
-                .agents=${store.agents}
-                .activeSubAgentTab=${store.activeSessionUuid
-                  ? (store.activeSubAgentTab.get(store.activeSessionUuid) ?? "")
-                  : ""}
-                .unreadAgents=${store.activeSessionUuid
-                  ? (store.unreadByAgent.get(store.activeSessionUuid) ?? new Set())
-                  : new Set()}
-                .activeAgents=${store.activeSessionUuid
-                  ? (store.activeAgentsBySession.get(store.activeSessionUuid) ?? new Set())
-                  : new Set()}
-                .completedAgents=${store.activeSessionUuid
-                  ? (store.completedAgentsBySession.get(store.activeSessionUuid) ?? new Set())
-                  : new Set()}
-                @send-message=${h.onSendMessage}
-                @abort-chat=${h.onAbortChat}
-                @resolve-approval=${h.onResolveApproval}
-                @invite-open=${h.onInviteOpen}
-                @session-archive=${h.onSessionArchive}
-                @session-unarchive=${h.onSessionUnarchive}
-                @session-agent-update=${h.onSessionAgentUpdate}
-                @load-more-history=${h.onLoadMoreHistory}
-                @tab-change=${h.onTabChange}
-                @drawer-send-message=${h.onDrawerSendMessage}
-              ></main-workspace>
-            `}
+          : activeNav === "clawhub"
+            ? html` <clawhub-view style="flex: 1; overflow: hidden"></clawhub-view> `
+            : activeNav === "settings"
+              ? html`
+                  <settings-view
+                    style="flex: 1; overflow: hidden"
+                    .client=${getClient()}
+                    .role=${store.currentUser?.role ?? "viewer"}
+                    .localAgents=${store.agents}
+                  ></settings-view>
+                `
+              : html`
+                  <main-workspace
+                    .activeNav=${activeNav}
+                    .session=${store.activeSession ?? null}
+                    .messages=${(() => {
+                      if (!store.activeSessionUuid || !store.activeSession) {
+                        return [];
+                      }
+                      const rootAgentId = extractAgentNameFromKey(store.activeSession.key);
+                      const agentMsgs = store.getAgentMessages(
+                        store.activeSessionUuid,
+                        rootAgentId,
+                      );
+                      // 优先使用 messagesByAgent 中的根 Agent 消息；
+                      // 若为空则回退到 messagesBySession（兼容尚未路由的场景）
+                      return agentMsgs.length > 0
+                        ? agentMsgs
+                        : (store.messagesBySession.get(store.activeSessionUuid) ?? []);
+                    })()}
+                    .pendingApprovals=${store.pendingApprovals}
+                    .resolvedApprovals=${store.resolvedApprovals}
+                    .isChatting=${store.activeSessionUuid
+                      ? (store.isChattingBySession.get(store.activeSessionUuid) ?? false)
+                      : false}
+                    .hasSummary=${store.activeSessionUuid
+                      ? store.getHistoryMeta(store.activeSessionUuid).hasSummary
+                      : false}
+                    .truncated=${store.activeSessionUuid
+                      ? store.getHistoryMeta(store.activeSessionUuid).truncated
+                      : false}
+                    .hasMoreHistory=${(() => {
+                      if (!store.activeSessionUuid) {
+                        return false;
+                      }
+                      const meta = store.getHistoryMeta(store.activeSessionUuid);
+                      // Use page < totalPages as the authoritative signal.
+                      // totalMsgCount cannot be compared against loaded message count because
+                      // splitHistoryMessage expands one raw message into multiple render bubbles,
+                      // causing loaded > totalMsgCount even when earlier pages still exist.
+                      return meta.page < meta.totalPages;
+                    })()}
+                    .sopSteps=${store.activeSessionUuid
+                      ? (store.sopStepsBySession.get(store.activeSessionUuid)?.steps ?? [])
+                      : []}
+                    .sopLabel=${store.activeSessionUuid
+                      ? (store.sopStepsBySession.get(store.activeSessionUuid)?.sopLabel ?? "")
+                      : ""}
+                    .sopIcon=${store.activeSessionUuid
+                      ? (store.sopStepsBySession.get(store.activeSessionUuid)?.sopIcon ?? "")
+                      : ""}
+                    .activeProgress=${store.activeSessionUuid
+                      ? (store.activeProgressBySession.get(store.activeSessionUuid) ?? null)
+                      : null}
+                    .progressLogs=${store.activeSessionUuid
+                      ? (store.progressLogsBySession.get(store.activeSessionUuid) ?? [])
+                      : []}
+                    .currentStepIndex=${store.activeSessionUuid
+                      ? (store.sopStepsBySession.get(store.activeSessionUuid)?.currentStepIndex ??
+                        -1)
+                      : -1}
+                    .sopCompletedAt=${store.activeSessionUuid
+                      ? store.sopStepsBySession.get(store.activeSessionUuid)?.completedAt
+                      : undefined}
+                    .viewMode=${store.activeSessionUuid
+                      ? store.getViewMode(store.activeSessionUuid)
+                      : "single"}
+                    .subAgentMessages=${store.activeSessionUuid
+                      ? store.getSubAgentMessages(store.activeSessionUuid)
+                      : new Map()}
+                    .subAgents=${store.activeSessionUuid
+                      ? store.getSubAgentList(store.activeSessionUuid)
+                      : []}
+                    .agents=${store.agents}
+                    .activeSubAgentTab=${store.activeSessionUuid
+                      ? (store.activeSubAgentTab.get(store.activeSessionUuid) ?? "")
+                      : ""}
+                    .unreadAgents=${store.activeSessionUuid
+                      ? (store.unreadByAgent.get(store.activeSessionUuid) ?? new Set())
+                      : new Set()}
+                    .activeAgents=${store.activeSessionUuid
+                      ? (store.activeAgentsBySession.get(store.activeSessionUuid) ?? new Set())
+                      : new Set()}
+                    .completedAgents=${store.activeSessionUuid
+                      ? (store.completedAgentsBySession.get(store.activeSessionUuid) ?? new Set())
+                      : new Set()}
+                    @send-message=${h.onSendMessage}
+                    @abort-chat=${h.onAbortChat}
+                    @resolve-approval=${h.onResolveApproval}
+                    @invite-open=${h.onInviteOpen}
+                    @session-archive=${h.onSessionArchive}
+                    @session-unarchive=${h.onSessionUnarchive}
+                    @session-agent-update=${h.onSessionAgentUpdate}
+                    @load-more-history=${h.onLoadMoreHistory}
+                    @tab-change=${h.onTabChange}
+                    @drawer-send-message=${h.onDrawerSendMessage}
+                  ></main-workspace>
+                `}
     </div>
 
     <!-- 弹窗 -->
