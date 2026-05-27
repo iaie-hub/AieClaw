@@ -49,6 +49,8 @@ export class SettingsRegistry extends LitElement {
 
   @state() private _boundAgentId = "";
 
+  @state() private _activeTab: "register" = "register";
+
   // ── UI state ────────────────────────────────────────────────────────────────
 
   @state() private _saving = false;
@@ -63,18 +65,17 @@ export class SettingsRegistry extends LitElement {
       flex-direction: column;
       flex: 1;
       height: 100%;
-      background: #f1f5f9;
+      background: white;
       overflow: hidden;
     }
 
     .header-area {
       flex-shrink: 0;
-      padding: 24px 32px;
+      padding: 24px 32px 0;
       background: white;
       border-bottom: 1px solid #e8edf5;
       display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
+      flex-direction: column;
       gap: 16px;
     }
 
@@ -95,6 +96,41 @@ export class SettingsRegistry extends LitElement {
       margin: 6px 0 0;
     }
 
+    .tabs {
+      display: flex;
+      gap: 32px;
+      margin-top: 8px;
+    }
+
+    .tab-item {
+      padding: 0 4px 12px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #64748b;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .tab-item:hover {
+      color: #1e293b;
+    }
+
+    .tab-item.active {
+      color: #3b82f6;
+    }
+
+    .tab-item.active::after {
+      content: "";
+      position: absolute;
+      bottom: -1px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: #3b82f6;
+      border-radius: 2px 2px 0 0;
+      z-index: 1;
+    }
+
     .content-area {
       flex: 1;
       padding: 32px;
@@ -104,14 +140,9 @@ export class SettingsRegistry extends LitElement {
       align-items: flex-start;
     }
 
-    .settings-card {
-      background: white;
-      border-radius: 12px;
-      border: 1px solid #e8edf5;
-      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
-      padding: 32px;
+    .settings-container {
       width: 100%;
-      max-width: 680px;
+      max-width: 600px;
       box-sizing: border-box;
     }
 
@@ -302,12 +333,9 @@ export class SettingsRegistry extends LitElement {
       justify-content: center;
       padding: 60px;
       width: 100%;
-      max-width: 680px;
+      max-width: 600px;
       color: #94a3b8;
       font-size: 14px;
-      background: white;
-      border-radius: 12px;
-      border: 1px solid #e8edf5;
     }
 
     .spinner {
@@ -495,6 +523,14 @@ export class SettingsRegistry extends LitElement {
             <h1 class="page-title">系统设置</h1>
             <p class="subtitle">管理 AgentRegistry 注册中心和 NATS 连接配置</p>
           </div>
+          <div class="tabs">
+            <div
+              class="tab-item ${this._activeTab === "register" ? "active" : ""}"
+              @click=${() => (this._activeTab = "register")}
+            >
+              Register
+            </div>
+          </div>
         </div>
         <div class="content-area">
           <div class="loading-state">
@@ -511,10 +547,18 @@ export class SettingsRegistry extends LitElement {
           <h1 class="page-title">系统设置</h1>
           <p class="subtitle">管理 AgentRegistry 注册中心和 NATS 连接配置</p>
         </div>
+        <div class="tabs">
+          <div
+            class="tab-item ${this._activeTab === "register" ? "active" : ""}"
+            @click=${() => (this._activeTab = "register")}
+          >
+            Register
+          </div>
+        </div>
       </div>
 
       <div class="content-area">
-        <div class="settings-card">
+        <div class="settings-container">
           <h2 class="section-title">AgentRegistry 配置</h2>
 
           <!-- API Key -->
