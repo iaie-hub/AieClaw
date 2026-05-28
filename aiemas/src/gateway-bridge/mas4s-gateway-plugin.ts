@@ -82,6 +82,14 @@ export async function createMas4sGatewayPlugin(
     }
   });
 
+  // Migrate AGENT_REGISTRY_* env vars into DB on first startup (non-blocking)
+  try {
+    const { migrateFromEnvIfEmpty } = await import("../store/agent-registry-config.js");
+    migrateFromEnvIfEmpty(db);
+  } catch (err) {
+    console.error("[mas4s-gateway] Agent registry env migration failed:", err);
+  }
+
   // ── Build extraHandlers by registering handler groups ──
   const extraHandlers: SimpleHandlers = {};
 
@@ -128,6 +136,10 @@ export async function createMas4sGatewayPlugin(
   // AIEMAS sessions cascade handlers (sessions.create, sessions.delete, sessions.list)
   const { registerAiemasSessionsHandlers } = await import("./handlers-aiemas-sessions.js");
   registerAiemasSessionsHandlers(extraHandlers, { bridge, tenantService, db, getPlugin });
+
+  // ClawHub registry handlers (config, agents.list, healthy)
+  const { registerClawHubHandlers } = await import("./clawhub-handlers.js");
+  registerClawHubHandlers(extraHandlers, { db });
 
   // Agent/topology handlers (topology.list, topology.save, agents.import context wrapper)
   const { registerAgentHandlers } = await import("./aiemas-agent.js");

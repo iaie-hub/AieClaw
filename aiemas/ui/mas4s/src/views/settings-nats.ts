@@ -1,10 +1,12 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { fetchRegistrySettings, saveRegistrySettings } from "../gateway/clawhub-api.js";
+import { fetchNatsSettings, saveNatsSettings } from "../gateway/clawhub-api.js";
 import type { GatewayBrowserClient } from "../lib/gateway.js";
+import type { AgentInfo } from "../store/app-store.js";
 import {
-  validateApiKey,
-  validateRegistryUrl,
+  validateNatsUrl,
+  validateAgentId,
+  validateAgentName,
 } from "../utils/registry-validators.js";
 
 const EYE_ICON = html`
@@ -42,24 +44,34 @@ const EYE_OFF_ICON = html`
 `;
 
 /**
- * AgentRegistry 设置页面配置区域组件（Register 页签内容）。
+ * NATS 配置设置页面配置区域组件（NATS 页签内容）。
  */
-@customElement("settings-registry")
-export class SettingsRegistry extends LitElement {
+@customElement("settings-nats")
+export class SettingsNats extends LitElement {
   /** Gateway client instance passed from parent settings-view */
   @property({ attribute: false }) client!: GatewayBrowserClient;
 
   /** Current user role */
   @property({ type: String }) role: string = "viewer";
 
+  /** Local agents list for Bound Agent ID dropdown */
+  @property({ attribute: false }) localAgents: AgentInfo[] = [];
+
   // ── Form state ──────────────────────────────────────────────────────────────
 
-  @state() private _apiKey = "";
-  @state() private _apiKeyVisible = false;
-  @state() private _apiKeyError = "";
+  @state() private _natsUrl = "";
+  @state() private _natsUrlError = "";
 
-  @state() private _registryUrl = "";
-  @state() private _registryUrlError = "";
+  @state() private _natsToken = "";
+  @state() private _natsTokenVisible = false;
+
+  @state() private _agentId = "";
+  @state() private _agentIdError = "";
+
+  @state() private _agentName = "";
+  @state() private _agentNameError = "";
+
+  @state() private _boundAgentId = "";
 
   // ── UI state ────────────────────────────────────────────────────────────────
 
@@ -153,6 +165,26 @@ export class SettingsRegistry extends LitElement {
     .toggle-visibility:hover {
       color: #1e293b;
       background-color: #f1f5f9;
+    }
+
+    .form-select {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 14px;
+      color: #1e293b;
+      outline: none;
+      background: #f8fafc;
+      cursor: pointer;
+      transition: all 0.2s;
+      box-sizing: border-box;
+    }
+
+    .form-select:focus {
+      background-color: #ffffff;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
     }
 
     .field-error {
@@ -268,9 +300,12 @@ export class SettingsRegistry extends LitElement {
   private async _loadConfig() {
     this._loading = true;
     try {
-      const config = await fetchRegistrySettings(this.client);
-      this._apiKey = config.apiKey ?? "";
-      this._registryUrl = config.registryUrl ?? "";
+      const config = await fetchNatsSettings(this.client);
+      this._natsUrl = config.natsUrl ?? "";
+      this._natsToken = config.natsToken ?? "";
+      this._agentId = config.agentId ?? "";
+      this._agentName = config.agentName ?? "";
+      this._boundAgentId = config.boundAgentId ?? "";
     } catch {
       // Config load failed — leave fields empty
     } finally {
@@ -280,38 +315,55 @@ export class SettingsRegistry extends LitElement {
 
   // ── Validation handlers ─────────────────────────────────────────────────────
 
-  private _onApiKeyBlur = () => {
-    if (this._apiKey.trim() === "") {
-      this._apiKeyError = "";
+  private _onNatsUrlBlur = () => {
+    if (this._natsUrl.trim() === "") {
+      this._natsUrlError = "";
       return;
     }
-    const result = validateApiKey(this._apiKey);
-    this._apiKeyError = result.valid ? "" : (result.error ?? "");
+    const result = validateNatsUrl(this._natsUrl);
+    this._natsUrlError = result.valid ? "" : (result.error ?? "");
   };
 
-  private _onRegistryUrlBlur = () => {
-    if (this._registryUrl.trim() === "") {
-      this._registryUrlError = "";
+  private _onAgentIdBlur = () => {
+    if (this._agentId.trim() === "") {
+      this._agentId = `Agent-${crypto.randomUUID()}`;
+      this._agentIdError = "";
       return;
     }
-    const result = validateRegistryUrl(this._registryUrl);
-    this._registryUrlError = result.valid ? "" : (result.error ?? "");
+    const result = validateAgentId(this._agentId);
+    this._agentIdError = result.valid ? "" : (result.error ?? "");
+  };
+
+  private _onAgentNameBlur = () => {
+    if (this._agentName.trim() === "") {
+      this._agentNameError = "";
+      return;
+    }
+    const result = validateAgentName(this._agentName);
+    this._agentNameError = result.valid ? "" : (result.error ?? "");
   };
 
   // ── Save handler ────────────────────────────────────────────────────────────
 
   private _hasValidationErrors(): boolean {
-    if (this._apiKey.trim()) {
-      const r = validateApiKey(this._apiKey);
+    if (this._natsUrl.trim()) {
+      const r = validateNatsUrl(this._natsUrl);
       if (!r.valid) {
-        this._apiKeyError = r.error ?? "";
+        this._natsUrlError = r.error ?? "";
         return true;
       }
     }
-    if (this._registryUrl.trim()) {
-      const r = validateRegistryUrl(this._registryUrl);
+    if (this._agentId.trim()) {
+      const r = validateAgentId(this._agentId);
       if (!r.valid) {
-        this._registryUrlError = r.error ?? "";
+        this._agentIdError = r.error ?? "";
+        return true;
+      }
+    }
+    if (this._agentName.trim()) {
+      const r = validateAgentName(this._agentName);
+      if (!r.valid) {
+        this._agentNameError = r.error ?? "";
         return true;
       }
     }
@@ -328,11 +380,14 @@ export class SettingsRegistry extends LitElement {
 
     try {
       const config = {
-        apiKey: this._apiKey || null,
-        registryUrl: this._registryUrl || null,
+        natsUrl: this._natsUrl || null,
+        natsToken: this._natsToken || null,
+        agentId: this._agentId || null,
+        agentName: this._agentName || null,
+        boundAgentId: this._boundAgentId || null,
       };
 
-      const result = await saveRegistrySettings(this.client, config);
+      const result = await saveNatsSettings(this.client, config);
 
       if (result.ok) {
         this._showToast("配置保存成功", false);
@@ -389,52 +444,106 @@ export class SettingsRegistry extends LitElement {
 
     return html`
       <div class="settings-container">
-        <!-- API Key -->
+        <!-- NATS URL -->
         <div class="form-group">
-          <label class="form-label">API Key</label>
+          <label class="form-label">NATS URL</label>
+          <input
+            class="form-input ${this._natsUrlError ? "has-error" : ""}"
+            type="text"
+            placeholder="nats://host:4222"
+            .value=${this._natsUrl}
+            @input=${(e: Event) => {
+              this._natsUrl = (e.target as HTMLInputElement).value;
+              this._natsUrlError = "";
+            }}
+            @blur=${this._onNatsUrlBlur}
+          />
+          ${this._natsUrlError ? html`<div class="field-error">${this._natsUrlError}</div>` : ""}
+        </div>
+
+        <!-- NATS Token -->
+        <div class="form-group">
+          <label class="form-label">NATS Token</label>
           <div class="input-wrapper">
             <input
-              class="form-input with-toggle ${this._apiKeyError ? "has-error" : ""}"
-              type="${this._apiKeyVisible ? "text" : "password"}"
-              placeholder="api-ar-..."
-              .value=${this._apiKey}
+              class="form-input with-toggle"
+              type="${this._natsTokenVisible ? "text" : "password"}"
+              placeholder="NATS 认证 Token"
+              .value=${this._natsToken}
               @input=${(e: Event) => {
-                this._apiKey = (e.target as HTMLInputElement).value;
-                this._apiKeyError = "";
+                this._natsToken = (e.target as HTMLInputElement).value;
               }}
-              @blur=${this._onApiKeyBlur}
               autocomplete="off"
             />
             <button
               class="toggle-visibility"
               type="button"
               @click=${() => {
-                this._apiKeyVisible = !this._apiKeyVisible;
+                this._natsTokenVisible = !this._natsTokenVisible;
               }}
-              title="${this._apiKeyVisible ? "隐藏" : "显示"}"
-              aria-label="${this._apiKeyVisible ? "隐藏 API Key" : "显示 API Key"}"
+              title="${this._natsTokenVisible ? "隐藏" : "显示"}"
+              aria-label="${this._natsTokenVisible ? "隐藏 NATS Token" : "显示 NATS Token"}"
             >
-              ${this._apiKeyVisible ? EYE_OFF_ICON : EYE_ICON}
+              ${this._natsTokenVisible ? EYE_OFF_ICON : EYE_ICON}
             </button>
           </div>
-          ${this._apiKeyError ? html`<div class="field-error">${this._apiKeyError}</div>` : ""}
         </div>
 
-        <!-- Service Address -->
+        <!-- Agent ID -->
         <div class="form-group">
-          <label class="form-label">服务地址</label>
+          <label class="form-label">Agent ID</label>
           <input
-            class="form-input ${this._registryUrlError ? "has-error" : ""}"
+            class="form-input ${this._agentIdError ? "has-error" : ""}"
             type="text"
-            placeholder="http://127.0.0.1:8000"
-            .value=${this._registryUrl}
+            placeholder="Agent-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+            .value=${this._agentId}
             @input=${(e: Event) => {
-              this._registryUrl = (e.target as HTMLInputElement).value;
-              this._registryUrlError = "";
+              this._agentId = (e.target as HTMLInputElement).value;
+              this._agentIdError = "";
             }}
-            @blur=${this._onRegistryUrlBlur}
+            @blur=${this._onAgentIdBlur}
           />
-          ${this._registryUrlError ? html`<div class="field-error">${this._registryUrlError}</div>` : ""}
+          ${this._agentIdError ? html`<div class="field-error">${this._agentIdError}</div>` : ""}
+        </div>
+
+        <!-- Agent Name -->
+        <div class="form-group">
+          <label class="form-label">Agent Name</label>
+          <input
+            class="form-input ${this._agentNameError ? "has-error" : ""}"
+            type="text"
+            placeholder="Agent 显示名称"
+            .value=${this._agentName}
+            @input=${(e: Event) => {
+              this._agentName = (e.target as HTMLInputElement).value;
+              this._agentNameError = "";
+            }}
+            @blur=${this._onAgentNameBlur}
+          />
+          ${this._agentNameError
+            ? html`<div class="field-error">${this._agentNameError}</div>`
+            : ""}
+        </div>
+
+        <!-- Bound Agent ID (Dropdown) -->
+        <div class="form-group">
+          <label class="form-label">Bound Agent ID</label>
+          <select
+            class="form-select"
+            .value=${this._boundAgentId}
+            @change=${(e: Event) => {
+              this._boundAgentId = (e.target as HTMLSelectElement).value;
+            }}
+          >
+            <option value="">-- 选择本地 Agent --</option>
+            ${this.localAgents.map(
+              (agent) => html`
+                <option value=${agent.id} ?selected=${this._boundAgentId === agent.id}>
+                  ${agent.name || agent.id}
+                </option>
+              `,
+            )}
+          </select>
         </div>
 
         <!-- Save -->
@@ -455,6 +564,6 @@ export class SettingsRegistry extends LitElement {
 
 declare global {
   interface HTMLElementTagNameMap {
-    "settings-registry": SettingsRegistry;
+    "settings-nats": SettingsNats;
   }
 }

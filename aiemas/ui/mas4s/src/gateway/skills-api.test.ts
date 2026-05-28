@@ -54,11 +54,13 @@ describe("skills-api", () => {
       mockRequest.mockImplementation(() => new Promise(() => {}));
 
       const promise = fetchSkills(mockClient);
+      const catchPromise = promise.catch((err) => err);
 
       // Fast-forward time to trigger timeout
       await vi.advanceTimersByTimeAsync(10000);
 
-      await expect(promise).rejects.toThrow("请求超时，请稍后重试");
+      const err = await catchPromise;
+      expect(err.message).toBe("请求超时，请稍后重试");
 
       vi.useRealTimers();
     });
@@ -116,11 +118,13 @@ describe("skills-api", () => {
       mockRequest.mockImplementation(() => new Promise(() => {}));
 
       const promise = toggleSkillEnabled(mockClient, "test-skill", true);
+      const catchPromise = promise.catch((err) => err);
 
       // Fast-forward time to trigger timeout
       await vi.advanceTimersByTimeAsync(5000);
 
-      await expect(promise).rejects.toThrow("请求超时，请稍后重试");
+      const err = await catchPromise;
+      expect(err.message).toBe("请求超时，请稍后重试");
 
       vi.useRealTimers();
     });

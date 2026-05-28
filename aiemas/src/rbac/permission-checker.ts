@@ -61,6 +61,14 @@ export const GLOBAL_ROLE_PERMISSIONS: Record<string, Set<GlobalRole>> = {
   "aiemas.sessions.create": new Set(["admin", "member"]),
   "aiemas.sessions.delete": new Set(["admin", "member"]),
   "aiemas.sessions.list": new Set(["admin", "member", "viewer"]),
+  "aiemas.clawhub.config.get": new Set(["admin", "member", "viewer"]),
+  "aiemas.clawhub.agents.list": new Set(["admin", "member", "viewer"]),
+  "aiemas.clawhub.config.save": new Set(["admin"]),
+  "aiemas.clawhub.healthy": new Set(["admin"]),
+  "aiemas.clawhub.registry-config.get": new Set(["admin", "member", "viewer"]),
+  "aiemas.clawhub.registry-config.save": new Set(["admin"]),
+  "aiemas.clawhub.nats-config.get": new Set(["admin", "member", "viewer"]),
+  "aiemas.clawhub.nats-config.save": new Set(["admin"]),
 };
 
 /**

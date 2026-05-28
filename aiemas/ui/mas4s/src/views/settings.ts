@@ -1,6 +1,7 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import "./settings-registry.js";
+import "./settings-nats.js";
 import type { GatewayBrowserClient } from "../lib/gateway.js";
 import type { AgentInfo } from "../store/app-store.js";
 
@@ -19,7 +20,7 @@ export class SettingsView extends LitElement {
   /** Local agents list for Bound Agent ID dropdown */
   @property({ attribute: false }) localAgents: AgentInfo[] = [];
 
-  @state() private _activeTab: "register" = "register";
+  @state() private _activeTab: "register" | "nats" = "register";
 
   static styles = css`
     :host {
@@ -106,15 +107,24 @@ export class SettingsView extends LitElement {
       <div class="header-area">
         <div class="header-text">
           <h1 class="page-title">系统设置</h1>
-          <p class="subtitle">管理 AgentRegistry 注册中心和 NATS 连接配置</p>
         </div>
         <div class="tabs">
           <div
             class="tab-item ${this._activeTab === "register" ? "active" : ""}"
             @click=${() => (this._activeTab = "register")}
           >
-            Register
+            AgentRegistry
           </div>
+          ${this.role === "admin"
+            ? html`
+                <div
+                  class="tab-item ${this._activeTab === "nats" ? "active" : ""}"
+                  @click=${() => (this._activeTab = "nats")}
+                >
+                  NATS 配置
+                </div>
+              `
+            : ""}
         </div>
       </div>
 
@@ -126,6 +136,15 @@ export class SettingsView extends LitElement {
                 .role=${this.role}
                 .localAgents=${this.localAgents}
               ></settings-registry>
+            `
+          : ""}
+        ${this._activeTab === "nats" && this.role === "admin"
+          ? html`
+              <settings-nats
+                .client=${this.client}
+                .role=${this.role}
+                .localAgents=${this.localAgents}
+              ></settings-nats>
             `
           : ""}
       </div>

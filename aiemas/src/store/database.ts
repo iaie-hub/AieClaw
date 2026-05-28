@@ -152,7 +152,39 @@ export function ensureMas4sSchema(db: DatabaseSync): void {
     ON aiemas_sessions(tenantId);
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_registry (
+      id             TEXT PRIMARY KEY DEFAULT 'default',
+      api_key        TEXT,
+      nats_url       TEXT,
+      nats_token     TEXT,
+      agent_id       TEXT,
+      agent_name     TEXT,
+      bound_agent_id TEXT,
+      created_at     INTEGER NOT NULL,
+      updated_at     INTEGER NOT NULL
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS nats_config (
+      id             TEXT PRIMARY KEY DEFAULT 'default',
+      nats_url       TEXT,
+      nats_token     TEXT,
+      agent_id       TEXT,
+      agent_name     TEXT,
+      bound_agent_id TEXT,
+      created_at     INTEGER NOT NULL,
+      updated_at     INTEGER NOT NULL
+    );
+  `);
+
   // ── Migration: add new columns if upgrading from old schema ──
+  try {
+    db.exec("ALTER TABLE agent_registry ADD COLUMN registry_url TEXT;");
+  } catch {
+    // Already exists
+  }
   try {
     db.exec("ALTER TABLE aiemas_sessions ADD COLUMN currentAgentId TEXT;");
   } catch {
@@ -162,6 +194,31 @@ export function ensureMas4sSchema(db: DatabaseSync): void {
     db.exec("ALTER TABLE aiemas_sessions ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0;");
   } catch {
     // Already exists
+  }
+
+  // ── Migration: copy existing NATS settings from agent_registry to nats_config if empty ──
+  try {
+    const hasNatsRecord = db.prepare("SELECT id FROM nats_config WHERE id = 'default'").get();
+    if (!hasNatsRecord) {
+      const oldRegistry = db.prepare("SELECT * FROM agent_registry WHERE id = 'default'").get() as any;
+      if (oldRegistry && (oldRegistry.nats_url || oldRegistry.nats_token || oldRegistry.agent_id || oldRegistry.agent_name || oldRegistry.bound_agent_id)) {
+        const now = Date.now();
+        db.prepare(`
+          INSERT INTO nats_config (id, nats_url, nats_token, agent_id, agent_name, bound_agent_id, created_at, updated_at)
+          VALUES ('default', ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          oldRegistry.nats_url ?? null,
+          oldRegistry.nats_token ?? null,
+          oldRegistry.agent_id ?? null,
+          oldRegistry.agent_name ?? null,
+          oldRegistry.bound_agent_id ?? null,
+          oldRegistry.created_at ?? now,
+          now
+        );
+      }
+    }
+  } catch (err) {
+    // Ignore migration failures
   }
 
   // Drop legacy session_labels table if it still exists

@@ -108,7 +108,12 @@ export function renderMain(
         : activeNav === "discussions"
           ? html` <discussion-panel style="flex: 1; overflow: hidden"></discussion-panel> `
           : activeNav === "clawhub"
-            ? html` <clawhub-view style="flex: 1; overflow: hidden"></clawhub-view> `
+            ? html`
+                <clawhub-view
+                  style="flex: 1; overflow: hidden"
+                  @nav-change=${h.onNavChange}
+                ></clawhub-view>
+              `
             : activeNav === "settings"
               ? html`
                   <settings-view
