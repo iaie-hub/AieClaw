@@ -21,7 +21,6 @@ export class ClawHubAgentDetail extends LitElement {
     }
 
     .container {
-      max-width: 1000px;
       width: 100%;
       margin: 0 auto;
       padding: 24px 32px 48px;
@@ -62,33 +61,31 @@ export class ClawHubAgentDetail extends LitElement {
       stroke-width: 2.5;
     }
 
-    /* ── Header Area ── */
-    .header-card {
-      background: white;
-      border: 1px solid #e2e8f0;
-      border-radius: 16px;
-      padding: 28px;
+    /* ── Merged Header ── */
+    .merged-header {
       display: flex;
-      align-items: flex-start;
-      gap: 24px;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.01);
+      align-items: center;
+      gap: 20px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid #e2e8f0;
+      margin-bottom: 4px;
     }
 
     .avatar-wrapper {
-      width: 72px;
-      height: 72px;
-      border-radius: 16px;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
       background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
       display: flex;
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
-      box-shadow: 0 8px 16px -4px rgba(79, 70, 229, 0.3);
+      box-shadow: 0 4px 8px -2px rgba(79, 70, 229, 0.3);
     }
 
     .avatar-wrapper svg {
-      width: 38px;
-      height: 38px;
+      width: 20px;
+      height: 20px;
       fill: white;
     }
 
@@ -105,77 +102,12 @@ export class ClawHubAgentDetail extends LitElement {
     }
 
     .agent-name {
-      font-size: 22px;
+      font-size: 18px;
       font-weight: 700;
       color: #0f172a;
       margin: 0;
     }
 
-    /* ── Status badges ── */
-    .status-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 12px;
-      border-radius: 9999px;
-      font-size: 12px;
-      font-weight: 600;
-      text-transform: capitalize;
-    }
-
-    .status-badge::before {
-      content: "";
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      display: inline-block;
-    }
-
-    .status-badge.online {
-      background: #dcfce7;
-      color: #15803d;
-    }
-    .status-badge.online::before {
-      background: #22c55e;
-      box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.4);
-      animation: pulse 2s infinite;
-    }
-
-    .status-badge.idle {
-      background: #fef3c7;
-      color: #b45309;
-    }
-    .status-badge.idle::before {
-      background: #f59e0b;
-    }
-
-    .status-badge.busy {
-      background: #ffedd5;
-      color: #c2410c;
-    }
-    .status-badge.busy::before {
-      background: #f97316;
-    }
-
-    .status-badge.offline {
-      background: #f1f5f9;
-      color: #475569;
-    }
-    .status-badge.offline::before {
-      background: #94a3b8;
-    }
-
-    @keyframes pulse {
-      0% {
-        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
-      }
-      70% {
-        box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
-      }
-      100% {
-        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
-      }
-    }
 
     .description-container {
       margin-top: 12px;
@@ -185,9 +117,33 @@ export class ClawHubAgentDetail extends LitElement {
     .description-content {
       font-size: 14px;
       line-height: 1.6;
-      color: #475569;
+      color: #334155;
       overflow: hidden;
-      transition: max-height 0.3s ease;
+    }
+
+    .description-content h1 {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 16px 0 8px;
+      color: #0f172a;
+    }
+
+    .description-content h2 {
+      font-size: 16px;
+      font-weight: 600;
+      margin: 14px 0 8px;
+      color: #0f172a;
+    }
+
+    .description-content h3 {
+      font-size: 15px;
+      font-weight: 600;
+      margin: 12px 0 8px;
+      color: #1e293b;
+    }
+
+    .description-content > *:first-child {
+      margin-top: 0;
     }
 
     .description-content.line-clamp-3 {
@@ -195,6 +151,12 @@ export class ClawHubAgentDetail extends LitElement {
       -webkit-line-clamp: 3;
       -webkit-box-orient: vertical;
       overflow: hidden;
+    }
+
+    .full-description-content {
+      font-size: 14px;
+      line-height: 1.6;
+      color: #334155;
     }
 
     .expand-btn {
@@ -369,43 +331,21 @@ export class ClawHubAgentDetail extends LitElement {
           返回列表
         </button>
 
-        <!-- Header -->
-        <div class="header-card">
-          <div class="avatar-wrapper">
-            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1.07A7.001 7.001 0 0 1 14 23h-4a7.001 7.001 0 0 1-6.93-6H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2zm-2 9a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm4 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" />
-            </svg>
-          </div>
-          <div class="header-info">
-            <div class="title-row">
-              <h1 class="agent-name">${card.name || card.agent_id}</h1>
-              <span class="status-badge ${this.agent.status}">
-                ${this.agent.status === "online"
-                  ? "在线"
-                  : this.agent.status === "idle"
-                  ? "空闲"
-                  : this.agent.status === "busy"
-                  ? "忙碌"
-                  : "离线"}
-              </span>
-            </div>
-            ${card.description
-              ? html`
-                  <div class="description-container">
-                    <div class="description-content ${this._descriptionExpanded ? "" : "line-clamp-3"}">
-                      ${markdownMath(card.description)}
-                    </div>
-                    <button class="expand-btn" @click=${this._toggleDescription}>
-                      ${this._descriptionExpanded ? "收起" : "展开更多"}
-                    </button>
-                  </div>
-                `
-              : ""}
-          </div>
-        </div>
-
         <!-- Agent Info -->
         <div class="detail-card">
+          <!-- Merged Header -->
+          <div class="merged-header">
+            <div class="avatar-wrapper">
+              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1.07A7.001 7.001 0 0 1 14 23h-4a7.001 7.001 0 0 1-6.93-6H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2zm-2 9a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm4 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" />
+              </svg>
+            </div>
+            <div class="header-info">
+              <div class="title-row">
+                <h1 class="agent-name">${card.name || card.agent_id}</h1>
+              </div>
+            </div>
+          </div>
           <h2 class="card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -474,6 +414,32 @@ export class ClawHubAgentDetail extends LitElement {
             </div>
           </div>
         </div>
+
+        <!-- Description Card -->
+        ${card.description
+          ? html`
+              <div class="detail-card">
+                <h2 class="card-title">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                    <polyline points="10 9 9 9 8 9"></polyline>
+                  </svg>
+                  详细描述
+                </h2>
+                <div class="description-container" style="margin-top: 0;">
+                  <div class="description-content ${this._descriptionExpanded ? "" : "line-clamp-3"}">
+                    ${markdownMath(card.description)}
+                  </div>
+                  <button class="expand-btn" @click=${this._toggleDescription}>
+                    ${this._descriptionExpanded ? "收起" : "展开更多"}
+                  </button>
+                </div>
+              </div>
+            `
+          : ""}
       </div>
     `;
   }

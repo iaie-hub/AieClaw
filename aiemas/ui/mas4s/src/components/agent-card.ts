@@ -193,22 +193,6 @@ export class AgentCard extends LitElement {
         no-repeat center;
     }
 
-    .fallback-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      margin-top: 2px;
-    }
-
-    .fallback-tag {
-      font-size: 11px;
-      padding: 1px 6px;
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 4px;
-      color: #64748b;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    }
 
     .card-footer {
       display: flex;
@@ -339,18 +323,6 @@ export class AgentCard extends LitElement {
               <span class="model-tag">${a.model.primary}</span>
             </span>
           </div>
-          ${a.model.fallbacks.length > 0
-            ? html`
-                <div class="detail-row">
-                  <span class="detail-label">回退</span>
-                  <span class="detail-value">
-                    <div class="fallback-list">
-                      ${a.model.fallbacks.map((f) => html`<span class="fallback-tag">${f}</span>`)}
-                    </div>
-                  </span>
-                </div>
-              `
-            : ""}
           <div class="detail-row">
             <span class="detail-label">目录</span>
             <span class="detail-value">
