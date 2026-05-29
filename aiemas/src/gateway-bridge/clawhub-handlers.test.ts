@@ -121,14 +121,14 @@ describe("clawhub-handlers", () => {
       expect(p.registryUrl).toBeNull();
     });
 
-    it("masks API key showing first 10 chars + ****", async () => {
+    it("masks API key showing first 8 and last 8 chars + ****", async () => {
       const fullKey = "api-ar-" + "x".repeat(57); // 64 chars total
       saveAgentRegistryConfig(db, { apiKey: fullKey, registryUrl: "http://localhost:8000" });
 
       const { ok, payload } = await callHandler(handlers, "aiemas.clawhub.registry-config.get");
       expect(ok).toBe(true);
       const p = payload as Record<string, unknown>;
-      expect(p.apiKey).toBe("api-ar-xxx****");
+      expect(p.apiKey).toBe("api-ar-x****xxxxxxxx");
       expect(p.registryUrl).toBe("http://localhost:8000");
     });
   });
@@ -197,7 +197,7 @@ describe("clawhub-handlers", () => {
       const { ok, payload } = await callHandler(handlers, "aiemas.clawhub.config.get");
       expect(ok).toBe(true);
       const p = payload as Record<string, unknown>;
-      expect(p.apiKey).toBe("api-ar-xxx****");
+      expect(p.apiKey).toBe("api-ar-x****xxxxxxxx");
       expect(p.registryUrl).toBe("http://registry:8000");
       expect(p.natsUrl).toBe("nats://localhost:4222");
       expect(p.agentName).toBe("Legacy Agent");

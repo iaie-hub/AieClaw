@@ -1,15 +1,21 @@
 import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { getClient } from "../gateway/client.js";
-import { fetchRegistryAgents } from "../gateway/clawhub-api.js";
-import type { RegistryAgent, AgentsListResponse } from "../gateway/clawhub-api.js";
-import { aggregateSkills, filterSkills } from "../utils/skill-aggregator.js";
-import type { AggregatedSkill } from "../utils/skill-aggregator.js";
+import { fetchRegistryAgents, fetchHubAgents, updateHubAgentVisibility, downloadHubAgent } from "../gateway/clawhub-api.js";
+import { downloadFile } from "../gateway/agents-api.js";
+import type { RegistryAgent, AgentsListResponse, HubAgent, HubAgentsListResponse } from "../gateway/clawhub-api.js";
 import "./clawhub-agent-card.js";
-import "./clawhub-skill-card.js";
+import "./clawhub-agenthub-card.js";
 import "./clawhub-agent-detail.js";
+import "./clawhub-agenthub-detail.js";
 
-type TabKind = "agents" | "skills";
+import "../components/confirm-dialog.js";
+
+type TabKind = "agents" | "agenthub" | "skillhub";
+
+type DialogState =
+  | { kind: "none" }
+  | { kind: "visibility"; agentId: string; visibility: "public" | "private"; agentName: string };
 
 type ViewState =
   | { kind: "loading" }
@@ -18,33 +24,34 @@ type ViewState =
   | { kind: "ready" };
 
 /**
- * ClawHub 主视图 — 浏览 AgentRegistry 远程注册中心中的 Agent 和 Skill 列表。
- * 包含 Agents / Skills 两个页签，支持分页、搜索过滤、错误重试。
+ * ClawHub 主视图 — 浏览 AgentRegistry 远程注册中心中的 Agent 列表。
+ * 包含 在线Agent / AgentHub / SkillHub 页签，支持分页、错误重试。
  */
 @customElement("clawhub-view")
 export class ClawHubView extends LitElement {
   // ── Subview state ──
   @state() private _selectedAgent: RegistryAgent | null = null;
+  @state() private _selectedHubAgent: HubAgent | null = null;
 
   // ── Tab state ──
   @state() private _activeTab: TabKind = "agents";
 
   // ── View state ──
   @state() private _viewState: ViewState = { kind: "loading" };
+  @state() private _dialog: DialogState = { kind: "none" };
 
-  // ── Agents data ──
+  // ── Agents (Online) data ──
   @state() private _agents: RegistryAgent[] = [];
   @state() private _page = 1;
   @state() private _totalPages = 1;
   @state() private _total = 0;
   private readonly _pageSize = 20;
 
-  // ── Skills data ──
-  @state() private _skills: AggregatedSkill[] = [];
-  @state() private _skillSearch = "";
-
-  // ── Cached full agent list for skills aggregation ──
-  private _allAgentsForSkills: RegistryAgent[] | null = null;
+  // ── AgentHub data ──
+  @state() private _hubAgents: HubAgent[] = [];
+  @state() private _hubPage = 1;
+  @state() private _hubTotalPages = 1;
+  @state() private _hubTotal = 0;
 
   static styles = css`
     :host {
@@ -222,36 +229,6 @@ export class ClawHubView extends LitElement {
       background: #eff6ff;
     }
 
-    /* ── Search box ── */
-    .search-box {
-      position: relative;
-      display: flex;
-      align-items: center;
-    }
-
-    .search-box input {
-      padding: 8px 12px 8px 34px;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      font-size: 14px;
-      outline: none;
-      width: 240px;
-      transition: all 0.2s;
-      background: #f8fafc;
-    }
-
-    .search-box input:focus {
-      background: white;
-      border-color: #3b82f6;
-      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
-    }
-
-    .search-icon {
-      position: absolute;
-      left: 10px;
-      color: #94a3b8;
-    }
-
     /* ── Pagination ── */
     .pagination {
       display: flex;
@@ -304,24 +281,17 @@ export class ClawHubView extends LitElement {
         transform: rotate(360deg);
       }
     }
-
-    /* ── Skills toolbar ── */
-    .skills-toolbar {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-
-    .skills-count {
-      font-size: 13px;
-      color: #94a3b8;
-    }
   `;
 
   connectedCallback() {
     super.connectedCallback();
+    this.addEventListener("download-hub-agent", this._onDownloadHubAgent as unknown as EventListener);
     void this._init();
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this.removeEventListener("download-hub-agent", this._onDownloadHubAgent as unknown as EventListener);
   }
 
   // ── Initialization ──────────────────────────────────────────────────────────
@@ -351,25 +321,22 @@ export class ClawHubView extends LitElement {
     }
   }
 
-  private async _loadSkills() {
-    // If we already have cached agents for skills, use them
-    if (this._allAgentsForSkills) {
-      this._skills = aggregateSkills(this._allAgentsForSkills);
-      this._viewState = { kind: "ready" };
-      return;
-    }
-
+  private async _loadHubAgents() {
     this._viewState = { kind: "loading" };
     try {
       const client = getClient();
       await client.waitConnected();
-      // Fetch all agents (page 1 with large page size to get all for aggregation)
-      const res: AgentsListResponse = await fetchRegistryAgents(client, 1, 100);
-      this._allAgentsForSkills = res.agents;
-      this._skills = aggregateSkills(res.agents);
+      const res: HubAgentsListResponse = await fetchHubAgents(
+        client,
+        this._hubPage,
+        this._pageSize,
+      );
+      this._hubAgents = res.agents;
+      this._hubTotal = res.total;
+      this._hubTotalPages = Math.max(1, Math.ceil(res.total / this._pageSize));
       this._viewState = { kind: "ready" };
     } catch (err: unknown) {
-      this._setErrorState(err, "获取技能列表失败");
+      this._setErrorState(err, "获取 AgentHub 列表失败");
     }
   }
 
@@ -389,35 +356,48 @@ export class ClawHubView extends LitElement {
     this._activeTab = tab;
     if (tab === "agents") {
       void this._loadAgents();
+    } else if (tab === "agenthub") {
+      void this._loadHubAgents();
     } else {
-      void this._loadSkills();
+      // skillhub is static, just set ready state
+      this._viewState = { kind: "ready" };
     }
   }
 
   private _onRetry() {
     if (this._activeTab === "agents") {
       void this._loadAgents();
-    } else {
-      void this._loadSkills();
+    } else if (this._activeTab === "agenthub") {
+      void this._loadHubAgents();
     }
   }
 
   private _onPrevPage() {
-    if (this._page > 1) {
-      this._page--;
-      void this._loadAgents();
+    if (this._activeTab === "agents") {
+      if (this._page > 1) {
+        this._page--;
+        void this._loadAgents();
+      }
+    } else if (this._activeTab === "agenthub") {
+      if (this._hubPage > 1) {
+        this._hubPage--;
+        void this._loadHubAgents();
+      }
     }
   }
 
   private _onNextPage() {
-    if (this._page < this._totalPages) {
-      this._page++;
-      void this._loadAgents();
+    if (this._activeTab === "agents") {
+      if (this._page < this._totalPages) {
+        this._page++;
+        void this._loadAgents();
+      }
+    } else if (this._activeTab === "agenthub") {
+      if (this._hubPage < this._hubTotalPages) {
+        this._hubPage++;
+        void this._loadHubAgents();
+      }
     }
-  }
-
-  private _onSkillSearch(e: Event) {
-    this._skillSearch = (e.target as HTMLInputElement).value;
   }
 
   private _onGoToSettings() {
@@ -432,6 +412,66 @@ export class ClawHubView extends LitElement {
 
   private _onBackToList() {
     this._selectedAgent = null;
+    this._selectedHubAgent = null;
+  }
+  
+  private async _onDownloadHubAgent(e: CustomEvent<{ agentId: string; name: string }>) {
+    try {
+      const client = getClient();
+      await client.waitConnected();
+      const res = await downloadHubAgent(client, e.detail.agentId, e.detail.name);
+      if (!res.downloadPath) {
+        throw new Error("未能获取到下载路径");
+      }
+      
+      const fileData = await downloadFile(client, res.downloadPath);
+      const rawName = e.detail.name || fileData.fileName || "agent-download";
+      const downloadName = rawName.endsWith(".zip") ? rawName : `${rawName}.zip`;
+
+      const bytes = Uint8Array.from(atob(fileData.data), (c) => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: fileData.mimeType || "application/zip" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = downloadName;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to download agent", err);
+      alert(`下载失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private _onToggleVisibility(e: CustomEvent<{ agentId: string; visibility: "public" | "private"; agentName: string }>) {
+    this._dialog = {
+      kind: "visibility",
+      agentId: e.detail.agentId,
+      visibility: e.detail.visibility,
+      agentName: e.detail.agentName,
+    };
+  }
+
+  private async _onConfirmVisibilityToggle() {
+    if (this._dialog.kind !== "visibility") return;
+    const { agentId, visibility } = this._dialog;
+    this._dialog = { kind: "none" };
+    try {
+      const client = getClient();
+      await client.waitConnected();
+      const res = await updateHubAgentVisibility(client, agentId, visibility);
+      if (res.success && res.agent) {
+        // update locally
+        this._hubAgents = this._hubAgents.map((a) =>
+          a.id === agentId ? { ...a, visibility: res.agent!.visibility } : a
+        );
+        if (this._selectedHubAgent && this._selectedHubAgent.id === agentId) {
+          this._selectedHubAgent = { ...this._selectedHubAgent, visibility: res.agent!.visibility };
+        }
+      }
+    } catch (err) {
+      console.error("Failed to update visibility", err);
+      alert(`修改可见性失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -446,6 +486,17 @@ export class ClawHubView extends LitElement {
       `;
     }
 
+    if (this._selectedHubAgent) {
+      return html`
+        <clawhub-agenthub-detail
+          .agent=${this._selectedHubAgent}
+          @back=${this._onBackToList}
+          @toggle-visibility=${this._onToggleVisibility}
+        ></clawhub-agenthub-detail>
+        ${this._renderDialogs()}
+      `;
+    }
+
     return html`
       <div class="header-area">
         <div class="header-text">
@@ -457,18 +508,45 @@ export class ClawHubView extends LitElement {
             class="tab-item ${this._activeTab === "agents" ? "active" : ""}"
             @click=${() => this._onTabChange("agents")}
           >
-            Agents
+            在线Agent
           </div>
           <div
-            class="tab-item ${this._activeTab === "skills" ? "active" : ""}"
-            @click=${() => this._onTabChange("skills")}
+            class="tab-item ${this._activeTab === "agenthub" ? "active" : ""}"
+            @click=${() => this._onTabChange("agenthub")}
           >
-            Skills
+            AgentHub
+          </div>
+          <div
+            class="tab-item ${this._activeTab === "skillhub" ? "active" : ""}"
+            @click=${() => this._onTabChange("skillhub")}
+          >
+            SkillHub
           </div>
         </div>
       </div>
       <div class="content-area">${this._renderContent()}</div>
+      ${this._renderDialogs()}
     `;
+  }
+
+  private _renderDialogs() {
+    if (this._dialog.kind === "visibility") {
+      const { agentName, visibility } = this._dialog;
+      const targetStr = visibility === "public" ? "公开 (Public)" : "私有 (Private)";
+      return html`
+        <confirm-dialog
+          title="修改可见性"
+          message="确定要将 Agent「${agentName}」的可见性修改为 ${targetStr} 吗？"
+          confirmText="确认修改"
+          confirmVariant="primary"
+          @confirm=${this._onConfirmVisibilityToggle}
+          @cancel=${() => {
+            this._dialog = { kind: "none" };
+          }}
+        ></confirm-dialog>
+      `;
+    }
+    return "";
   }
 
   private _renderContent() {
@@ -523,8 +601,11 @@ export class ClawHubView extends LitElement {
     // Ready state — render tab content
     if (this._activeTab === "agents") {
       return this._renderAgentsTab();
+    } else if (this._activeTab === "agenthub") {
+      return this._renderAgentHubTab();
+    } else {
+      return this._renderSkillHubTab();
     }
-    return this._renderSkillsTab();
   }
 
   private _renderAgentsTab() {
@@ -537,8 +618,8 @@ export class ClawHubView extends LitElement {
             <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
             <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
           </svg>
-          <div class="center-msg">暂无已注册的 Agent</div>
-          <div class="center-sub">请检查 AgentRegistry 配置或等待 Agent 注册</div>
+          <div class="center-msg">暂无在线的 Agent</div>
+          <div class="center-sub">请检查 AgentRegistry 配置或等待 Agent 上线</div>
         </div>
       `;
     }
@@ -561,104 +642,82 @@ export class ClawHubView extends LitElement {
     `;
   }
 
-  private _renderSkillsTab() {
-    const filtered = this._skillSearch
-      ? filterSkills(this._skills, this._skillSearch)
-      : this._skills;
-
-    return html`
-      <div class="skills-toolbar">
-        <div class="search-box">
-          <svg
-            class="search-icon"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-          </svg>
-          <input
-            type="text"
-            placeholder="搜索技能名称..."
-            .value=${this._skillSearch}
-            @input=${this._onSkillSearch}
-          />
-        </div>
-        <span class="skills-count">${filtered.length} 个技能</span>
-      </div>
-      ${this._renderSkillsContent(filtered)}
-    `;
-  }
-
-  private _renderSkillsContent(filtered: AggregatedSkill[]) {
-    // Empty state (no skills at all)
-    if (this._skills.length === 0) {
+  private _renderAgentHubTab() {
+    if (this._hubAgents.length === 0) {
       return html`
         <div class="center-state">
-          <svg class="center-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-            <polyline points="2 17 12 22 22 17"></polyline>
-            <polyline points="2 12 12 17 22 12"></polyline>
+          <svg class="center-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
           </svg>
-          <div class="center-msg">暂无已注册的技能</div>
-          <div class="center-sub">当前 AgentRegistry 远程注册中心无已注册的技能</div>
-        </div>
-      `;
-    }
-
-    // No search results
-    if (filtered.length === 0 && this._skillSearch) {
-      return html`
-        <div class="center-state">
-          <svg class="center-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            <line x1="8" y1="11" x2="14" y2="11"></line>
-          </svg>
-          <div class="center-msg">未找到匹配的技能</div>
-          <div class="center-sub">尝试使用其他关键词搜索</div>
+          <div class="center-msg">AgentHub 中暂无上传的 Agent</div>
+          <div class="center-sub">你可以通过工作台将本地 Agent 共享到这里</div>
         </div>
       `;
     }
 
     return html`
       <div class="cards-grid">
-        ${filtered.map(
-          (skill) => html`
-            <clawhub-skill-card
-              .name=${skill.name}
-              .agents=${skill.agents}
-            ></clawhub-skill-card>
+        ${this._hubAgents.map(
+          (agent) => html`
+            <clawhub-agenthub-card
+              .name=${agent.name}
+              .uploaderName=${agent.uploader_name}
+              .description=${agent.description}
+              .visibility=${agent.visibility}
+              .fileSize=${agent.file_size}
+              .createdAt=${agent.created_at}
+              .agentId=${agent.id}
+              .canManage=${agent.can_manage || false}
+              @click=${() => { this._selectedHubAgent = agent; }}
+              @toggle-visibility=${this._onToggleVisibility}
+            ></clawhub-agenthub-card>
           `,
         )}
+      </div>
+      ${this._renderPagination()}
+    `;
+  }
+
+  private _renderSkillHubTab() {
+    return html`
+      <div class="center-state">
+        <svg class="center-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
+        </svg>
+        <div class="center-msg" style="font-size: 20px; font-weight: 600; color: #334155;">SkillHub</div>
+        <div class="center-sub">Coming Soon<br><br>技能注册和发现功能将在未来的版本中提供。</div>
       </div>
     `;
   }
 
   private _renderPagination() {
-    if (this._totalPages <= 1) return html``;
+    let currentPage = this._page;
+    let currentTotalPages = this._totalPages;
+    let currentTotal = this._total;
+
+    if (this._activeTab === "agenthub") {
+      currentPage = this._hubPage;
+      currentTotalPages = this._hubTotalPages;
+      currentTotal = this._hubTotal;
+    }
+
+    if (currentTotalPages <= 1) return html``;
 
     return html`
       <div class="pagination">
         <button
           class="pagination-btn"
-          ?disabled=${this._page <= 1}
+          ?disabled=${currentPage <= 1}
           @click=${() => this._onPrevPage()}
         >
           上一页
         </button>
         <span class="pagination-info">
-          第 ${this._page} / ${this._totalPages} 页（共 ${this._total} 条）
+          第 ${currentPage} / ${currentTotalPages} 页（共 ${currentTotal} 条）
         </span>
         <button
           class="pagination-btn"
-          ?disabled=${this._page >= this._totalPages}
+          ?disabled=${currentPage >= currentTotalPages}
           @click=${() => this._onNextPage()}
         >
           下一页

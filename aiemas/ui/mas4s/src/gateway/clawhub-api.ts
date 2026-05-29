@@ -143,3 +143,66 @@ export async function saveNatsSettings(
 ): Promise<{ ok: boolean; error?: string }> {
   return client.request<{ ok: boolean; error?: string }>("aiemas.clawhub.nats-config.save", config);
 }
+
+/** 上传 Agent 到 AgentHub */
+export async function uploadAgentToHub(
+  client: GatewayBrowserClient,
+  params: {
+    agentId: string;
+    workspace: string;
+    items: string[];
+    name: string;
+    description: string;
+  },
+): Promise<{ success: boolean; agent?: unknown }> {
+  return client.request("aiemas.clawhub.agent.upload", params);
+}
+
+export interface HubAgent {
+  id: string;
+  name: string;
+  description?: string;
+  file_path: string;
+  file_size: number;
+  visibility: "public" | "private";
+  uploader_id: string;
+  uploader_name: string;
+  created_at: string;
+  updated_at: string;
+  can_manage?: boolean;
+}
+
+export interface HubAgentsListResponse {
+  agents: HubAgent[];
+  count: number;
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+/** 获取 AgentHub 包列表 */
+export async function fetchHubAgents(
+  client: GatewayBrowserClient,
+  page: number,
+  pageSize: number,
+): Promise<HubAgentsListResponse> {
+  return client.request<HubAgentsListResponse>("aiemas.clawhub.agenthub.list", { page, pageSize });
+}
+
+/** 更新 Agent 的可见性 */
+export async function updateHubAgentVisibility(
+  client: GatewayBrowserClient,
+  agentId: string,
+  visibility: "public" | "private",
+): Promise<{ success: boolean; agent?: HubAgent }> {
+  return client.request("aiemas.clawhub.agenthub.visibility.update", { agentId, visibility });
+}
+
+/** 下载 AgentHub 包 */
+export async function downloadHubAgent(
+  client: GatewayBrowserClient,
+  agentId: string,
+  filename: string
+): Promise<{ ok: boolean; downloadPath?: string }> {
+  return client.request("aiemas.clawhub.agent.download", { agentId, filename });
+}

@@ -18,10 +18,8 @@ export async function createMas4sGatewayPlugin(
   const tenantService = createTenantService(config);
   await tenantService.init();
 
-  const { initDatabase } = await import("../store/database.js");
-  const { homedir } = await import("node:os");
-  const { join } = await import("node:path");
-  const dbPath = config?.dbPath ?? join(homedir(), ".openclaw", "aiemas", "mas4s.db");
+  const { initDatabase, DEFAULT_DB_PATH } = await import("../store/database.js");
+  const dbPath = config?.dbPath ?? DEFAULT_DB_PATH;
   const db = initDatabase(dbPath);
   const sessionStore = createAiemasSessionsStore(db);
 

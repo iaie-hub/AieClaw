@@ -4,15 +4,15 @@ import type { DatabaseSync } from "node:sqlite";
 import { requireNodeSqlite } from "../../../packages/memory-host-sdk/src/host/sqlite.js";
 
 /**
- * Default database path: ~/.openclaw/aiemas/mas4s.db
+ * Default database path: ~/.openclaw/aiemas/db/mas4s.db
  */
-export const DEFAULT_DB_PATH = `${process.env.HOME ?? "~"}/.openclaw/aiemas/mas4s.db`;
+export const DEFAULT_DB_PATH = `${process.env.HOME ?? "~"}/.openclaw/aiemas/db/mas4s.db`;
 
 /**
- * Default message database path: ~/.openclaw/aiemas/mas4s.message.db
+ * Default message database path: ~/.openclaw/aiemas/db/mas4s.message.db
  * Separated from the main DB for performance isolation.
  */
-export const DEFAULT_MESSAGE_DB_PATH = `${process.env.HOME ?? "~"}/.openclaw/aiemas/mas4s.message.db`;
+export const DEFAULT_MESSAGE_DB_PATH = `${process.env.HOME ?? "~"}/.openclaw/aiemas/db/mas4s.message.db`;
 
 /**
  * Initialize the SQLite database at the given path.

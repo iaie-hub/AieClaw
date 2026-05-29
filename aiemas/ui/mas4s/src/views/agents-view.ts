@@ -10,13 +10,16 @@ import {
   listWorkspaceFiles,
   exportAgent,
   downloadFile,
+  fetchAgentFileContentSafe,
 } from "../gateway/agents-api.js";
+import { uploadAgentToHub } from "../gateway/clawhub-api.js";
 import "../components/agent-card.js";
 import "../components/agent-detail-dialog.js";
 import "../components/confirm-dialog.js";
 import "../components/agent/agent-create-dialog.js";
 import "../components/agent/agent-export-dialog.js";
 import "../components/agent/agent-import-dialog.js";
+import "../components/agent/agent-upload-dialog.js";
 import "./agent-topology-view.js";
 import { getClient } from "../gateway/client.js";
 import type { AgentEntry, WorkspaceEntry } from "../types/agents-types.js";
@@ -26,7 +29,8 @@ type DialogState =
   | { kind: "create" }
   | { kind: "delete"; agent: AgentEntry }
   | { kind: "export"; agent: AgentEntry; entries: WorkspaceEntry[] }
-  | { kind: "import" };
+  | { kind: "import" }
+  | { kind: "upload"; agent: AgentEntry; entries: WorkspaceEntry[]; description: string };
 
 /**
  * 智能体列表视图 — 以卡片网格展示所有智能体，支持创建、删除、导出、导入。
@@ -375,6 +379,48 @@ export class AgentsView extends LitElement {
     }
   };
 
+  // ── Upload ────────────────────────────────────────────────────────────────
+
+  private async _onUploadEvent(e: CustomEvent<{ agent: AgentEntry }>) {
+    const { agent } = e.detail;
+    try {
+      const client = getClient();
+      const result = await listWorkspaceFiles(client, agent.workspace);
+      const desc = await fetchAgentFileContentSafe(client, agent.workspace, "AGENTS.md");
+      this._dialog = { kind: "upload", agent, entries: result.entries, description: desc };
+    } catch (err: unknown) {
+      this._showToast(err instanceof Error ? err.message : "获取工作区文件失败", true);
+    }
+  }
+
+  private _onUploadConfirm = async (
+    e: CustomEvent<{ items: string[]; name: string; description: string }>,
+  ) => {
+    if (this._dialog.kind !== "upload") {
+      return;
+    }
+    const { agent } = this._dialog;
+    this._dialog = { kind: "none" };
+    try {
+      const client = getClient();
+      this._showToast("正在上传到 AgentHub，请稍候...");
+      const uploadRes = await uploadAgentToHub(client, {
+        agentId: agent.id,
+        workspace: agent.workspace,
+        items: e.detail.items,
+        name: e.detail.name,
+        description: e.detail.description,
+      });
+      if (uploadRes && uploadRes.success) {
+        this._showToast("上传成功！可在 AgentHub 中查看");
+      } else {
+        this._showToast("上传失败，请检查 AgentRegistry 状态", true);
+      }
+    } catch (err: unknown) {
+      this._showToast(err instanceof Error ? err.message : "上传失败", true);
+    }
+  };
+
   // ── Topology ────────────────────────────────────────────────────────────────
 
   private _onTopologyEvent(e: CustomEvent<{ agent: AgentEntry }>) {
@@ -440,6 +486,19 @@ export class AgentsView extends LitElement {
             this._dialog = { kind: "none" };
           }}
         ></agent-import-dialog>
+      `;
+    }
+    if (d.kind === "upload") {
+      return html`
+        <agent-upload-dialog
+          .entries=${d.entries}
+          agentName=${d.agent.name ?? d.agent.id}
+          description=${d.description}
+          @confirm=${this._onUploadConfirm}
+          @cancel=${() => {
+            this._dialog = { kind: "none" };
+          }}
+        ></agent-upload-dialog>
       `;
     }
     return "";
@@ -563,6 +622,7 @@ export class AgentsView extends LitElement {
                         @agent-select=${(e: CustomEvent) => this._onAgentSelect(e)}
                         @agent-delete=${(e: CustomEvent) => this._onDeleteEvent(e)}
                         @agent-export=${(e: CustomEvent) => this._onExportEvent(e)}
+                        @agent-upload=${(e: CustomEvent) => this._onUploadEvent(e)}
                         @agent-topology=${(e: CustomEvent) => this._onTopologyEvent(e)}
                         @agent-toast=${(e: CustomEvent) => this._showToast(e.detail.message)}
                       ></agent-card>

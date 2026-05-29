@@ -6,8 +6,11 @@ import type { ChatMessage } from "../types/chat-types.js";
 import type { MasSession } from "../types/session-types.js";
 import { parseSenderPrefix } from "../utils/message-format.js";
 import { extractUuidFromKey, extractAgentNameFromKey } from "../utils/session-utils.js";
-import { addEventHandler } from "./client.js";
+import { addEventHandler, getClient } from "./client.js";
 import { dispatchCollabMessage } from "./collab-api.js";
+import { fetchSessionLabel } from "./session-manager.js";
+import { getSummary } from "./session-archive.js";
+import { SummaryStore } from "../store/summary-store.js";
 
 const TOOL_OUTPUT_CHAR_LIMIT = 120_000;
 
@@ -180,8 +183,6 @@ export function registerEventHandlers(): void {
         if (changedReason === "patch" || changedReason === "new" || changedReason === "reset") {
           void (async () => {
             try {
-              const { getClient } = await import("./client.js");
-              const { fetchSessionLabel } = await import("./session-manager.js");
               const entry = await fetchSessionLabel(getClient(), changedKey);
               if (entry) {
                 store.patchSessionLabelFromDb(changedKey, {
@@ -231,9 +232,6 @@ export function registerEventHandlers(): void {
         // 需求4.12：拉取最新持久化摘要写入 SummaryStore，触发 SummaryDialog 刷新
         void (async () => {
           try {
-            const { getClient } = await import("./client.js");
-            const { getSummary } = await import("./session-archive.js");
-            const { SummaryStore } = await import("../store/summary-store.js");
             const result = await getSummary(getClient(), summarySessionKey);
             if (result) {
               SummaryStore.instance.set(summarySessionKey, result);

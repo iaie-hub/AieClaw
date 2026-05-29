@@ -9,7 +9,7 @@ import type { GlobalRole, PublicUser } from "./models.js";
 import { updatePresence, markOffline, startOfflineScanner } from "./presence/presence-service.js";
 import { checkPermission as _checkPermission } from "./rbac/permission-checker.js";
 import type { SessionPermissionContext, PermissionResult } from "./rbac/permission-checker.js";
-import { initDatabase } from "./store/database.js";
+import { initDatabase, DEFAULT_DB_PATH } from "./store/database.js";
 import {
   registerUser,
   listUsers,
@@ -103,7 +103,7 @@ const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
 const RATE_LIMIT_MAX_FAILURES = 10;
 
 export function createTenantService(config?: TenantServiceConfig): TenantService {
-  const dbPath = config?.dbPath ?? join(homedir(), ".openclaw", "aiemas", "mas4s.db");
+  const dbPath = config?.dbPath ?? DEFAULT_DB_PATH;
 
   let db: DatabaseSync | undefined;
   let _stopOfflineScanner: (() => void) | undefined;
