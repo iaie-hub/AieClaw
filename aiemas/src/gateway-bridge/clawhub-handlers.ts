@@ -2,7 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { getAgentRegistryConfig, saveAgentRegistryConfig } from "../store/agent-registry-config.js";
 import { getNatsConfig, saveNatsConfig } from "../store/nats-config.js";
 import { proxyToRegistry, ClawHubProxyError, CLAWHUB_ERROR_CODES } from "./clawhub-proxy.js";
-import { errorShape, type SimpleHandlers } from "./aiemas-utils.js";
+import { errorShape, getAgentDownloadTempDir, type SimpleHandlers } from "./aiemas-utils.js";
 
 export interface ClawHubHandlersDeps {
   db: DatabaseSync;
@@ -467,6 +467,7 @@ export function registerClawHubHandlers(handlers: SimpleHandlers, deps: ClawHubH
       const { mkdirSync } = await import("node:fs");
       const { promisify } = await import("node:util");
       const { execFile } = await import("node:child_process");
+      const os = await import("node:os");
       const execFileAsync = promisify(execFile);
 
       try {
@@ -476,8 +477,8 @@ export function registerClawHubHandlers(handlers: SimpleHandlers, deps: ClawHubH
         return;
       }
 
-      const tempDir = nodePath.join(nodePath.dirname(workspace), `${agentId}-upload-temp`);
-      const archivePath = nodePath.join(nodePath.dirname(workspace), `${agentId}-upload.zip`);
+      const tempDir = getAgentDownloadTempDir(agentId);
+      const archivePath = `${tempDir}-upload.zip`;
 
       mkdirSync(tempDir, { recursive: true });
       try {
@@ -560,7 +561,7 @@ export function registerClawHubHandlers(handlers: SimpleHandlers, deps: ClawHubH
       const https = await import("node:https");
       const http = await import("node:http");
 
-      const downloadDir = nodePath.join(os.homedir(), ".openclaw", "aiemas", "data", "download", agentId);
+      const downloadDir = getAgentDownloadTempDir(agentId);
       fs.mkdirSync(downloadDir, { recursive: true });
       const downloadPath = nodePath.join(downloadDir, filename.endsWith(".zip") ? filename : `${filename}.zip`);
       

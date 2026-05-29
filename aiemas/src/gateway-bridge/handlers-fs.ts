@@ -1,6 +1,6 @@
 import { TenantServiceError } from "../errors.js";
 import type { Mas4sGatewayPlugin } from "./aiemas-types.js";
-import { strCoerce, errorShape, type SimpleHandlers } from "./aiemas-utils.js";
+import { strCoerce, errorShape, getAgentDownloadTempDir, type SimpleHandlers } from "./aiemas-utils.js";
 
 export interface FsHandlersDeps {
   sessionStore: ReturnType<
@@ -106,8 +106,8 @@ export function registerFsHandlers(handlers: SimpleHandlers, deps: FsHandlersDep
         return;
       }
 
-      const tempDir = nodePath.join(nodePath.dirname(workspace), `${agentId}-export`);
-      const archivePath = nodePath.join(nodePath.dirname(workspace), `${agentId}-export.zip`);
+      const tempDir = getAgentDownloadTempDir(agentId);
+      const archivePath = `${tempDir}-export.zip`;
 
       mkdirSync(tempDir, { recursive: true });
       try {
