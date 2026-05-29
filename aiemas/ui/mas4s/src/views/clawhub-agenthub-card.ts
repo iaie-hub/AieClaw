@@ -171,9 +171,9 @@ export class ClawHubAgentHubCard extends LitElement {
       display: inline;
     }
 
-    .meta {
+    .card-footer {
       margin-top: 16px;
-      padding-top: 16px;
+      padding-top: 12px;
       border-top: 1px solid #f1f5f9;
       display: flex;
       align-items: center;
@@ -182,38 +182,39 @@ export class ClawHubAgentHubCard extends LitElement {
       color: #64748b;
     }
 
-    .actions {
-      margin-top: 16px;
+    .meta-info {
       display: flex;
+      align-items: center;
       gap: 8px;
     }
 
-    .btn-download {
-      flex: 1;
-      display: inline-flex;
+    .meta-divider {
+      color: #cbd5e1;
+    }
+
+    .icon-btn {
+      display: flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
-      border-radius: 8px;
-      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-      padding: 8px 12px;
-      font-size: 12px;
-      font-weight: 600;
-      color: white;
-      border: none;
+      width: 30px;
+      height: 30px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: #64748b;
       cursor: pointer;
-      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: all 0.15s;
+      padding: 0;
     }
 
-    .btn-download:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
-      filter: brightness(1.05);
+    .icon-btn:hover {
+      background: #f1f5f9;
+      color: #3b82f6;
     }
 
-    .btn-download:active {
-      transform: translateY(0) scale(0.98);
-      box-shadow: 0 2px 4px rgba(79, 70, 229, 0.1);
+    .icon-btn svg {
+      width: 15px;
+      height: 15px;
     }
 
     .icon {
@@ -307,21 +308,26 @@ export class ClawHubAgentHubCard extends LitElement {
         ${markdownMath(this.description || "No description provided.")}
       </div>
 
-      <div class="meta">
-        <span>${this._formatSize(this.fileSize)}</span>
-        <span>${this._formatDate(this.createdAt)}</span>
-      </div>
-
-      <div class="actions">
-        <button class="btn-download" @click=${this._handleDownload}>
-          <svg class="icon" viewBox="0 0 20 20" fill="currentColor">
+      <div class="card-footer">
+        <div class="meta-info">
+          <span>${this._formatSize(this.fileSize)}</span>
+          <span class="meta-divider">•</span>
+          <span>${this._formatDate(this.createdAt)}</span>
+        </div>
+        <button
+          class="icon-btn"
+          title="下载配置"
+          aria-label="下载智能体 ${this.name}"
+          @click=${this._handleDownload}
+        >
+          <svg viewBox="0 0 1024 1024" fill="currentColor">
             <path
-              fill-rule="evenodd"
-              d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"
-              clip-rule="evenodd"
-            />
+              d="M960.64 499.2c-28.8-91.52-116.48-150.4-223.36-150.4h-16a345.216 345.216 0 0 0-283.52-224c-140.8-16.64-278.4 56.96-343.68 182.4a346.24 346.24 0 0 0 47.36 386.56c15.36 17.28 42.24 19.2 60.16 3.84 17.28-15.36 19.2-42.24 3.84-60.16a260.672 260.672 0 0 1-35.84-290.56c49.28-94.08 152.96-149.76 258.56-136.96a259.84 259.84 0 0 1 220.8 192.64c5.12 18.56 21.76 32 40.96 32h47.36c68.48 0 124.16 35.84 142.08 91.52 19.2 60.8-2.56 126.08-55.04 163.2a42.88 42.88 0 0 0-10.24 59.52 42.112 42.112 0 0 0 58.88 10.24c83.2-59.52 118.4-163.2 87.68-259.84z"
+            ></path>
+            <path
+              d="M611.84 698.88l-56.96 56.96V490.88c0-23.68-19.2-42.24-42.88-42.24-23.68 0-42.24 19.2-42.24 42.88v264.96l-57.6-57.6a42.496 42.496 0 1 0-60.16 60.16l129.92 129.92c3.2 3.2 6.4 4.48 9.6 6.4 1.28 0.64 2.56 1.92 3.84 2.56 5.12 1.92 10.88 3.2 16.64 3.2 1.92 0 3.2-0.64 5.12-1.28 3.84-0.64 7.68-0.64 10.88-2.56 5.76-1.92 10.24-5.76 14.72-9.6l129.28-129.28c16.64-16.64 16.64-43.52 0-60.16s-43.52-16-60.16 0.64z"
+            ></path>
           </svg>
-          Download
         </button>
       </div>
     `;
