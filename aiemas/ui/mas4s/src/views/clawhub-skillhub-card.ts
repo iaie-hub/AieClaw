@@ -1,13 +1,12 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property } from "lit/decorators.js";
-import { getClient } from "../gateway/client.js";
 import { markdownMath } from "../lib/markdown-directive.js";
 
 /**
- * ClawHub AgentHub Card — Displays an uploaded Agent package from AgentRegistry.
+ * ClawHub SkillHub Card — Displays an uploaded Skill package from AgentRegistry.
  */
-@customElement("clawhub-agenthub-card")
-export class ClawHubAgentHubCard extends LitElement {
+@customElement("clawhub-skillhub-card")
+export class ClawHubSkillHubCard extends LitElement {
   @property({ type: String }) name = "";
   @property({ type: String }) uploaderName = "";
   @property({ type: String }) description = "";
@@ -15,7 +14,7 @@ export class ClawHubAgentHubCard extends LitElement {
   @property({ type: Boolean }) canManage = false;
   @property({ type: Number }) fileSize = 0;
   @property({ type: String }) createdAt = "";
-  @property({ type: String }) agentId = "";
+  @property({ type: String }) skillId = "";
 
   static styles = css`
     :host {
@@ -80,9 +79,9 @@ export class ClawHubAgentHubCard extends LitElement {
     }
 
     .visibility.public {
-      background: #ecfdf5;
-      color: #047857;
-      border-color: #a7f3d0;
+      background: #f5f3ff;
+      color: #6d28d9;
+      border-color: #ddd6fe;
     }
 
     .visibility.private {
@@ -96,8 +95,8 @@ export class ClawHubAgentHubCard extends LitElement {
     }
 
     .visibility.public.can-manage:hover {
-      background: #d1fae5;
-      border-color: #6ee7b7;
+      background: #ede9fe;
+      border-color: #c4b5fd;
     }
 
     .visibility.private.can-manage:hover {
@@ -240,25 +239,13 @@ export class ClawHubAgentHubCard extends LitElement {
 
   private async _handleDownload(e: Event) {
     e.stopPropagation(); // prevent clicking card
-    try {
-      const client = getClient();
-      await client.waitConnected();
-
-      // For download, we need the user token/apiKey. Instead of doing HTTP fetch here,
-      // the best approach in gateway app is usually either opening a URL or proxying.
-      // Since this is AieClaw, how to trigger download?
-      // Wait, there's no download endpoint in the gateway. The user uses the Control UI to trigger download.
-      // Can I just dispatch an event and let the parent handle it?
-      this.dispatchEvent(
-        new CustomEvent("download-hub-agent", {
-          detail: { agentId: this.agentId, name: this.name },
-          bubbles: true,
-          composed: true,
-        }),
-      );
-    } catch (err) {
-      console.error("Failed to trigger download", err);
-    }
+    this.dispatchEvent(
+      new CustomEvent("download-hub-skill", {
+        detail: { skillId: this.skillId, name: this.name },
+        bubbles: true,
+        composed: true,
+      }),
+    );
   }
 
   private _handleVisibilityToggle(e: Event) {
@@ -267,7 +254,7 @@ export class ClawHubAgentHubCard extends LitElement {
     const newVisibility = this.visibility === "public" ? "private" : "public";
     this.dispatchEvent(
       new CustomEvent("toggle-visibility", {
-        detail: { agentId: this.agentId, visibility: newVisibility, agentName: this.name },
+        detail: { skillId: this.skillId, visibility: newVisibility, skillName: this.name },
         bubbles: true,
         composed: true,
       }),
@@ -330,6 +317,6 @@ export class ClawHubAgentHubCard extends LitElement {
 
 declare global {
   interface HTMLElementTagNameMap {
-    "clawhub-agenthub-card": ClawHubAgentHubCard;
+    "clawhub-skillhub-card": ClawHubSkillHubCard;
   }
 }

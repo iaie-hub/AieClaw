@@ -1,15 +1,15 @@
-import { describe, it, expect, afterEach, beforeEach } from "vitest";
-import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
+import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { initDatabase } from "../store/database.js";
+import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { saveAgentRegistryConfig } from "../store/agent-registry-config.js";
+import { initDatabase } from "../store/database.js";
 import { saveNatsConfig } from "../store/nats-config.js";
-import { registerClawHubHandlers } from "./clawhub-handlers.js";
 import type { SimpleHandlers } from "./aiemas-utils.js";
+import { registerClawHubHandlers } from "./clawhub-handlers.js";
 
 // ── Test helpers ──
 
@@ -141,7 +141,10 @@ describe("clawhub-handlers", () => {
       expect(ok).toBe(true);
       expect((payload as Record<string, unknown>).ok).toBe(true);
 
-      const { payload: getPayload } = await callHandler(handlers, "aiemas.clawhub.registry-config.get");
+      const { payload: getPayload } = await callHandler(
+        handlers,
+        "aiemas.clawhub.registry-config.get",
+      );
       const p = getPayload as Record<string, unknown>;
       expect(p.registryUrl).toBe("http://myregistry:8000");
     });
@@ -191,7 +194,10 @@ describe("clawhub-handlers", () => {
 
   describe("legacy aiemas.clawhub.config compatibility", () => {
     it("combines registry and nats fields in config.get", async () => {
-      saveAgentRegistryConfig(db, { apiKey: "api-ar-" + "x".repeat(57), registryUrl: "http://registry:8000" });
+      saveAgentRegistryConfig(db, {
+        apiKey: "api-ar-" + "x".repeat(57),
+        registryUrl: "http://registry:8000",
+      });
       saveNatsConfig(db, { natsUrl: "nats://localhost:4222", agentName: "Legacy Agent" });
 
       const { ok, payload } = await callHandler(handlers, "aiemas.clawhub.config.get");
@@ -210,10 +216,16 @@ describe("clawhub-handlers", () => {
       });
       expect(ok).toBe(true);
 
-      const { payload: regPayload } = await callHandler(handlers, "aiemas.clawhub.registry-config.get");
+      const { payload: regPayload } = await callHandler(
+        handlers,
+        "aiemas.clawhub.registry-config.get",
+      );
       expect((regPayload as any).registryUrl).toBe("http://compat:8000");
 
-      const { payload: natsPayload } = await callHandler(handlers, "aiemas.clawhub.nats-config.get");
+      const { payload: natsPayload } = await callHandler(
+        handlers,
+        "aiemas.clawhub.nats-config.get",
+      );
       expect((natsPayload as any).natsUrl).toBe("nats://compat:4222");
     });
   });
@@ -237,7 +249,14 @@ describe("clawhub-handlers", () => {
         receivedUrl = req.url ?? "";
         receivedApiKey = (req.headers["x-api-key"] as string) ?? "";
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ agents: [{ card: { agent_id: "a1" } }], total: 1, page: 2, page_size: 10 }));
+        res.end(
+          JSON.stringify({
+            agents: [{ card: { agent_id: "a1" } }],
+            total: 1,
+            page: 2,
+            page_size: 10,
+          }),
+        );
       });
       server = setup.server;
 
@@ -254,6 +273,109 @@ describe("clawhub-handlers", () => {
       expect(receivedUrl).toContain("page_size=10");
       expect(receivedApiKey).toBe(apiKey);
       expect((payload as Record<string, unknown>).total).toBe(1);
+    });
+  });
+
+  describe("aiemas.clawhub.skillhub.list", () => {
+    it("returns error when API key is not configured", async () => {
+      const { ok, error } = await callHandler(handlers, "aiemas.clawhub.skillhub.list", {
+        page: 1,
+        pageSize: 20,
+      });
+      expect(ok).toBe(false);
+      const e = error as Record<string, unknown>;
+      expect(e.code).toBe("API_KEY_NOT_CONFIGURED");
+    });
+
+    it("proxies request to registry with correct query params", async () => {
+      let receivedUrl = "";
+      let receivedApiKey = "";
+
+      const setup = await createTestServer((req, res) => {
+        receivedUrl = req.url ?? "";
+        receivedApiKey = (req.headers["x-api-key"] as string) ?? "";
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            skills: [{ id: "s1", name: "Skill 1" }],
+            total: 1,
+            page: 2,
+            page_size: 10,
+          }),
+        );
+      });
+      server = setup.server;
+
+      const apiKey = "api-ar-" + "k".repeat(57);
+      saveAgentRegistryConfig(db, { apiKey, registryUrl: setup.baseUrl });
+
+      const { ok, payload } = await callHandler(handlers, "aiemas.clawhub.skillhub.list", {
+        page: 2,
+        pageSize: 10,
+      });
+
+      expect(ok).toBe(true);
+      expect(receivedUrl).toContain("page=2");
+      expect(receivedUrl).toContain("page_size=10");
+      expect(receivedApiKey).toBe(apiKey);
+      expect((payload as Record<string, unknown>).total).toBe(1);
+    });
+  });
+
+  describe("aiemas.clawhub.skillhub.visibility.update", () => {
+    it("returns error when API key is not configured", async () => {
+      const { ok, error } = await callHandler(
+        handlers,
+        "aiemas.clawhub.skillhub.visibility.update",
+        {
+          skillId: "s1",
+          visibility: "public",
+        },
+      );
+      expect(ok).toBe(false);
+      const e = error as Record<string, unknown>;
+      expect(e.code).toBe("API_KEY_NOT_CONFIGURED");
+    });
+
+    it("proxies visibility update PUT request to registry", async () => {
+      let receivedUrl = "";
+      let receivedMethod = "";
+      let receivedBody = "";
+
+      const setup = await createTestServer((req, res) => {
+        receivedUrl = req.url ?? "";
+        receivedMethod = req.method ?? "";
+
+        let body = "";
+        req.on("data", (chunk) => {
+          body += chunk;
+        });
+        req.on("end", () => {
+          receivedBody = body;
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: true }));
+        });
+      });
+      server = setup.server;
+
+      const apiKey = "api-ar-" + "k".repeat(57);
+      saveAgentRegistryConfig(db, { apiKey, registryUrl: setup.baseUrl });
+
+      const { ok, payload } = await callHandler(
+        handlers,
+        "aiemas.clawhub.skillhub.visibility.update",
+        {
+          skillId: "s1",
+          visibility: "public",
+        },
+      );
+
+      expect(ok).toBe(true);
+      expect(receivedMethod).toBe("PUT");
+      expect(receivedUrl).toContain("/api/v1/clawhub/skill/s1/visibility");
+      const parsedBody = JSON.parse(receivedBody);
+      expect(parsedBody.visibility).toBe("public");
+      expect((payload as Record<string, unknown>).success).toBe(true);
     });
   });
 });

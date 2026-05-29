@@ -1,21 +1,43 @@
 import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import { getClient } from "../gateway/client.js";
-import { fetchRegistryAgents, fetchHubAgents, updateHubAgentVisibility, downloadHubAgent } from "../gateway/clawhub-api.js";
 import { downloadFile } from "../gateway/agents-api.js";
-import type { RegistryAgent, AgentsListResponse, HubAgent, HubAgentsListResponse } from "../gateway/clawhub-api.js";
+import {
+  fetchRegistryAgents,
+  fetchHubAgents,
+  updateHubAgentVisibility,
+  downloadHubAgent,
+  fetchHubSkills,
+  updateHubSkillVisibility,
+  downloadHubSkill,
+} from "../gateway/clawhub-api.js";
+import type {
+  RegistryAgent,
+  AgentsListResponse,
+  HubAgent,
+  HubAgentsListResponse,
+  HubSkill,
+  HubSkillsListResponse,
+} from "../gateway/clawhub-api.js";
+import { getClient } from "../gateway/client.js";
 import "./clawhub-agent-card.js";
 import "./clawhub-agenthub-card.js";
 import "./clawhub-agent-detail.js";
 import "./clawhub-agenthub-detail.js";
-
+import "./clawhub-skillhub-card.js";
+import "./clawhub-skillhub-detail.js";
 import "../components/confirm-dialog.js";
 
 type TabKind = "agents" | "agenthub" | "skillhub";
 
 type DialogState =
   | { kind: "none" }
-  | { kind: "visibility"; agentId: string; visibility: "public" | "private"; agentName: string };
+  | { kind: "visibility"; agentId: string; visibility: "public" | "private"; agentName: string }
+  | {
+      kind: "skill-visibility";
+      skillId: string;
+      visibility: "public" | "private";
+      skillName: string;
+    };
 
 type ViewState =
   | { kind: "loading" }
@@ -32,6 +54,7 @@ export class ClawHubView extends LitElement {
   // ── Subview state ──
   @state() private _selectedAgent: RegistryAgent | null = null;
   @state() private _selectedHubAgent: HubAgent | null = null;
+  @state() private _selectedHubSkill: HubSkill | null = null;
 
   // ── Tab state ──
   @state() private _activeTab: TabKind = "agents";
@@ -52,6 +75,12 @@ export class ClawHubView extends LitElement {
   @state() private _hubPage = 1;
   @state() private _hubTotalPages = 1;
   @state() private _hubTotal = 0;
+
+  // ── SkillHub data ──
+  @state() private _hubSkills: HubSkill[] = [];
+  @state() private _hubSkillPage = 1;
+  @state() private _hubSkillTotalPages = 1;
+  @state() private _hubSkillTotal = 0;
 
   static styles = css`
     :host {
@@ -285,13 +314,27 @@ export class ClawHubView extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
-    this.addEventListener("download-hub-agent", this._onDownloadHubAgent as unknown as EventListener);
+    this.addEventListener(
+      "download-hub-agent",
+      this._onDownloadHubAgent as unknown as EventListener,
+    );
+    this.addEventListener(
+      "download-hub-skill",
+      this._onDownloadHubSkill as unknown as EventListener,
+    );
     void this._init();
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
-    this.removeEventListener("download-hub-agent", this._onDownloadHubAgent as unknown as EventListener);
+    this.removeEventListener(
+      "download-hub-agent",
+      this._onDownloadHubAgent as unknown as EventListener,
+    );
+    this.removeEventListener(
+      "download-hub-skill",
+      this._onDownloadHubSkill as unknown as EventListener,
+    );
   }
 
   // ── Initialization ──────────────────────────────────────────────────────────
@@ -307,11 +350,7 @@ export class ClawHubView extends LitElement {
     try {
       const client = getClient();
       await client.waitConnected();
-      const res: AgentsListResponse = await fetchRegistryAgents(
-        client,
-        this._page,
-        this._pageSize,
-      );
+      const res: AgentsListResponse = await fetchRegistryAgents(client, this._page, this._pageSize);
       this._agents = res.agents;
       this._total = res.total;
       this._totalPages = Math.max(1, Math.ceil(res.total / this._pageSize));
@@ -340,6 +379,25 @@ export class ClawHubView extends LitElement {
     }
   }
 
+  private async _loadHubSkills() {
+    this._viewState = { kind: "loading" };
+    try {
+      const client = getClient();
+      await client.waitConnected();
+      const res: HubSkillsListResponse = await fetchHubSkills(
+        client,
+        this._hubSkillPage,
+        this._pageSize,
+      );
+      this._hubSkills = res.skills;
+      this._hubSkillTotal = res.total;
+      this._hubSkillTotalPages = Math.max(1, Math.ceil(res.total / this._pageSize));
+      this._viewState = { kind: "ready" };
+    } catch (err: unknown) {
+      this._setErrorState(err, "获取 SkillHub 列表失败");
+    }
+  }
+
   private _setErrorState(err: unknown, defaultMessage: string) {
     const message = err instanceof Error ? err.message : defaultMessage;
     let code = "";
@@ -359,8 +417,7 @@ export class ClawHubView extends LitElement {
     } else if (tab === "agenthub") {
       void this._loadHubAgents();
     } else {
-      // skillhub is static, just set ready state
-      this._viewState = { kind: "ready" };
+      void this._loadHubSkills();
     }
   }
 
@@ -369,6 +426,8 @@ export class ClawHubView extends LitElement {
       void this._loadAgents();
     } else if (this._activeTab === "agenthub") {
       void this._loadHubAgents();
+    } else if (this._activeTab === "skillhub") {
+      void this._loadHubSkills();
     }
   }
 
@@ -383,6 +442,11 @@ export class ClawHubView extends LitElement {
         this._hubPage--;
         void this._loadHubAgents();
       }
+    } else if (this._activeTab === "skillhub") {
+      if (this._hubSkillPage > 1) {
+        this._hubSkillPage--;
+        void this._loadHubSkills();
+      }
     }
   }
 
@@ -396,6 +460,11 @@ export class ClawHubView extends LitElement {
       if (this._hubPage < this._hubTotalPages) {
         this._hubPage++;
         void this._loadHubAgents();
+      }
+    } else if (this._activeTab === "skillhub") {
+      if (this._hubSkillPage < this._hubSkillTotalPages) {
+        this._hubSkillPage++;
+        void this._loadHubSkills();
       }
     }
   }
@@ -413,8 +482,9 @@ export class ClawHubView extends LitElement {
   private _onBackToList() {
     this._selectedAgent = null;
     this._selectedHubAgent = null;
+    this._selectedHubSkill = null;
   }
-  
+
   private async _onDownloadHubAgent(e: CustomEvent<{ agentId: string; name: string }>) {
     try {
       const client = getClient();
@@ -423,7 +493,7 @@ export class ClawHubView extends LitElement {
       if (!res.downloadPath) {
         throw new Error("未能获取到下载路径");
       }
-      
+
       const fileData = await downloadFile(client, res.downloadPath);
       const rawName = e.detail.name || fileData.fileName || "agent-download";
       const downloadName = rawName.endsWith(".zip") ? rawName : `${rawName}.zip`;
@@ -442,35 +512,106 @@ export class ClawHubView extends LitElement {
     }
   }
 
-  private _onToggleVisibility(e: CustomEvent<{ agentId: string; visibility: "public" | "private"; agentName: string }>) {
-    this._dialog = {
-      kind: "visibility",
-      agentId: e.detail.agentId,
-      visibility: e.detail.visibility,
-      agentName: e.detail.agentName,
-    };
-  }
-
-  private async _onConfirmVisibilityToggle() {
-    if (this._dialog.kind !== "visibility") return;
-    const { agentId, visibility } = this._dialog;
-    this._dialog = { kind: "none" };
+  private async _onDownloadHubSkill(e: CustomEvent<{ skillId: string; name: string }>) {
     try {
       const client = getClient();
       await client.waitConnected();
-      const res = await updateHubAgentVisibility(client, agentId, visibility);
-      if (res.success && res.agent) {
-        // update locally
-        this._hubAgents = this._hubAgents.map((a) =>
-          a.id === agentId ? { ...a, visibility: res.agent!.visibility } : a
-        );
-        if (this._selectedHubAgent && this._selectedHubAgent.id === agentId) {
-          this._selectedHubAgent = { ...this._selectedHubAgent, visibility: res.agent!.visibility };
-        }
+      const res = await downloadHubSkill(client, e.detail.skillId, e.detail.name);
+      if (!res.downloadPath) {
+        throw new Error("未能获取到下载路径");
       }
+
+      const fileData = await downloadFile(client, res.downloadPath);
+      const rawName = e.detail.name || fileData.fileName || "skill-download";
+      const downloadName = rawName.endsWith(".zip") ? rawName : `${rawName}.zip`;
+
+      const bytes = Uint8Array.from(atob(fileData.data), (c) => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: fileData.mimeType || "application/zip" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = downloadName;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (err) {
-      console.error("Failed to update visibility", err);
-      alert(`修改可见性失败: ${err instanceof Error ? err.message : String(err)}`);
+      console.error("Failed to download skill", err);
+      alert(`下载失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private _onToggleVisibility(
+    e: CustomEvent<{
+      agentId?: string;
+      skillId?: string;
+      visibility: "public" | "private";
+      agentName?: string;
+      skillName?: string;
+    }>,
+  ) {
+    if (e.detail.skillId) {
+      this._dialog = {
+        kind: "skill-visibility",
+        skillId: e.detail.skillId,
+        visibility: e.detail.visibility,
+        skillName: e.detail.skillName || "",
+      };
+    } else if (e.detail.agentId) {
+      this._dialog = {
+        kind: "visibility",
+        agentId: e.detail.agentId,
+        visibility: e.detail.visibility,
+        agentName: e.detail.agentName || "",
+      };
+    }
+  }
+
+  private async _onConfirmVisibilityToggle() {
+    if (this._dialog.kind === "visibility") {
+      const { agentId, visibility } = this._dialog;
+      this._dialog = { kind: "none" };
+      try {
+        const client = getClient();
+        await client.waitConnected();
+        const res = await updateHubAgentVisibility(client, agentId, visibility);
+        if (res.success && res.agent) {
+          // update locally
+          this._hubAgents = this._hubAgents.map((a) =>
+            a.id === agentId ? { ...a, visibility: res.agent!.visibility } : a,
+          );
+          if (this._selectedHubAgent && this._selectedHubAgent.id === agentId) {
+            this._selectedHubAgent = {
+              ...this._selectedHubAgent,
+              visibility: res.agent!.visibility,
+            };
+          }
+        }
+      } catch (err) {
+        console.error("Failed to update visibility", err);
+        alert(`修改可见性失败: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    } else if (this._dialog.kind === "skill-visibility") {
+      const { skillId, visibility } = this._dialog;
+      this._dialog = { kind: "none" };
+      try {
+        const client = getClient();
+        await client.waitConnected();
+        const res = await updateHubSkillVisibility(client, skillId, visibility);
+        if (res.success && res.skill) {
+          // update locally
+          this._hubSkills = this._hubSkills.map((s) =>
+            s.id === skillId ? { ...s, visibility: res.skill!.visibility } : s,
+          );
+          if (this._selectedHubSkill && this._selectedHubSkill.id === skillId) {
+            this._selectedHubSkill = {
+              ...this._selectedHubSkill,
+              visibility: res.skill!.visibility,
+            };
+          }
+        }
+      } catch (err) {
+        console.error("Failed to update visibility", err);
+        alert(`修改可见性失败: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
 
@@ -493,6 +634,17 @@ export class ClawHubView extends LitElement {
           @back=${this._onBackToList}
           @toggle-visibility=${this._onToggleVisibility}
         ></clawhub-agenthub-detail>
+        ${this._renderDialogs()}
+      `;
+    }
+
+    if (this._selectedHubSkill) {
+      return html`
+        <clawhub-skillhub-detail
+          .skill=${this._selectedHubSkill}
+          @back=${this._onBackToList}
+          @toggle-visibility=${this._onToggleVisibility}
+        ></clawhub-skillhub-detail>
         ${this._renderDialogs()}
       `;
     }
@@ -546,6 +698,22 @@ export class ClawHubView extends LitElement {
         ></confirm-dialog>
       `;
     }
+    if (this._dialog.kind === "skill-visibility") {
+      const { skillName, visibility } = this._dialog;
+      const targetStr = visibility === "public" ? "公开 (Public)" : "私有 (Private)";
+      return html`
+        <confirm-dialog
+          title="修改可见性"
+          message="确定要将技能「${skillName}」的可见性修改为 ${targetStr} 吗？"
+          confirmText="确认修改"
+          confirmVariant="primary"
+          @confirm=${this._onConfirmVisibilityToggle}
+          @cancel=${() => {
+            this._dialog = { kind: "none" };
+          }}
+        ></confirm-dialog>
+      `;
+    }
     return "";
   }
 
@@ -565,16 +733,25 @@ export class ClawHubView extends LitElement {
     // API Key not configured
     if (
       vs.kind === "no-api-key" ||
-      (vs.kind === "error" && (
-        vs.code === "API_KEY_NOT_CONFIGURED" ||
-        vs.message.includes("API_KEY_NOT_CONFIGURED") ||
-        vs.message.includes("API Key not configured")
-      ))
+      (vs.kind === "error" &&
+        (vs.code === "API_KEY_NOT_CONFIGURED" ||
+          vs.message.includes("API_KEY_NOT_CONFIGURED") ||
+          vs.message.includes("API Key not configured")))
     ) {
       return html`
         <div class="center-state">
-          <svg class="center-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path>
+          <svg
+            class="center-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"
+            ></path>
           </svg>
           <div class="center-msg">API Key 未配置</div>
           <div class="center-sub">请先在设置页面配置 AgentRegistry API Key</div>
@@ -587,7 +764,15 @@ export class ClawHubView extends LitElement {
     if (vs.kind === "error") {
       return html`
         <div class="center-state">
-          <svg class="center-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg
+            class="center-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
             <circle cx="12" cy="12" r="10"></circle>
             <line x1="12" y1="8" x2="12" y2="12"></line>
             <line x1="12" y1="16" x2="12.01" y2="16"></line>
@@ -612,7 +797,15 @@ export class ClawHubView extends LitElement {
     if (this._agents.length === 0) {
       return html`
         <div class="center-state">
-          <svg class="center-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg
+            class="center-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
             <circle cx="9" cy="7" r="4"></circle>
             <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
@@ -633,7 +826,9 @@ export class ClawHubView extends LitElement {
               .agentId=${agent.card.agent_id}
               .status=${agent.status}
               .skills=${agent.card.skills}
-              @click=${() => { this._selectedAgent = agent; }}
+              @click=${() => {
+                this._selectedAgent = agent;
+              }}
             ></clawhub-agent-card>
           `,
         )}
@@ -646,8 +841,18 @@ export class ClawHubView extends LitElement {
     if (this._hubAgents.length === 0) {
       return html`
         <div class="center-state">
-          <svg class="center-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+          <svg
+            class="center-icon"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z"
+            />
           </svg>
           <div class="center-msg">AgentHub 中暂无上传的 Agent</div>
           <div class="center-sub">你可以通过工作台将本地 Agent 共享到这里</div>
@@ -668,7 +873,9 @@ export class ClawHubView extends LitElement {
               .createdAt=${agent.created_at}
               .agentId=${agent.id}
               .canManage=${agent.can_manage || false}
-              @click=${() => { this._selectedHubAgent = agent; }}
+              @click=${() => {
+                this._selectedHubAgent = agent;
+              }}
               @toggle-visibility=${this._onToggleVisibility}
             ></clawhub-agenthub-card>
           `,
@@ -679,14 +886,50 @@ export class ClawHubView extends LitElement {
   }
 
   private _renderSkillHubTab() {
+    if (this._hubSkills.length === 0) {
+      return html`
+        <div class="center-state">
+          <svg
+            class="center-icon"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z"
+            />
+          </svg>
+          <div class="center-msg">SkillHub 中暂无上传的技能</div>
+          <div class="center-sub">你可以通过工作台将本地技能包共享到这里</div>
+        </div>
+      `;
+    }
+
     return html`
-      <div class="center-state">
-        <svg class="center-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
-        </svg>
-        <div class="center-msg" style="font-size: 20px; font-weight: 600; color: #334155;">SkillHub</div>
-        <div class="center-sub">Coming Soon<br><br>技能注册和发现功能将在未来的版本中提供。</div>
+      <div class="cards-grid">
+        ${this._hubSkills.map(
+          (skill) => html`
+            <clawhub-skillhub-card
+              .name=${skill.name}
+              .uploaderName=${skill.uploader_name}
+              .description=${skill.description}
+              .visibility=${skill.visibility}
+              .fileSize=${skill.file_size}
+              .createdAt=${skill.created_at}
+              .skillId=${skill.id}
+              .canManage=${skill.can_manage || false}
+              @click=${() => {
+                this._selectedHubSkill = skill;
+              }}
+              @toggle-visibility=${this._onToggleVisibility}
+            ></clawhub-skillhub-card>
+          `,
+        )}
       </div>
+      ${this._renderPagination()}
     `;
   }
 
@@ -699,6 +942,10 @@ export class ClawHubView extends LitElement {
       currentPage = this._hubPage;
       currentTotalPages = this._hubTotalPages;
       currentTotal = this._hubTotal;
+    } else if (this._activeTab === "skillhub") {
+      currentPage = this._hubSkillPage;
+      currentTotalPages = this._hubSkillTotalPages;
+      currentTotal = this._hubSkillTotal;
     }
 
     if (currentTotalPages <= 1) return html``;

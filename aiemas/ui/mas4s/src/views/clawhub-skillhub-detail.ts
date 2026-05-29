@@ -1,11 +1,11 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import type { HubAgent } from "../gateway/clawhub-api.js";
+import type { HubSkill } from "../gateway/clawhub-api.js";
 import { markdownMath } from "../lib/markdown-directive.js";
 
-@customElement("clawhub-agenthub-detail")
-export class ClawHubAgentHubDetail extends LitElement {
-  @property({ type: Object }) agent!: HubAgent;
+@customElement("clawhub-skillhub-detail")
+export class ClawHubSkillHubDetail extends LitElement {
+  @property({ type: Object }) skill!: HubSkill;
 
   @state() private _descriptionExpanded = false;
 
@@ -96,7 +96,7 @@ export class ClawHubAgentHubDetail extends LitElement {
       flex-wrap: wrap;
     }
 
-    .agent-name {
+    .skill-name {
       font-size: 24px;
       font-weight: 700;
       color: #0f172a;
@@ -115,9 +115,9 @@ export class ClawHubAgentHubDetail extends LitElement {
     }
 
     .visibility.public {
-      background: #ecfdf5;
-      color: #047857;
-      border-color: #a7f3d0;
+      background: #f5f3ff;
+      color: #6d28d9;
+      border-color: #ddd6fe;
     }
 
     .visibility.private {
@@ -131,8 +131,8 @@ export class ClawHubAgentHubDetail extends LitElement {
     }
 
     .visibility.public.can-manage:hover {
-      background: #d1fae5;
-      border-color: #6ee7b7;
+      background: #ede9fe;
+      border-color: #c4b5fd;
     }
 
     .visibility.private.can-manage:hover {
@@ -395,8 +395,8 @@ export class ClawHubAgentHubDetail extends LitElement {
 
   private _onDownload() {
     this.dispatchEvent(
-      new CustomEvent("download-hub-agent", {
-        detail: { agentId: this.agent.id, name: this.agent.name },
+      new CustomEvent("download-hub-skill", {
+        detail: { skillId: this.skill.id, name: this.skill.name },
         bubbles: true,
         composed: true,
       }),
@@ -404,12 +404,12 @@ export class ClawHubAgentHubDetail extends LitElement {
   }
 
   private _handleVisibilityToggle(e: Event) {
-    if (!this.agent.can_manage) return;
+    if (!this.skill.can_manage) return;
     e.stopPropagation();
-    const newVisibility = this.agent.visibility === "public" ? "private" : "public";
+    const newVisibility = this.skill.visibility === "public" ? "private" : "public";
     this.dispatchEvent(
       new CustomEvent("toggle-visibility", {
-        detail: { agentId: this.agent.id, visibility: newVisibility, agentName: this.agent.name },
+        detail: { skillId: this.skill.id, visibility: newVisibility, skillName: this.skill.name },
         bubbles: true,
         composed: true,
       }),
@@ -421,8 +421,8 @@ export class ClawHubAgentHubDetail extends LitElement {
   }
 
   render() {
-    const a = this.agent;
-    const showExpandBtn = a.description && a.description.length > 200;
+    const s = this.skill;
+    const showExpandBtn = s.description && s.description.length > 200;
 
     return html`
       <div class="container">
@@ -439,24 +439,24 @@ export class ClawHubAgentHubDetail extends LitElement {
             <path d="M19 12H5" />
             <path d="M12 19l-7-7 7-7" />
           </svg>
-          返回 AgentHub
+          返回 SkillHub
         </button>
 
         <!-- Title Card -->
         <div class="title-card">
           <div class="header-info">
             <div class="title-row">
-              <h1 class="agent-name" title=${a.name}>${a.name}</h1>
+              <h1 class="skill-name" title=${s.name}>${s.name}</h1>
               <div
-                class="visibility ${a.visibility} ${a.can_manage ? "can-manage" : ""}"
-                title=${a.can_manage
+                class="visibility ${s.visibility} ${s.can_manage ? "can-manage" : ""}"
+                title=${s.can_manage
                   ? "点击切换可见性"
-                  : a.visibility === "public"
+                  : s.visibility === "public"
                     ? "公开 (Public)"
                     : "私有 (Private)"}
                 @click=${this._handleVisibilityToggle}
               >
-                ${a.visibility === "public"
+                ${s.visibility === "public"
                   ? html`<svg viewBox="0 0 20 20" fill="currentColor">
                       <path
                         d="M10 2a5 5 0 00-5 5v2a2 2 0 00-2 2v5a2 2 0 002 2h10a2 2 0 002-2v-5a2 2 0 00-2-2H9V7a1 1 0 012 0v2h2V7a5 5 0 00-5-5z"
@@ -469,10 +469,10 @@ export class ClawHubAgentHubDetail extends LitElement {
                         clip-rule="evenodd"
                       />
                     </svg>`}
-                ${a.visibility === "public" ? "Public" : "Private"}
+                ${s.visibility === "public" ? "Public" : "Private"}
               </div>
             </div>
-            <p class="uploader">Uploaded by <span>${a.uploader_name}</span></p>
+            <p class="uploader">Uploaded by <span>${s.uploader_name}</span></p>
           </div>
           <div class="actions">
             <button class="btn-download" @click=${this._onDownload}>
@@ -493,8 +493,8 @@ export class ClawHubAgentHubDetail extends LitElement {
           <h2 class="card-title">Package Information</h2>
           <dl class="dl-list">
             <div class="dl-item">
-              <dt>Agent ID</dt>
-              <dd class="mono">${a.id}</dd>
+              <dt>Skill ID</dt>
+              <dd class="mono">${s.id}</dd>
             </div>
             <div class="dl-item">
               <dt>Package Size</dt>
@@ -502,20 +502,20 @@ export class ClawHubAgentHubDetail extends LitElement {
                 class="mono"
                 style="background: #f8fafc; border-color: #f1f5f9; display: inline-block;"
               >
-                ${this._formatSize(a.file_size)}
+                ${this._formatSize(s.file_size)}
               </dd>
             </div>
             <div class="dl-item full-width">
               <dt>Storage Path</dt>
-              <dd class="mono">${a.file_path}</dd>
+              <dd class="mono">${s.file_path}</dd>
             </div>
             <div class="dl-item">
               <dt>Created At</dt>
-              <dd>${this._formatDate(a.created_at)}</dd>
+              <dd>${this._formatDate(s.created_at)}</dd>
             </div>
             <div class="dl-item">
               <dt>Updated At</dt>
-              <dd>${this._formatDate(a.updated_at)}</dd>
+              <dd>${this._formatDate(s.updated_at)}</dd>
             </div>
           </dl>
         </section>
@@ -529,7 +529,7 @@ export class ClawHubAgentHubDetail extends LitElement {
                 ? ""
                 : "collapsed"}"
             >
-              ${markdownMath(a.description || "No description provided.")}
+              ${markdownMath(s.description || "No description provided.")}
             </div>
             ${!this._descriptionExpanded && showExpandBtn
               ? html`<div class="fade-overlay"></div>`
@@ -561,6 +561,6 @@ export class ClawHubAgentHubDetail extends LitElement {
 
 declare global {
   interface HTMLElementTagNameMap {
-    "clawhub-agenthub-detail": ClawHubAgentHubDetail;
+    "clawhub-skillhub-detail": ClawHubSkillHubDetail;
   }
 }

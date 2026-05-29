@@ -123,6 +123,19 @@ export class SkillCard extends LitElement {
       font-weight: 500;
     }
 
+    .skill-top-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .skill-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
     .skill-status-indicator {
       width: 8px;
       height: 8px;
@@ -156,6 +169,29 @@ export class SkillCard extends LitElement {
 
     .skill-status-text.disabled {
       color: #94a3b8;
+    }
+
+    .icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: #64748b;
+      cursor: pointer;
+      transition: all 0.15s;
+      padding: 0;
+      font-size: 14px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .icon-btn:hover {
+      background: #f1f5f9;
+      color: #3b82f6;
     }
   `;
 
@@ -200,6 +236,17 @@ export class SkillCard extends LitElement {
     );
   };
 
+  private _onExport = (e: Event) => {
+    e.stopPropagation(); // 阻止事件冒泡以避免触发卡片选择
+    this.dispatchEvent(
+      new CustomEvent("skill-export", {
+        detail: { skill: this.skill },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  };
+
   render() {
     const statusClass = this._getStatusClass();
     const statusText = this._getStatusText();
@@ -224,24 +271,43 @@ export class SkillCard extends LitElement {
             <h3 class="skill-name">${this.skill.name}</h3>
             <p class="skill-description">${this.skill.description}</p>
           </div>
-          ${this.showCheckbox
-            ? html`
-                <div class="skill-checkbox-wrapper" @click=${this._handleCheck}>
-                  <input
-                    type="checkbox"
-                    class="skill-checkbox"
-                    .checked=${this.checked}
-                    tabindex="-1"
-                  />
-                </div>
-              `
-            : ""}
+          <div class="skill-top-right">
+            <div class="skill-status">
+              <span class="skill-status-indicator ${statusClass}"></span>
+              <span class="skill-status-text ${statusClass}">${statusText}</span>
+            </div>
+            ${this.showCheckbox
+              ? html`
+                  <div class="skill-checkbox-wrapper" @click=${this._handleCheck}>
+                    <input
+                      type="checkbox"
+                      class="skill-checkbox"
+                      .checked=${this.checked}
+                      tabindex="-1"
+                    />
+                  </div>
+                `
+              : ""}
+          </div>
         </div>
         <div class="skill-footer">
           <span class="skill-source">${this.skill.source}</span>
-          <div class="skill-status">
-            <span class="skill-status-indicator ${statusClass}"></span>
-            <span class="skill-status-text ${statusClass}">${statusText}</span>
+          <div class="skill-actions">
+            <button
+              class="icon-btn"
+              title="下载配置"
+              aria-label="下载技能 ${this.skill.name}"
+              @click=${this._onExport}
+            >
+              <svg width="14" height="14" viewBox="0 0 1024 1024" fill="currentColor">
+                <path
+                  d="M960.64 499.2c-28.8-91.52-116.48-150.4-223.36-150.4h-16a345.216 345.216 0 0 0-283.52-224c-140.8-16.64-278.4 56.96-343.68 182.4a346.24 346.24 0 0 0 47.36 386.56c15.36 17.28 42.24 19.2 60.16 3.84 17.28-15.36 19.2-42.24 3.84-60.16a260.672 260.672 0 0 1-35.84-290.56c49.28-94.08 152.96-149.76 258.56-136.96a259.84 259.84 0 0 1 220.8 192.64c5.12 18.56 21.76 32 40.96 32h47.36c68.48 0 124.16 35.84 142.08 91.52 19.2 60.8-2.56 126.08-55.04 163.2a42.88 42.88 0 0 0-10.24 59.52 42.112 42.112 0 0 0 58.88 10.24c83.2-59.52 118.4-163.2 87.68-259.84z"
+                ></path>
+                <path
+                  d="M611.84 698.88l-56.96 56.96V490.88c0-23.68-19.2-42.24-42.88-42.24-23.68 0-42.24 19.2-42.24 42.88v264.96l-57.6-57.6a42.496 42.496 0 1 0-60.16 60.16l129.92 129.92c3.2 3.2 6.4 4.48 9.6 6.4 1.28 0.64 2.56 1.92 3.84 2.56 5.12 1.92 10.88 3.2 16.64 3.2 1.92 0 3.2-0.64 5.12-1.28 3.84-0.64 7.68-0.64 10.88-2.56 5.76-1.92 10.24-5.76 14.72-9.6l129.28-129.28c16.64-16.64 16.64-43.52 0-60.16s-43.52-16-60.16 0.64z"
+                ></path>
+              </svg>
+            </button>
           </div>
         </div>
       </div>

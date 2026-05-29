@@ -100,9 +100,7 @@ export async function fetchRegistryAgents(
 }
 
 /** 获取配置 (Legacy) */
-export async function fetchRegistryConfig(
-  client: GatewayBrowserClient,
-): Promise<RegistryConfig> {
+export async function fetchRegistryConfig(client: GatewayBrowserClient): Promise<RegistryConfig> {
   return client.request<RegistryConfig>("aiemas.clawhub.config.get");
 }
 
@@ -126,13 +124,14 @@ export async function saveRegistrySettings(
   client: GatewayBrowserClient,
   config: Partial<RegistrySettings>,
 ): Promise<{ ok: boolean; error?: string }> {
-  return client.request<{ ok: boolean; error?: string }>("aiemas.clawhub.registry-config.save", config);
+  return client.request<{ ok: boolean; error?: string }>(
+    "aiemas.clawhub.registry-config.save",
+    config,
+  );
 }
 
 /** 获取 NATS 配置 */
-export async function fetchNatsSettings(
-  client: GatewayBrowserClient,
-): Promise<NatsSettings> {
+export async function fetchNatsSettings(client: GatewayBrowserClient): Promise<NatsSettings> {
   return client.request<NatsSettings>("aiemas.clawhub.nats-config.get");
 }
 
@@ -202,7 +201,56 @@ export async function updateHubAgentVisibility(
 export async function downloadHubAgent(
   client: GatewayBrowserClient,
   agentId: string,
-  filename: string
+  filename: string,
 ): Promise<{ ok: boolean; downloadPath?: string }> {
   return client.request("aiemas.clawhub.agent.download", { agentId, filename });
+}
+
+export interface HubSkill {
+  id: string;
+  name: string;
+  description?: string;
+  file_path: string;
+  file_size: number;
+  visibility: "public" | "private";
+  uploader_id: string;
+  uploader_name: string;
+  created_at: string;
+  updated_at: string;
+  can_manage?: boolean;
+}
+
+export interface HubSkillsListResponse {
+  skills: HubSkill[];
+  count: number;
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+/** 获取 SkillHub 包列表 */
+export async function fetchHubSkills(
+  client: GatewayBrowserClient,
+  page: number,
+  pageSize: number,
+): Promise<HubSkillsListResponse> {
+  return client.request<HubSkillsListResponse>("aiemas.clawhub.skillhub.list", { page, pageSize });
+}
+
+/** 更新 Skill 的可见性 */
+export async function updateHubSkillVisibility(
+  client: GatewayBrowserClient,
+  skillId: string,
+  visibility: "public" | "private",
+): Promise<{ success: boolean; skill?: HubSkill }> {
+  return client.request("aiemas.clawhub.skillhub.visibility.update", { skillId, visibility });
+}
+
+/** 下载 SkillHub 包 */
+export async function downloadHubSkill(
+  client: GatewayBrowserClient,
+  skillId: string,
+  filename: string,
+): Promise<{ ok: boolean; downloadPath?: string }> {
+  return client.request("aiemas.clawhub.skill.download", { skillId, filename });
 }

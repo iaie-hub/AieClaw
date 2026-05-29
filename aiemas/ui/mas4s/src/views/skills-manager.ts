@@ -1,13 +1,20 @@
 import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { SkillsController } from "../controllers/skills-controller.js";
+import { listWorkspaceFiles, exportAgent, downloadFile } from "../gateway/agents-api.js";
 import { getClient } from "../gateway/client.js";
 import { AppStore, AppStoreController } from "../store/app-store.js";
-import type { SkillStatusEntry } from "../types/skills-types.js";
 import "../components/skill-card.js";
 import "../components/skill-detail-panel.js";
+import "../components/skill/skill-export-dialog.js";
+import type { WorkspaceEntry } from "../types/agents-types.js";
+import type { SkillStatusEntry } from "../types/skills-types.js";
 
 type TabKind = "all" | "workspace" | "builtin";
+
+type DialogState =
+  | { kind: "none" }
+  | { kind: "export"; skill: SkillStatusEntry; entries: WorkspaceEntry[] };
 
 @customElement("skills-manager")
 export class SkillsManager extends LitElement {
@@ -23,6 +30,8 @@ export class SkillsManager extends LitElement {
   @state() private _batchMode = false;
   @state() private _checkedSkills = new Set<string>();
   @state() private _batchUpdating = false;
+
+  @state() private _dialog: DialogState = { kind: "none" };
 
   static styles = css`
     :host {
@@ -386,6 +395,49 @@ export class SkillsManager extends LitElement {
     }
   };
 
+  private _onExportEvent = async (e: CustomEvent<{ skill: SkillStatusEntry }>) => {
+    const { skill } = e.detail;
+    try {
+      const client = getClient();
+      const result = await listWorkspaceFiles(client, skill.baseDir);
+      this._dialog = { kind: "export", skill, entries: result.entries };
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "获取工作空间文件失败");
+    }
+  };
+
+  private _onExportConfirm = async (e: CustomEvent<{ items: string[]; fileName: string }>) => {
+    if (this._dialog.kind !== "export") {
+      return;
+    }
+    const { skill } = this._dialog;
+    this._dialog = { kind: "none" };
+    try {
+      const client = getClient();
+      const { archivePath } = await exportAgent(
+        client,
+        "skill-" + skill.skillKey,
+        skill.baseDir,
+        e.detail.items,
+      );
+      const fileData = await downloadFile(client, archivePath);
+
+      const rawName = e.detail.fileName || fileData.fileName || "skill-export";
+      const downloadName = rawName.endsWith(".zip") ? rawName : `${rawName}.zip`;
+
+      const bytes = Uint8Array.from(atob(fileData.data), (c) => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: fileData.mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = downloadName;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "导出失败");
+    }
+  };
+
   private renderGrid(skills: SkillStatusEntry[]) {
     return html`
       <div class="cards-grid">
@@ -398,6 +450,7 @@ export class SkillsManager extends LitElement {
               .checked=${this._checkedSkills.has(s.skillKey)}
               @skill-select=${this._handleSkillSelect}
               @skill-check=${this._handleSkillCheck}
+              @skill-export=${this._onExportEvent}
             ></skill-card>
           `,
         )}
@@ -529,6 +582,19 @@ export class SkillsManager extends LitElement {
         @close=${this._handleDetailClose}
         @toggle-enabled=${this._handleToggleSingle}
       ></skill-detail-panel>
+
+      ${this._dialog.kind === "export"
+        ? html`
+            <skill-export-dialog
+              .entries=${this._dialog.entries}
+              skillName=${this._dialog.skill.name}
+              @confirm=${this._onExportConfirm}
+              @cancel=${() => {
+                this._dialog = { kind: "none" };
+              }}
+            ></skill-export-dialog>
+          `
+        : ""}
 
       <div class="batch-toolbar ${this._batchMode ? "visible" : ""}">
         <div class="batch-info">已选择 ${this._checkedSkills.size} 个 Skills</div>

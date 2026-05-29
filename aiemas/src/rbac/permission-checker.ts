@@ -71,6 +71,9 @@ export const GLOBAL_ROLE_PERMISSIONS: Record<string, Set<GlobalRole>> = {
   "aiemas.clawhub.nats-config.get": new Set(["admin", "member", "viewer"]),
   "aiemas.clawhub.nats-config.save": new Set(["admin"]),
   "aiemas.clawhub.agent.upload": new Set(["admin", "member"]),
+  "aiemas.clawhub.skillhub.list": new Set(["admin", "member", "viewer"]),
+  "aiemas.clawhub.skillhub.visibility.update": new Set(["admin", "member"]),
+  "aiemas.clawhub.skill.download": new Set(["admin", "member"]),
 };
 
 /**
