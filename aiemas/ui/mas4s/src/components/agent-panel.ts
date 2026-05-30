@@ -559,7 +559,10 @@ export class AgentPanel extends LitElement {
           });
         } else if (_container) {
           requestAnimationFrame(() => {
-            this._safeScrollTo(_container, { top: _container.scrollHeight, behavior: scrollBehavior });
+            this._safeScrollTo(_container, {
+              top: _container.scrollHeight,
+              behavior: scrollBehavior,
+            });
           });
         }
       }
@@ -679,11 +682,17 @@ export class AgentPanel extends LitElement {
         if (this._container) {
           const textBottomTarget =
             msgList.offsetTop + msgList.offsetHeight + 30 - this._container.clientHeight;
-          this._safeScrollTo(this._container, { top: Math.max(0, textBottomTarget), behavior: "smooth" });
+          this._safeScrollTo(this._container, {
+            top: Math.max(0, textBottomTarget),
+            behavior: "smooth",
+          });
         }
       });
     } else {
-      this._safeScrollTo(this._container, { top: this._container.scrollHeight, behavior: "smooth" });
+      this._safeScrollTo(this._container, {
+        top: this._container.scrollHeight,
+        behavior: "smooth",
+      });
     }
     this._isAtBottom = true;
   }

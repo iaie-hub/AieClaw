@@ -1,755 +1,894 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>科研SOP流程可视化 · 双锚点串行链式</title>
     <style>
-        :root {
-            --bg: #f7f8fa;
-            --surface: #ffffff;
-            --surface-alt: #f1f3f6;
-            --border: #e3e6eb;
-            --border-light: #edf0f4;
-            --text: #1e293b;
-            --text-secondary: #475569;
-            --text-muted: #64748b;
-            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-            --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.05);
-            --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.08);
-            --radius-sm: 6px;
-            --radius: 10px;
-            --radius-lg: 14px;
-            --transition: 0.2s ease;
-            --color-t: #4a90d9;
-            --color-l: #3ca08d;
-            --color-d: #7c5cbf;
-            --color-i: #e09145;
-            --color-e: #d9556e;
-            --color-w: #5b9ea6;
-            --color-active: #3b82f6;
-            --color-active-bg: #eff6ff;
-            --status-success: #10b981;
-            --status-running: #f59e0b;
-            --status-failed: #ef4444;
-            --status-pending: #94a3b8;
-            --font-mono: 'SF Mono', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
-        }
+      :root {
+        --bg: #f7f8fa;
+        --surface: #ffffff;
+        --surface-alt: #f1f3f6;
+        --border: #e3e6eb;
+        --border-light: #edf0f4;
+        --text: #1e293b;
+        --text-secondary: #475569;
+        --text-muted: #64748b;
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+        --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.05);
+        --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.08);
+        --radius-sm: 6px;
+        --radius: 10px;
+        --radius-lg: 14px;
+        --transition: 0.2s ease;
+        --color-t: #4a90d9;
+        --color-l: #3ca08d;
+        --color-d: #7c5cbf;
+        --color-i: #e09145;
+        --color-e: #d9556e;
+        --color-w: #5b9ea6;
+        --color-active: #3b82f6;
+        --color-active-bg: #eff6ff;
+        --status-success: #10b981;
+        --status-running: #f59e0b;
+        --status-failed: #ef4444;
+        --status-pending: #94a3b8;
+        --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", "Consolas", monospace;
+      }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            height: 100vh;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-        }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei",
+          sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        height: 100vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
 
-        .app-header {
-            background: var(--surface);
-            border-bottom: 1px solid var(--border);
-            padding: 12px 20px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            flex-shrink: 0;
-            box-shadow: var(--shadow-sm);
-        }
-        .app-header .logo {
-            width: 34px;
-            height: 34px;
-            border-radius: var(--radius-sm);
-            background: linear-gradient(135deg, #4f8cda, #3b82f6);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: 700;
-            font-size: 15px;
-        }
-        .app-header h1 {
-            font-size: 16px;
-            font-weight: 600;
-            letter-spacing: -0.2px;
-        }
-        .flow-indicator {
-            margin-left: auto;
-            font-size: 11px;
-            font-weight: 500;
-            color: var(--text-muted);
-            background: var(--surface-alt);
-            padding: 5px 10px;
-            border-radius: 20px;
-            display: flex;
-            gap: 4px;
-        }
-        .flow-indicator span {
-            font-weight: 600;
-            color: var(--text-secondary);
-        }
+      .app-header {
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        padding: 12px 20px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-shrink: 0;
+        box-shadow: var(--shadow-sm);
+      }
+      .app-header .logo {
+        width: 34px;
+        height: 34px;
+        border-radius: var(--radius-sm);
+        background: linear-gradient(135deg, #4f8cda, #3b82f6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 700;
+        font-size: 15px;
+      }
+      .app-header h1 {
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: -0.2px;
+      }
+      .flow-indicator {
+        margin-left: auto;
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--text-muted);
+        background: var(--surface-alt);
+        padding: 5px 10px;
+        border-radius: 20px;
+        display: flex;
+        gap: 4px;
+      }
+      .flow-indicator span {
+        font-weight: 600;
+        color: var(--text-secondary);
+      }
 
-        .main-container {
-            display: flex;
-            flex: 1;
-            overflow: hidden;
-        }
+      .main-container {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+      }
 
-        /* Left Panel */
-        .left-panel {
-            width: 220px;
-            flex-shrink: 0;
-            background: var(--surface);
-            border-right: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-        }
-        .left-panel-header {
-            padding: 14px 16px;
-            border-bottom: 1px solid var(--border-light);
-            font-weight: 600;
-            font-size: 13px;
-            color: var(--text-secondary);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .idea-list {
-            flex: 1;
-            overflow-y: auto;
-            padding: 6px 8px;
-            display: flex;
-            flex-direction: column;
-            gap: 3px;
-        }
-        .idea-item {
-            padding: 10px 12px;
-            border-radius: var(--radius-sm);
-            cursor: pointer;
-            font-size: 13px;
-            color: var(--text-secondary);
-            border: 1px solid transparent;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            transition: var(--transition);
-        }
-        .idea-item:hover {
-            background: var(--surface-alt);
-            border-color: var(--border-light);
-            color: var(--text);
-        }
-        .idea-item.active {
-            background: var(--color-active-bg);
-            color: var(--color-active);
-            border-color: #bfdbfe;
-            font-weight: 500;
-        }
-        .idea-item .dot {
-            width: 7px;
-            height: 7px;
-            border-radius: 50%;
-            background: #cbd5e1;
-            flex-shrink: 0;
-        }
-        .idea-item.active .dot {
-            background: var(--color-active);
-            box-shadow: 0 0 6px rgba(59, 130, 246, 0.5);
-        }
-        .idea-item .tag {
-            font-size: 10px;
-            padding: 2px 7px;
-            border-radius: 10px;
-            background: #f1f5f9;
-            color: var(--text-muted);
-            margin-left: auto;
-        }
+      /* Left Panel */
+      .left-panel {
+        width: 220px;
+        flex-shrink: 0;
+        background: var(--surface);
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+      }
+      .left-panel-header {
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--border-light);
+        font-weight: 600;
+        font-size: 13px;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .idea-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 6px 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .idea-item {
+        padding: 10px 12px;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        font-size: 13px;
+        color: var(--text-secondary);
+        border: 1px solid transparent;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: var(--transition);
+      }
+      .idea-item:hover {
+        background: var(--surface-alt);
+        border-color: var(--border-light);
+        color: var(--text);
+      }
+      .idea-item.active {
+        background: var(--color-active-bg);
+        color: var(--color-active);
+        border-color: #bfdbfe;
+        font-weight: 500;
+      }
+      .idea-item .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #cbd5e1;
+        flex-shrink: 0;
+      }
+      .idea-item.active .dot {
+        background: var(--color-active);
+        box-shadow: 0 0 6px rgba(59, 130, 246, 0.5);
+      }
+      .idea-item .tag {
+        font-size: 10px;
+        padding: 2px 7px;
+        border-radius: 10px;
+        background: #f1f5f9;
+        color: var(--text-muted);
+        margin-left: auto;
+      }
 
-        /* Center Panel */
-        .center-panel {
-            flex: 1;
-            overflow-y: auto;
-            padding: 16px 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-            background: var(--bg);
-        }
+      /* Center Panel */
+      .center-panel {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        background: var(--bg);
+      }
 
-        .stage-card-large {
-            background: var(--surface);
-            border-radius: var(--radius-lg);
-            border: 1px solid var(--border);
-            box-shadow: var(--shadow-sm);
-            overflow: hidden;
-            transition: var(--transition);
-        }
-        .stage-card-large:hover {
-            box-shadow: var(--shadow-md);
-        }
-        .stage-card-large.selected {
-            border-color: var(--color-active);
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.08);
-        }
-        .stage-card-large-header {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px 16px;
-            cursor: pointer;
-            border-bottom: 1px solid transparent;
-            transition: var(--transition);
-        }
-        .stage-card-large-header:hover {
-            background: #fafbfc;
-        }
-        .stage-card-large.selected .stage-card-large-header {
-            background: var(--color-active-bg);
-            border-bottom-color: #dbeafe;
-        }
-        .stage-id-badge {
-            width: 42px;
-            height: 42px;
-            border-radius: var(--radius);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 700;
-            font-size: 20px;
-            color: white;
-            flex-shrink: 0;
-        }
-        .stage-info {
-            flex: 1;
-        }
-        .stage-name {
-            font-weight: 600;
-            font-size: 15px;
-            color: var(--text);
-        }
-        .stage-sub {
-            font-size: 12px;
-            color: var(--text-muted);
-            margin-top: 2px;
-        }
-        .skills-container {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            padding: 12px 16px;
-        }
+      .stage-card-large {
+        background: var(--surface);
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-sm);
+        overflow: hidden;
+        transition: var(--transition);
+      }
+      .stage-card-large:hover {
+        box-shadow: var(--shadow-md);
+      }
+      .stage-card-large.selected {
+        border-color: var(--color-active);
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.08);
+      }
+      .stage-card-large-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        cursor: pointer;
+        border-bottom: 1px solid transparent;
+        transition: var(--transition);
+      }
+      .stage-card-large-header:hover {
+        background: #fafbfc;
+      }
+      .stage-card-large.selected .stage-card-large-header {
+        background: var(--color-active-bg);
+        border-bottom-color: #dbeafe;
+      }
+      .stage-id-badge {
+        width: 42px;
+        height: 42px;
+        border-radius: var(--radius);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 20px;
+        color: white;
+        flex-shrink: 0;
+      }
+      .stage-info {
+        flex: 1;
+      }
+      .stage-name {
+        font-weight: 600;
+        font-size: 15px;
+        color: var(--text);
+      }
+      .stage-sub {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-top: 2px;
+      }
+      .skills-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 12px 16px;
+      }
 
-        .skill-card {
-            background: #fafbfc;
-            border-radius: var(--radius-sm);
-            border: 1px solid var(--border-light);
-            width: 155px;
-            flex-shrink: 0;
-            display: flex;
-            flex-direction: column;
-            transition: var(--transition);
-            overflow: hidden;
+      .skill-card {
+        background: #fafbfc;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border-light);
+        width: 155px;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        transition: var(--transition);
+        overflow: hidden;
+      }
+      .skill-card:hover {
+        border-color: #cbd5e1;
+        box-shadow: var(--shadow-sm);
+      }
+      .skill-card.selected {
+        border-color: var(--color-active);
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+      }
+      .skill-card-header {
+        padding: 8px 10px;
+        cursor: pointer;
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        border-bottom: 1px solid transparent;
+        transition: var(--transition);
+        flex: 1;
+      }
+      .skill-card-header:hover {
+        background: #f1f5f9;
+      }
+      .skill-card.selected .skill-card-header {
+        background: #eff6ff;
+        border-bottom-color: #dbeafe;
+      }
+      .skill-status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-top: 3px;
+        flex-shrink: 0;
+      }
+      .skill-status-dot.success {
+        background: var(--status-success);
+        box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1);
+      }
+      .skill-status-dot.running {
+        background: var(--status-running);
+        animation: pulse 1.5s infinite;
+      }
+      .skill-status-dot.failed {
+        background: var(--status-failed);
+      }
+      .skill-status-dot.pending {
+        background: var(--status-pending);
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
         }
-        .skill-card:hover {
-            border-color: #cbd5e1;
-            box-shadow: var(--shadow-sm);
+        50% {
+          box-shadow: 0 0 0 6px rgba(245, 158, 11, 0);
         }
-        .skill-card.selected {
-            border-color: var(--color-active);
-            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
-        }
-        .skill-card-header {
-            padding: 8px 10px;
-            cursor: pointer;
-            display: flex;
-            align-items: flex-start;
-            gap: 6px;
-            border-bottom: 1px solid transparent;
-            transition: var(--transition);
-            flex: 1;
-        }
-        .skill-card-header:hover {
-            background: #f1f5f9;
-        }
-        .skill-card.selected .skill-card-header {
-            background: #eff6ff;
-            border-bottom-color: #dbeafe;
-        }
-        .skill-status-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            margin-top: 3px;
-            flex-shrink: 0;
-        }
-        .skill-status-dot.success {
-            background: var(--status-success);
-            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1);
-        }
-        .skill-status-dot.running {
-            background: var(--status-running);
-            animation: pulse 1.5s infinite;
-        }
-        .skill-status-dot.failed {
-            background: var(--status-failed);
-        }
-        .skill-status-dot.pending {
-            background: var(--status-pending);
-        }
-        @keyframes pulse {
-            0%,
-            100% {
-                box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
-            }
-            50% {
-                box-shadow: 0 0 0 6px rgba(245, 158, 11, 0);
-            }
-        }
-        .skill-text {
-            flex: 1;
-        }
-        .skill-name {
-            font-weight: 600;
-            font-size: 12px;
-            color: var(--text);
-        }
-        .skill-desc {
-            font-size: 10px;
-            color: var(--text-muted);
-            margin-top: 3px;
-            line-height: 1.4;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-        }
-        .skill-card-footer {
-            padding: 6px 10px;
-            cursor: pointer;
-            font-size: 10px;
-            color: var(--text-muted);
-            border-top: 1px solid var(--border-light);
-            transition: var(--transition);
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-        .skill-card-footer:hover {
-            background: #f1f5f9;
-            color: var(--text-secondary);
-        }
+      }
+      .skill-text {
+        flex: 1;
+      }
+      .skill-name {
+        font-weight: 600;
+        font-size: 12px;
+        color: var(--text);
+      }
+      .skill-desc {
+        font-size: 10px;
+        color: var(--text-muted);
+        margin-top: 3px;
+        line-height: 1.4;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .skill-card-footer {
+        padding: 6px 10px;
+        cursor: pointer;
+        font-size: 10px;
+        color: var(--text-muted);
+        border-top: 1px solid var(--border-light);
+        transition: var(--transition);
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .skill-card-footer:hover {
+        background: #f1f5f9;
+        color: var(--text-secondary);
+      }
 
-        .stage-card-footer {
-            padding: 8px 16px;
-            cursor: pointer;
-            font-size: 12px;
-            color: var(--text-muted);
-            border-top: 1px solid var(--border-light);
-            transition: var(--transition);
-            font-weight: 500;
-            background: #f9fafb;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .stage-card-footer:hover {
-            background: #f1f5f9;
-            color: var(--text-secondary);
-        }
+      .stage-card-footer {
+        padding: 8px 16px;
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--text-muted);
+        border-top: 1px solid var(--border-light);
+        transition: var(--transition);
+        font-weight: 500;
+        background: #f9fafb;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .stage-card-footer:hover {
+        background: #f1f5f9;
+        color: var(--text-secondary);
+      }
 
-        /* Right Panel */
-        .right-panel {
-            width: 340px;
-            flex-shrink: 0;
-            background: var(--surface);
-            border-left: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-        .right-panel-section {
-            display: flex;
-            flex-direction: column;
-            flex: 1;
-            min-height: 0;
-            border-bottom: 1px solid var(--border-light);
-            overflow: hidden;
-        }
-        .right-panel-section:last-child {
-            border-bottom: none;
-        }
-        .right-panel-section-header {
-            padding: 10px 14px;
-            font-weight: 600;
-            font-size: 12px;
-            color: var(--text-secondary);
-            background: #f9fafb;
-            border-bottom: 1px solid var(--border-light);
-            flex-shrink: 0;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .right-panel-section-content {
-            flex: 1;
-            overflow-y: auto;
-            padding: 6px 8px;
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        }
+      /* Right Panel */
+      .right-panel {
+        width: 340px;
+        flex-shrink: 0;
+        background: var(--surface);
+        border-left: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .right-panel-section {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        border-bottom: 1px solid var(--border-light);
+        overflow: hidden;
+      }
+      .right-panel-section:last-child {
+        border-bottom: none;
+      }
+      .right-panel-section-header {
+        padding: 10px 14px;
+        font-weight: 600;
+        font-size: 12px;
+        color: var(--text-secondary);
+        background: #f9fafb;
+        border-bottom: 1px solid var(--border-light);
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .right-panel-section-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 6px 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
 
-        .log-entry {
-            padding: 7px 10px;
-            border-radius: var(--radius-sm);
-            font-size: 11px;
-            color: var(--text-secondary);
-            border: 1px solid transparent;
-            display: flex;
-            align-items: flex-start;
-            gap: 8px;
-        }
-        .log-entry:hover {
-            background: #fafbfc;
-            border-color: var(--border-light);
-        }
-        .log-time {
-            font-family: var(--font-mono);
-            font-size: 10px;
-            color: var(--text-muted);
-            white-space: nowrap;
-            min-width: 42px;
-        }
-        .log-status {
-            font-size: 9px;
-            padding: 1px 7px;
-            border-radius: 10px;
-            font-weight: 500;
-            margin-left: auto;
-        }
-        .status-ok {
-            background: #ecfdf5;
-            color: #059669;
-        }
-        .status-info {
-            background: #eff6ff;
-            color: #2563eb;
-        }
-        .status-warn {
-            background: #fffbeb;
-            color: #d97706;
-        }
+      .log-entry {
+        padding: 7px 10px;
+        border-radius: var(--radius-sm);
+        font-size: 11px;
+        color: var(--text-secondary);
+        border: 1px solid transparent;
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+      }
+      .log-entry:hover {
+        background: #fafbfc;
+        border-color: var(--border-light);
+      }
+      .log-time {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--text-muted);
+        white-space: nowrap;
+        min-width: 42px;
+      }
+      .log-status {
+        font-size: 9px;
+        padding: 1px 7px;
+        border-radius: 10px;
+        font-weight: 500;
+        margin-left: auto;
+      }
+      .status-ok {
+        background: #ecfdf5;
+        color: #059669;
+      }
+      .status-info {
+        background: #eff6ff;
+        color: #2563eb;
+      }
+      .status-warn {
+        background: #fffbeb;
+        color: #d97706;
+      }
 
-        .file-item {
-            padding: 6px 10px;
-            border-radius: var(--radius-sm);
-            font-size: 12px;
-            color: var(--text-secondary);
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            transition: var(--transition);
-            border: 1px solid transparent;
-        }
-        .file-item:hover {
-            background: #eff6ff;
-            border-color: #dbeafe;
-            color: var(--text);
-        }
-        .file-type-badge {
-            font-size: 9px;
-            padding: 1px 6px;
-            border-radius: 8px;
-            background: #e2e8f0;
-            color: var(--text-muted);
-            margin-left: auto;
-        }
-        .empty-state {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            color: var(--text-muted);
-            font-size: 12px;
-            padding: 20px;
-        }
+      .file-item {
+        padding: 6px 10px;
+        border-radius: var(--radius-sm);
+        font-size: 12px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: var(--transition);
+        border: 1px solid transparent;
+      }
+      .file-item:hover {
+        background: #eff6ff;
+        border-color: #dbeafe;
+        color: var(--text);
+      }
+      .file-type-badge {
+        font-size: 9px;
+        padding: 1px 6px;
+        border-radius: 8px;
+        background: #e2e8f0;
+        color: var(--text-muted);
+        margin-left: auto;
+      }
+      .empty-state {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: var(--text-muted);
+        font-size: 12px;
+        padding: 20px;
+      }
 
-        /* Modal */
-        .modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.4);
-            z-index: 100;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .modal-panel {
-            background: white;
-            border-radius: var(--radius-lg);
-            box-shadow: var(--shadow-lg);
-            width: 700px;
-            max-width: 90vw;
-            max-height: 80vh;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-        .modal-header {
-            padding: 14px 18px;
-            border-bottom: 1px solid var(--border-light);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .modal-close {
-            margin-left: auto;
-            background: none;
-            border: none;
-            font-size: 18px;
-            cursor: pointer;
-            color: var(--text-muted);
-        }
-        .modal-body {
-            flex: 1;
-            overflow-y: auto;
-            padding: 16px 18px;
-            font-family: var(--font-mono);
-            font-size: 12px;
-            line-height: 1.7;
-            white-space: pre-wrap;
-            background: #f9fafb;
-        }
-        .btn {
-            padding: 6px 14px;
-            border-radius: var(--radius-sm);
-            border: 1px solid var(--border);
-            background: white;
-            cursor: pointer;
-            font-size: 12px;
-            font-weight: 500;
-        }
-        .btn-primary {
-            background: #3b82f6;
-            color: white;
-            border-color: #3b82f6;
-        }
+      /* Modal */
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.4);
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .modal-panel {
+        background: white;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-lg);
+        width: 700px;
+        max-width: 90vw;
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .modal-header {
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--border-light);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .modal-close {
+        margin-left: auto;
+        background: none;
+        border: none;
+        font-size: 18px;
+        cursor: pointer;
+        color: var(--text-muted);
+      }
+      .modal-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px 18px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        line-height: 1.7;
+        white-space: pre-wrap;
+        background: #f9fafb;
+      }
+      .btn {
+        padding: 6px 14px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border);
+        background: white;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .btn-primary {
+        background: #3b82f6;
+        color: white;
+        border-color: #3b82f6;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <header class="app-header">
-        <div class="logo">🔬</div>
-        <h1>科研SOP流程 · 双锚点串行链式</h1>
-        <div class="flow-indicator">
-            <span>T</span> → <span>L</span> → <span>D</span> → <span>I</span> → <span>E</span> → <span>W</span>
-        </div>
+      <div class="logo">🔬</div>
+      <h1>科研SOP流程 · 双锚点串行链式</h1>
+      <div class="flow-indicator">
+        <span>T</span> → <span>L</span> → <span>D</span> → <span>I</span> → <span>E</span> →
+        <span>W</span>
+      </div>
     </header>
 
     <div class="main-container">
-        <!-- Left Idea List -->
-        <aside class="left-panel">
-            <div class="left-panel-header">💡 用户 Idea 列表</div>
-            <div class="idea-list" id="ideaList"></div>
-        </aside>
+      <!-- Left Idea List -->
+      <aside class="left-panel">
+        <div class="left-panel-header">💡 用户 Idea 列表</div>
+        <div class="idea-list" id="ideaList"></div>
+      </aside>
 
-        <!-- Center SOP Flow -->
-        <main class="center-panel" id="centerPanel"></main>
+      <!-- Center SOP Flow -->
+      <main class="center-panel" id="centerPanel"></main>
 
-        <!-- Right Panel: Logs & Files -->
-        <aside class="right-panel">
-            <div class="right-panel-section">
-                <div class="right-panel-section-header">📋 日志</div>
-                <div class="right-panel-section-content" id="rightLogsContent">
-                    <div class="empty-state">👆 点击卡片查看日志</div>
-                </div>
-            </div>
-            <div class="right-panel-section">
-                <div class="right-panel-section-header">📁 输出文件</div>
-                <div class="right-panel-section-content" id="rightFilesContent">
-                    <div class="empty-state">👆 点击卡片查看文件</div>
-                </div>
-            </div>
-        </aside>
+      <!-- Right Panel: Logs & Files -->
+      <aside class="right-panel">
+        <div class="right-panel-section">
+          <div class="right-panel-section-header">📋 日志</div>
+          <div class="right-panel-section-content" id="rightLogsContent">
+            <div class="empty-state">👆 点击卡片查看日志</div>
+          </div>
+        </div>
+        <div class="right-panel-section">
+          <div class="right-panel-section-header">📁 输出文件</div>
+          <div class="right-panel-section-content" id="rightFilesContent">
+            <div class="empty-state">👆 点击卡片查看文件</div>
+          </div>
+        </div>
+      </aside>
     </div>
 
     <!-- File Preview Modal -->
-    <div class="modal-overlay" id="modalOverlay" style="display:none;">
-        <div class="modal-panel">
-            <div class="modal-header">
-                <span>📄</span><strong id="modalFileName">file</strong>
-                <button class="modal-close" id="modalCloseTop">✕</button>
-            </div>
-            <div class="modal-body" id="modalBody"></div>
-            <div style="padding:10px;text-align:right;border-top:1px solid #e2e8f0;">
-                <button class="btn" id="modalCopyBtn">📋 复制</button>
-                <button class="btn btn-primary" id="modalCloseBtn">关闭</button>
-            </div>
+    <div class="modal-overlay" id="modalOverlay" style="display: none">
+      <div class="modal-panel">
+        <div class="modal-header">
+          <span>📄</span><strong id="modalFileName">file</strong>
+          <button class="modal-close" id="modalCloseTop">✕</button>
         </div>
+        <div class="modal-body" id="modalBody"></div>
+        <div style="padding: 10px; text-align: right; border-top: 1px solid #e2e8f0">
+          <button class="btn" id="modalCopyBtn">📋 复制</button>
+          <button class="btn btn-primary" id="modalCloseBtn">关闭</button>
+        </div>
+      </div>
     </div>
 
     <script>
-        (function() {
-            // ==================== DATA ====================
-            const userIdeas = [
-                { id: '1', name: '多智能体协作', desc: '研究多智能体系统中的高效协作与通信机制', tag: 'Agent' },
-                { id: '2', name: '记忆系统架构', desc: '设计LLM的外部记忆存取与检索增强方案', tag: 'Memory' },
-                { id: '3', name: 'LLM量化部署', desc: '探索大模型的低比特量化与端侧推理优化', tag: 'Quant' },
-                { id: '4', name: 'RAG检索增强', desc: '改进检索增强生成中的知识检索与融合策略', tag: 'RAG' },
-                { id: '5', name: '代码生成评估', desc: '建立代码生成任务的细粒度自动化评估基准', tag: 'Code' },
-            ];
+      (function () {
+        // ==================== DATA ====================
+        const userIdeas = [
+          {
+            id: "1",
+            name: "多智能体协作",
+            desc: "研究多智能体系统中的高效协作与通信机制",
+            tag: "Agent",
+          },
+          {
+            id: "2",
+            name: "记忆系统架构",
+            desc: "设计LLM的外部记忆存取与检索增强方案",
+            tag: "Memory",
+          },
+          {
+            id: "3",
+            name: "LLM量化部署",
+            desc: "探索大模型的低比特量化与端侧推理优化",
+            tag: "Quant",
+          },
+          {
+            id: "4",
+            name: "RAG检索增强",
+            desc: "改进检索增强生成中的知识检索与融合策略",
+            tag: "RAG",
+          },
+          {
+            id: "5",
+            name: "代码生成评估",
+            desc: "建立代码生成任务的细粒度自动化评估基准",
+            tag: "Code",
+          },
+        ];
 
-            const stages = [
-                { id: 'T', name: '课题锁定', enName: 'Topic', color: '#4a90d9', order: 1 },
-                { id: 'L', name: '文献底座', enName: 'Literature', color: '#3ca08d', order: 2 },
-                { id: 'D', name: '实验设计', enName: 'Design', color: '#7c5cbf', order: 3 },
-                { id: 'I', name: '代码实现', enName: 'Implementation', color: '#e09145', order: 4 },
-                { id: 'E', name: '实验执行', enName: 'Execution', color: '#d9556e', order: 5 },
-                { id: 'W', name: '论文写作', enName: 'Writing', color: '#5b9ea6', order: 6 },
-            ];
+        const stages = [
+          { id: "T", name: "课题锁定", enName: "Topic", color: "#4a90d9", order: 1 },
+          { id: "L", name: "文献底座", enName: "Literature", color: "#3ca08d", order: 2 },
+          { id: "D", name: "实验设计", enName: "Design", color: "#7c5cbf", order: 3 },
+          { id: "I", name: "代码实现", enName: "Implementation", color: "#e09145", order: 4 },
+          { id: "E", name: "实验执行", enName: "Execution", color: "#d9556e", order: 5 },
+          { id: "W", name: "论文写作", enName: "Writing", color: "#5b9ea6", order: 6 },
+        ];
 
-            const stageSkills = {
-                'T': [
-                    { id: 'T-1', name: '检索增强', desc: '基于初始构想扩展多维检索关键词，丰富查询意图。', status: 'success' },
-                    { id: 'T-2', name: 'Web检索', desc: '搜索行业痛点、工程现状与最新技术趋势。', status: 'success' },
-                    { id: 'T-3', name: '学术检索', desc: '检索arXiv等学术数据库，锁定相关论文。', status: 'success' },
-                    { id: 'T-4', name: '候选发散', desc: '生成多个候选研究问题，拓展思考维度。', status: 'running' },
-                    { id: 'T-5', name: '框架构建', desc: 'FINER+ PICO框架评分，构建研究假设。', status: 'pending' },
-                    { id: 'T-6', name: '课题审计', desc: 'PI审计创新性，提炼课题核心假说。', status: 'pending' },
-                ],
-                'L': [
-                    { id: 'L-1', name: '学术检索', desc: '基于假说精准检索领域文献。', status: 'success' },
-                    { id: 'L-2', name: '智能降噪', desc: '过滤低相关度文献，保留高质量论文。', status: 'running' },
-                    { id: 'L-3', name: 'PDF下载', desc: '批量下载论文PDF至本地。', status: 'pending' },
-                    { id: 'L-4', name: 'PDF转MD', desc: '将PDF转换为结构化Markdown。', status: 'pending' },
-                    { id: 'L-5', name: '宏观探针', desc: '分析论文宏观态势、引用与影响力。', status: 'pending' },
-                    { id: 'L-6', name: '硬核解构', desc: '提取技术细节、方法与指标。', status: 'pending' },
-                    { id: 'L-7', name: '价值批判', desc: '批判性评估贡献与局限性。', status: 'pending' },
-                    { id: 'L-8', name: '图谱合成', desc: 'Map-Reduce合成知识图谱与特征表。', status: 'pending' },
-                ],
-                'D': [
-                    { id: 'D-1', name: '问题形式化', desc: '将科学问题转化为精确的CS问题陈述。', status: 'pending' },
-                    { id: 'D-2', name: '基线扫描', desc: '从文献底座提取SOTA方法并分级。', status: 'pending' },
-                    { id: 'D-3', name: '方案蓝图', desc: '设计算法/系统架构高层方案。', status: 'pending' },
-                    { id: 'D-4', name: 'PREP协议', desc: '制定预注册式评估协议与统计检验。', status: 'pending' },
-                    { id: 'D-5', name: '资源伦理', desc: '估算计算资源并审查伦理合规性。', status: 'pending' },
-                ],
-                'I': [
-                    { id: 'I-1', name: '数据构建', desc: '下载/制备数据集，固化预处理流水线。', status: 'pending' },
-                    { id: 'I-2', name: '方法实现', desc: '将蓝图实现为可运行代码并单元测试。', status: 'pending' },
-                    { id: 'I-3', name: '基线管线', desc: '复现基线并构建统一评估管线。', status: 'pending' },
-                    { id: 'I-4', name: '容器化', desc: 'Docker封装，固定种子与环境。', status: 'pending' },
-                ],
-                'E': [
-                    { id: 'E-1', name: '环境检核', desc: '校验容器、GPU、种子一致性。', status: 'pending' },
-                    { id: 'E-2', name: '全量运行', desc: '一键启动所有预设实验。', status: 'pending' },
-                    { id: 'E-3', name: '运行监控', desc: '实时监控资源与异常日志。', status: 'pending' },
-                    { id: 'E-4', name: '结果汇整', desc: '汇整结果并比对PREP合规性。', status: 'pending' },
-                ],
-                'W': [
-                    { id: 'W-1', name: '方法编撰', desc: '自动生成方法论与算法伪代码。', status: 'pending' },
-                    { id: 'W-2', name: '实验撰写', desc: '从PREP和结果生成实验部分。', status: 'pending' },
-                    { id: 'W-3', name: '讨论成文', desc: '结构化成文讨论主要发现与局限。', status: 'pending' },
-                    { id: 'W-4', name: '引言相关', desc: '撰写引言与相关工作，按族系组织。', status: 'pending' },
-                    { id: 'W-5', name: '摘要整合', desc: '生成摘要并整合全稿排版。', status: 'pending' },
-                    { id: 'W-6', name: '完整性审查', desc: '主张-证据映射与抄袭检测。', status: 'pending' },
-                ],
-            };
+        const stageSkills = {
+          T: [
+            {
+              id: "T-1",
+              name: "检索增强",
+              desc: "基于初始构想扩展多维检索关键词，丰富查询意图。",
+              status: "success",
+            },
+            {
+              id: "T-2",
+              name: "Web检索",
+              desc: "搜索行业痛点、工程现状与最新技术趋势。",
+              status: "success",
+            },
+            {
+              id: "T-3",
+              name: "学术检索",
+              desc: "检索arXiv等学术数据库，锁定相关论文。",
+              status: "success",
+            },
+            {
+              id: "T-4",
+              name: "候选发散",
+              desc: "生成多个候选研究问题，拓展思考维度。",
+              status: "running",
+            },
+            {
+              id: "T-5",
+              name: "框架构建",
+              desc: "FINER+ PICO框架评分，构建研究假设。",
+              status: "pending",
+            },
+            {
+              id: "T-6",
+              name: "课题审计",
+              desc: "PI审计创新性，提炼课题核心假说。",
+              status: "pending",
+            },
+          ],
+          L: [
+            { id: "L-1", name: "学术检索", desc: "基于假说精准检索领域文献。", status: "success" },
+            {
+              id: "L-2",
+              name: "智能降噪",
+              desc: "过滤低相关度文献，保留高质量论文。",
+              status: "running",
+            },
+            { id: "L-3", name: "PDF下载", desc: "批量下载论文PDF至本地。", status: "pending" },
+            { id: "L-4", name: "PDF转MD", desc: "将PDF转换为结构化Markdown。", status: "pending" },
+            {
+              id: "L-5",
+              name: "宏观探针",
+              desc: "分析论文宏观态势、引用与影响力。",
+              status: "pending",
+            },
+            { id: "L-6", name: "硬核解构", desc: "提取技术细节、方法与指标。", status: "pending" },
+            { id: "L-7", name: "价值批判", desc: "批判性评估贡献与局限性。", status: "pending" },
+            {
+              id: "L-8",
+              name: "图谱合成",
+              desc: "Map-Reduce合成知识图谱与特征表。",
+              status: "pending",
+            },
+          ],
+          D: [
+            {
+              id: "D-1",
+              name: "问题形式化",
+              desc: "将科学问题转化为精确的CS问题陈述。",
+              status: "pending",
+            },
+            {
+              id: "D-2",
+              name: "基线扫描",
+              desc: "从文献底座提取SOTA方法并分级。",
+              status: "pending",
+            },
+            { id: "D-3", name: "方案蓝图", desc: "设计算法/系统架构高层方案。", status: "pending" },
+            {
+              id: "D-4",
+              name: "PREP协议",
+              desc: "制定预注册式评估协议与统计检验。",
+              status: "pending",
+            },
+            {
+              id: "D-5",
+              name: "资源伦理",
+              desc: "估算计算资源并审查伦理合规性。",
+              status: "pending",
+            },
+          ],
+          I: [
+            {
+              id: "I-1",
+              name: "数据构建",
+              desc: "下载/制备数据集，固化预处理流水线。",
+              status: "pending",
+            },
+            {
+              id: "I-2",
+              name: "方法实现",
+              desc: "将蓝图实现为可运行代码并单元测试。",
+              status: "pending",
+            },
+            {
+              id: "I-3",
+              name: "基线管线",
+              desc: "复现基线并构建统一评估管线。",
+              status: "pending",
+            },
+            { id: "I-4", name: "容器化", desc: "Docker封装，固定种子与环境。", status: "pending" },
+          ],
+          E: [
+            { id: "E-1", name: "环境检核", desc: "校验容器、GPU、种子一致性。", status: "pending" },
+            { id: "E-2", name: "全量运行", desc: "一键启动所有预设实验。", status: "pending" },
+            { id: "E-3", name: "运行监控", desc: "实时监控资源与异常日志。", status: "pending" },
+            { id: "E-4", name: "结果汇整", desc: "汇整结果并比对PREP合规性。", status: "pending" },
+          ],
+          W: [
+            {
+              id: "W-1",
+              name: "方法编撰",
+              desc: "自动生成方法论与算法伪代码。",
+              status: "pending",
+            },
+            { id: "W-2", name: "实验撰写", desc: "从PREP和结果生成实验部分。", status: "pending" },
+            {
+              id: "W-3",
+              name: "讨论成文",
+              desc: "结构化成文讨论主要发现与局限。",
+              status: "pending",
+            },
+            {
+              id: "W-4",
+              name: "引言相关",
+              desc: "撰写引言与相关工作，按族系组织。",
+              status: "pending",
+            },
+            { id: "W-5", name: "摘要整合", desc: "生成摘要并整合全稿排版。", status: "pending" },
+            { id: "W-6", name: "完整性审查", desc: "主张-证据映射与抄袭检测。", status: "pending" },
+          ],
+        };
 
-            // Output files mapping
-            const skillFiles = {
-                'T-1': [{ name: 'idea_query_expand.json', type: 'json' }],
-                'T-2': [{ name: 'web_search_results.json', type: 'json' }],
-                'T-3': [{ name: 'arxiv_search_results.json', type: 'json' }],
-                'T-4': [{ name: 'candidate_questions.json', type: 'json' }],
-                'T-5': [{ name: 'ranked_framed_hypothesis.json', type: 'json' }],
-                'T-6': [{ name: 'pi_result.json', type: 'json' }, { name: 'innovation_assessment_brief.md',
-                type: 'md' }],
-                'L-1': [{ name: 'arxiv_search_results.json', type: 'json' }],
-                'L-2': [{ name: 'filtered_papers.json', type: 'json' }],
-                'L-8': [{ name: 'literature_graph.json', type: 'json' }, { name: 'literature_synthesis_table.md',
-                    type: 'md' }],
-                'D-3': [{ name: 'method_blueprint.json', type: 'json' }],
-                'I-1': [{ name: 'data_asset_report.json', type: 'json' }],
-                'I-4': [{ name: 'Dockerfile', type: 'dockerfile' }, { name: 'environment_snapshot.json',
-                type: 'json' }],
-                'E-2': [{ name: 'execution_manifest.json', type: 'json' }],
-                'E-4': [{ name: 'results_summary.json', type: 'json' }],
-                'W-6': [{ name: 'claim_evidence_map.json', type: 'json' }],
-            };
-            // Ensure all skills have at least empty array
-            Object.values(stageSkills).flat().forEach(s => {
-                if (!skillFiles[s.id]) skillFiles[s.id] = [];
-            });
+        // Output files mapping
+        const skillFiles = {
+          "T-1": [{ name: "idea_query_expand.json", type: "json" }],
+          "T-2": [{ name: "web_search_results.json", type: "json" }],
+          "T-3": [{ name: "arxiv_search_results.json", type: "json" }],
+          "T-4": [{ name: "candidate_questions.json", type: "json" }],
+          "T-5": [{ name: "ranked_framed_hypothesis.json", type: "json" }],
+          "T-6": [
+            { name: "pi_result.json", type: "json" },
+            { name: "innovation_assessment_brief.md", type: "md" },
+          ],
+          "L-1": [{ name: "arxiv_search_results.json", type: "json" }],
+          "L-2": [{ name: "filtered_papers.json", type: "json" }],
+          "L-8": [
+            { name: "literature_graph.json", type: "json" },
+            { name: "literature_synthesis_table.md", type: "md" },
+          ],
+          "D-3": [{ name: "method_blueprint.json", type: "json" }],
+          "I-1": [{ name: "data_asset_report.json", type: "json" }],
+          "I-4": [
+            { name: "Dockerfile", type: "dockerfile" },
+            { name: "environment_snapshot.json", type: "json" },
+          ],
+          "E-2": [{ name: "execution_manifest.json", type: "json" }],
+          "E-4": [{ name: "results_summary.json", type: "json" }],
+          "W-6": [{ name: "claim_evidence_map.json", type: "json" }],
+        };
+        // Ensure all skills have at least empty array
+        Object.values(stageSkills)
+          .flat()
+          .forEach((s) => {
+            if (!skillFiles[s.id]) skillFiles[s.id] = [];
+          });
 
-            const stageFiles = {
-                'T': [{ name: 'pi_result.json', type: 'json' }, { name: 'innovation_assessment_brief.md',
-                type: 'md' }],
-                'L': [{ name: 'literature_graph.json', type: 'json' }, { name: 'literature_synthesis_table.md',
-                    type: 'md' }],
-                'D': [{ name: 'design_package.json', type: 'json' }],
-                'I': [{ name: 'code_asset_package.json', type: 'json' }],
-                'E': [{ name: 'execution_package.json', type: 'json' }],
-                'W': [{ name: 'manuscript_package.json', type: 'json' }],
-            };
+        const stageFiles = {
+          T: [
+            { name: "pi_result.json", type: "json" },
+            { name: "innovation_assessment_brief.md", type: "md" },
+          ],
+          L: [
+            { name: "literature_graph.json", type: "json" },
+            { name: "literature_synthesis_table.md", type: "md" },
+          ],
+          D: [{ name: "design_package.json", type: "json" }],
+          I: [{ name: "code_asset_package.json", type: "json" }],
+          E: [{ name: "execution_package.json", type: "json" }],
+          W: [{ name: "manuscript_package.json", type: "json" }],
+        };
 
-            // Log generators
-            function genStageLogs(stageId) {
-                return [
-                    { time: '08:00:12', msg: `[${stageId}] 阶段初始化完成`, status: 'ok' },
-                    { time: '08:01:45', msg: `[${stageId}] Schema校验通过`, status: 'ok' },
-                    { time: '08:15:30', msg: `[${stageId}] 核心步骤执行中`, status: 'info' },
-                    { time: '08:30:22', msg: `[${stageId}] HITL网关挂起，等待决策`, status: 'warn' },
-                    { time: '08:45:01', msg: `[${stageId}] 收到[批准]，数据落盘`, status: 'ok' },
-                ];
-            }
+        // Log generators
+        function genStageLogs(stageId) {
+          return [
+            { time: "08:00:12", msg: `[${stageId}] 阶段初始化完成`, status: "ok" },
+            { time: "08:01:45", msg: `[${stageId}] Schema校验通过`, status: "ok" },
+            { time: "08:15:30", msg: `[${stageId}] 核心步骤执行中`, status: "info" },
+            { time: "08:30:22", msg: `[${stageId}] HITL网关挂起，等待决策`, status: "warn" },
+            { time: "08:45:01", msg: `[${stageId}] 收到[批准]，数据落盘`, status: "ok" },
+          ];
+        }
 
-            function genSkillLogs(skillId) {
-                return [
-                    { time: '09:01:10', msg: `[${skillId}] 技能启动`, status: 'info' },
-                    { time: '09:02:45', msg: `[${skillId}] 执行核心逻辑`, status: 'info' },
-                    { time: '09:04:30', msg: `[${skillId}] 输出生成完成`, status: 'ok' },
-                ];
-            }
+        function genSkillLogs(skillId) {
+          return [
+            { time: "09:01:10", msg: `[${skillId}] 技能启动`, status: "info" },
+            { time: "09:02:45", msg: `[${skillId}] 执行核心逻辑`, status: "info" },
+            { time: "09:04:30", msg: `[${skillId}] 输出生成完成`, status: "ok" },
+          ];
+        }
 
-            // ==================== STATE ====================
-            let selectedStageId = null;
-            let selectedSkillId = null;
-            let activeIdeaId = null;
+        // ==================== STATE ====================
+        let selectedStageId = null;
+        let selectedSkillId = null;
+        let activeIdeaId = null;
 
-            // ==================== DOM REFS ====================
-            const ideaListEl = document.getElementById('ideaList');
-            const centerPanel = document.getElementById('centerPanel');
-            const rightLogsContent = document.getElementById('rightLogsContent');
-            const rightFilesContent = document.getElementById('rightFilesContent');
-            const modalOverlay = document.getElementById('modalOverlay');
-            const modalFileName = document.getElementById('modalFileName');
-            const modalBody = document.getElementById('modalBody');
+        // ==================== DOM REFS ====================
+        const ideaListEl = document.getElementById("ideaList");
+        const centerPanel = document.getElementById("centerPanel");
+        const rightLogsContent = document.getElementById("rightLogsContent");
+        const rightFilesContent = document.getElementById("rightFilesContent");
+        const modalOverlay = document.getElementById("modalOverlay");
+        const modalFileName = document.getElementById("modalFileName");
+        const modalBody = document.getElementById("modalBody");
 
-            // ==================== RENDER FUNCTIONS ====================
-            function renderIdeaList() {
-                ideaListEl.innerHTML = userIdeas.map(idea => `
-                    <div class="idea-item ${activeIdeaId === idea.id ? 'active' : ''}" data-idea-id="${idea.id}">
+        // ==================== RENDER FUNCTIONS ====================
+        function renderIdeaList() {
+          ideaListEl.innerHTML = userIdeas
+            .map(
+              (idea) => `
+                    <div class="idea-item ${activeIdeaId === idea.id ? "active" : ""}" data-idea-id="${idea.id}">
                         <span class="dot"></span>
                         <span>${idea.name}</span>
                         <span class="tag">${idea.tag}</span>
                     </div>
-                `).join('');
-            }
+                `,
+            )
+            .join("");
+        }
 
-            function renderCenter() {
-                let html = '';
-                stages.forEach(stage => {
-                    const skills = stageSkills[stage.id] || [];
-                    html += `
-                    <div class="stage-card-large ${selectedStageId === stage.id ? 'selected' : ''}" data-stage-id="${stage.id}">
+        function renderCenter() {
+          let html = "";
+          stages.forEach((stage) => {
+            const skills = stageSkills[stage.id] || [];
+            html += `
+                    <div class="stage-card-large ${selectedStageId === stage.id ? "selected" : ""}" data-stage-id="${stage.id}">
                         <div class="stage-card-large-header" data-stage-header="${stage.id}">
                             <div class="stage-id-badge" style="background:${stage.color};">${stage.id}</div>
                             <div class="stage-info">
@@ -758,8 +897,10 @@
                             </div>
                         </div>
                         <div class="skills-container">
-                            ${skills.map(skill => `
-                                <div class="skill-card ${selectedSkillId === skill.id ? 'selected' : ''}" data-skill-id="${skill.id}">
+                            ${skills
+                              .map(
+                                (skill) => `
+                                <div class="skill-card ${selectedSkillId === skill.id ? "selected" : ""}" data-skill-id="${skill.id}">
                                     <div class="skill-card-header" data-skill-header="${skill.id}">
                                         <span class="skill-status-dot ${skill.status}"></span>
                                         <div class="skill-text">
@@ -771,185 +912,204 @@
                                         📁 输出文件
                                     </div>
                                 </div>
-                            `).join('')}
+                            `,
+                              )
+                              .join("")}
                         </div>
                         <div class="stage-card-footer" data-stage-footer="${stage.id}">
                             📁 阶段输出文件
                         </div>
                     </div>`;
-                });
-                centerPanel.innerHTML = html;
-                attachCenterEvents();
-            }
+          });
+          centerPanel.innerHTML = html;
+          attachCenterEvents();
+        }
 
-            function attachCenterEvents() {
-                document.querySelectorAll('[data-stage-header]').forEach(el => {
-                    el.addEventListener('click', () => {
-                        const sid = el.dataset.stageHeader;
-                        selectStage(sid);
-                        showStageDetail(sid);
-                    });
-                });
-                document.querySelectorAll('[data-skill-header]').forEach(el => {
-                    el.addEventListener('click', () => {
-                        const sid = el.dataset.skillHeader;
-                        selectSkill(sid);
-                        showSkillDetail(sid);
-                    });
-                });
-                document.querySelectorAll('[data-skill-footer]').forEach(el => {
-                    el.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        const sid = el.dataset.skillFooter;
-                        selectSkill(sid);
-                        showSkillDetail(sid);
-                    });
-                });
-                document.querySelectorAll('[data-stage-footer]').forEach(el => {
-                    el.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        const sid = el.dataset.stageFooter;
-                        selectStage(sid);
-                        showStageDetail(sid);
-                    });
-                });
-                document.querySelectorAll('.idea-item').forEach(el => {
-                    el.addEventListener('click', () => {
-                        activeIdeaId = el.dataset.ideaId;
-                        selectedStageId = null;
-                        selectedSkillId = null;
-                        renderIdeaList();
-                        renderCenter();
-                        showIdeaDetail(activeIdeaId);
-                    });
-                });
-            }
+        function attachCenterEvents() {
+          document.querySelectorAll("[data-stage-header]").forEach((el) => {
+            el.addEventListener("click", () => {
+              const sid = el.dataset.stageHeader;
+              selectStage(sid);
+              showStageDetail(sid);
+            });
+          });
+          document.querySelectorAll("[data-skill-header]").forEach((el) => {
+            el.addEventListener("click", () => {
+              const sid = el.dataset.skillHeader;
+              selectSkill(sid);
+              showSkillDetail(sid);
+            });
+          });
+          document.querySelectorAll("[data-skill-footer]").forEach((el) => {
+            el.addEventListener("click", (e) => {
+              e.stopPropagation();
+              const sid = el.dataset.skillFooter;
+              selectSkill(sid);
+              showSkillDetail(sid);
+            });
+          });
+          document.querySelectorAll("[data-stage-footer]").forEach((el) => {
+            el.addEventListener("click", (e) => {
+              e.stopPropagation();
+              const sid = el.dataset.stageFooter;
+              selectStage(sid);
+              showStageDetail(sid);
+            });
+          });
+          document.querySelectorAll(".idea-item").forEach((el) => {
+            el.addEventListener("click", () => {
+              activeIdeaId = el.dataset.ideaId;
+              selectedStageId = null;
+              selectedSkillId = null;
+              renderIdeaList();
+              renderCenter();
+              showIdeaDetail(activeIdeaId);
+            });
+          });
+        }
 
-            function selectStage(id) {
-                selectedStageId = id;
-                selectedSkillId = null;
-                activeIdeaId = null;
-                renderIdeaList();
-                renderCenter();
-            }
+        function selectStage(id) {
+          selectedStageId = id;
+          selectedSkillId = null;
+          activeIdeaId = null;
+          renderIdeaList();
+          renderCenter();
+        }
 
-            function selectSkill(id) {
-                selectedSkillId = id;
-                selectedStageId = null;
-                activeIdeaId = null;
-                renderIdeaList();
-                renderCenter();
-            }
+        function selectSkill(id) {
+          selectedSkillId = id;
+          selectedStageId = null;
+          activeIdeaId = null;
+          renderIdeaList();
+          renderCenter();
+        }
 
-            // Update logs and files panels
-            function showStageDetail(stageId) {
-                const logs = genStageLogs(stageId);
-                rightLogsContent.innerHTML = logs.map(l => `
+        // Update logs and files panels
+        function showStageDetail(stageId) {
+          const logs = genStageLogs(stageId);
+          rightLogsContent.innerHTML = logs
+            .map(
+              (l) => `
                     <div class="log-entry">
                         <span class="log-time">${l.time}</span>
                         <span>${l.msg}</span>
                         <span class="log-status status-${l.status}">${l.status}</span>
                     </div>
-                `).join('');
+                `,
+            )
+            .join("");
 
-                const files = stageFiles[stageId] || [];
-                if (files.length === 0) {
-                    rightFilesContent.innerHTML = '<div class="empty-state">暂无输出文件</div>';
-                } else {
-                    rightFilesContent.innerHTML = files.map(f => `
+          const files = stageFiles[stageId] || [];
+          if (files.length === 0) {
+            rightFilesContent.innerHTML = '<div class="empty-state">暂无输出文件</div>';
+          } else {
+            rightFilesContent.innerHTML = files
+              .map(
+                (f) => `
                         <div class="file-item" data-file-name="${f.name}" data-file-type="${f.type}">
                             <span>📄</span> ${f.name}
                             <span class="file-type-badge">${f.type}</span>
                         </div>
-                    `).join('');
-                    attachFileClickEvents();
-                }
-            }
+                    `,
+              )
+              .join("");
+            attachFileClickEvents();
+          }
+        }
 
-            function showSkillDetail(skillId) {
-                const logs = genSkillLogs(skillId);
-                rightLogsContent.innerHTML = logs.map(l => `
+        function showSkillDetail(skillId) {
+          const logs = genSkillLogs(skillId);
+          rightLogsContent.innerHTML = logs
+            .map(
+              (l) => `
                     <div class="log-entry">
                         <span class="log-time">${l.time}</span>
                         <span>${l.msg}</span>
                         <span class="log-status status-${l.status}">${l.status}</span>
                     </div>
-                `).join('');
+                `,
+            )
+            .join("");
 
-                const files = skillFiles[skillId] || [];
-                if (files.length === 0) {
-                    rightFilesContent.innerHTML = '<div class="empty-state">暂无输出文件</div>';
-                } else {
-                    rightFilesContent.innerHTML = files.map(f => `
+          const files = skillFiles[skillId] || [];
+          if (files.length === 0) {
+            rightFilesContent.innerHTML = '<div class="empty-state">暂无输出文件</div>';
+          } else {
+            rightFilesContent.innerHTML = files
+              .map(
+                (f) => `
                         <div class="file-item" data-file-name="${f.name}" data-file-type="${f.type}">
                             <span>📄</span> ${f.name}
                             <span class="file-type-badge">${f.type}</span>
                         </div>
-                    `).join('');
-                    attachFileClickEvents();
-                }
-            }
+                    `,
+              )
+              .join("");
+            attachFileClickEvents();
+          }
+        }
 
-            function showIdeaDetail(ideaId) {
-                const idea = userIdeas.find(i => i.id === ideaId);
-                if (!idea) return;
-                rightLogsContent.innerHTML = `
+        function showIdeaDetail(ideaId) {
+          const idea = userIdeas.find((i) => i.id === ideaId);
+          if (!idea) return;
+          rightLogsContent.innerHTML = `
                     <div style="padding:12px;">
                         <strong>${idea.name}</strong>
                         <p style="font-size:12px;color:var(--text-secondary);margin-top:6px;">${idea.desc}</p>
                         <span style="font-size:10px;color:var(--text-muted);">标签：${idea.tag}</span>
                     </div>
                 `;
-                rightFilesContent.innerHTML = '<div class="empty-state">📌 无关联输出文件</div>';
-            }
+          rightFilesContent.innerHTML = '<div class="empty-state">📌 无关联输出文件</div>';
+        }
 
-            function attachFileClickEvents() {
-                document.querySelectorAll('#rightFilesContent .file-item').forEach(el => {
-                    el.addEventListener('click', () => {
-                        const fileName = el.dataset.fileName;
-                        const fileType = el.dataset.fileType;
-                        openFilePreview(fileName, fileType);
-                    });
-                });
-            }
-
-            // File preview modal
-            function openFilePreview(fileName, fileType) {
-                modalFileName.textContent = fileName;
-                modalBody.textContent =
-                    `[预览内容] ${fileName}\n类型: ${fileType}\n\n这是 ${fileName} 的模拟内容。在实际系统中，此处会加载真实的文件数据。`;
-                modalOverlay.style.display = 'flex';
-            }
-
-            function closeModal() {
-                modalOverlay.style.display = 'none';
-            }
-
-            // Modal events
-            document.getElementById('modalCloseTop').addEventListener('click', closeModal);
-            document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
-            modalOverlay.addEventListener('click', (e) => {
-                if (e.target === modalOverlay) closeModal();
+        function attachFileClickEvents() {
+          document.querySelectorAll("#rightFilesContent .file-item").forEach((el) => {
+            el.addEventListener("click", () => {
+              const fileName = el.dataset.fileName;
+              const fileType = el.dataset.fileType;
+              openFilePreview(fileName, fileType);
             });
-            document.getElementById('modalCopyBtn').addEventListener('click', () => {
-                const content = modalBody.textContent;
-                navigator.clipboard.writeText(content).then(() => {
-                    const btn = document.getElementById('modalCopyBtn');
-                    btn.textContent = '✅ 已复制';
-                    setTimeout(() => { btn.textContent = '📋 复制'; }, 1500);
-                });
-            });
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape') closeModal();
-            });
+          });
+        }
 
-            // ==================== INIT ====================
-            renderIdeaList();
-            renderCenter();
-            // Default show stage T
-            selectStage('T');
-            showStageDetail('T');
-        })();
+        // File preview modal
+        function openFilePreview(fileName, fileType) {
+          modalFileName.textContent = fileName;
+          modalBody.textContent = `[预览内容] ${fileName}\n类型: ${fileType}\n\n这是 ${fileName} 的模拟内容。在实际系统中，此处会加载真实的文件数据。`;
+          modalOverlay.style.display = "flex";
+        }
+
+        function closeModal() {
+          modalOverlay.style.display = "none";
+        }
+
+        // Modal events
+        document.getElementById("modalCloseTop").addEventListener("click", closeModal);
+        document.getElementById("modalCloseBtn").addEventListener("click", closeModal);
+        modalOverlay.addEventListener("click", (e) => {
+          if (e.target === modalOverlay) closeModal();
+        });
+        document.getElementById("modalCopyBtn").addEventListener("click", () => {
+          const content = modalBody.textContent;
+          navigator.clipboard.writeText(content).then(() => {
+            const btn = document.getElementById("modalCopyBtn");
+            btn.textContent = "✅ 已复制";
+            setTimeout(() => {
+              btn.textContent = "📋 复制";
+            }, 1500);
+          });
+        });
+        document.addEventListener("keydown", (e) => {
+          if (e.key === "Escape") closeModal();
+        });
+
+        // ==================== INIT ====================
+        renderIdeaList();
+        renderCenter();
+        // Default show stage T
+        selectStage("T");
+        showStageDetail("T");
+      })();
     </script>
-</body>
+  </body>
 </html>

@@ -59,17 +59,11 @@ const AgentRegistryEnvSchema = z.object({
   AGENT_REGISTRY_AGENT_NAME: z
     .string({ required_error: "AGENT_REGISTRY_AGENT_NAME is required" })
     .min(1, "AGENT_REGISTRY_AGENT_NAME must not be empty")
-    .max(
-      128,
-      "AGENT_REGISTRY_AGENT_NAME: must be at most 128 characters",
-    ),
+    .max(128, "AGENT_REGISTRY_AGENT_NAME: must be at most 128 characters"),
 
   AGENT_REGISTRY_NATS_TOKEN: z
     .string()
-    .max(
-      512,
-      "AGENT_REGISTRY_NATS_TOKEN: must be at most 512 characters",
-    )
+    .max(512, "AGENT_REGISTRY_NATS_TOKEN: must be at most 512 characters")
     .optional(),
 
   AGENT_REGISTRY_SKILLS: z
@@ -87,19 +81,13 @@ const AgentRegistryEnvSchema = z.object({
         z
           .string()
           .min(1, "AGENT_REGISTRY_SKILLS: each skill name must not be empty")
-          .max(
-            128,
-            "AGENT_REGISTRY_SKILLS: each skill name must be at most 128 characters",
-          ),
+          .max(128, "AGENT_REGISTRY_SKILLS: each skill name must be at most 128 characters"),
       ),
     ),
 
   AGENT_REGISTRY_BOUND_AGENT_ID: z
     .string()
-    .max(
-      64,
-      "AGENT_REGISTRY_BOUND_AGENT_ID: must be at most 64 characters",
-    )
+    .max(64, "AGENT_REGISTRY_BOUND_AGENT_ID: must be at most 64 characters")
     .optional()
     .transform((val) => (val === "" ? undefined : val)),
 });
@@ -131,9 +119,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): AgentRegistryConfig {
       }
       return issue.message;
     });
-    throw new Error(
-      `agent-registry configuration error:\n${messages.join("\n")}`,
-    );
+    throw new Error(`agent-registry configuration error:\n${messages.join("\n")}`);
   }
 
   const data = result.data;
@@ -173,9 +159,7 @@ export interface NatsConnectOptions {
  *
  * Requirements: 1.2, 1.3
  */
-export function buildNatsConnectOptions(
-  config: AgentRegistryConfig,
-): NatsConnectOptions {
+export function buildNatsConnectOptions(config: AgentRegistryConfig): NatsConnectOptions {
   const options: NatsConnectOptions = {
     servers: config.natsUrl,
     reconnect: true,

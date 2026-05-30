@@ -2,6 +2,10 @@ import { LitElement, html, css } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { getClient } from "../gateway/client.js";
 import { markdownMath } from "../lib/markdown-directive.js";
+import downloadIcon from "../../asset/download.svg";
+import importIcon from "../../asset/import.svg";
+
+
 
 /**
  * ClawHub AgentHub Card — Displays an uploaded Agent package from AgentRegistry.
@@ -332,26 +336,15 @@ export class ClawHubAgentHubCard extends LitElement {
             aria-label="导入智能体 ${this.name}"
             @click=${this._handleImport}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1" />
-              <polyline points="16 10 12 14 8 10" />
-              <line x1="12" y1="14" x2="12" y2="3" />
-            </svg>
+            <img src="${importIcon}" width="14" height="14" alt="import" />
           </button>
           <button
             class="icon-btn"
-            title="下载配置"
-            aria-label="下载智能体 ${this.name}"
+            title="导出Agent"
+            aria-label="导出Agent ${this.name}"
             @click=${this._handleDownload}
           >
-            <svg viewBox="0 0 1024 1024" fill="currentColor">
-              <path
-                d="M960.64 499.2c-28.8-91.52-116.48-150.4-223.36-150.4h-16a345.216 345.216 0 0 0-283.52-224c-140.8-16.64-278.4 56.96-343.68 182.4a346.24 346.24 0 0 0 47.36 386.56c15.36 17.28 42.24 19.2 60.16 3.84 17.28-15.36 19.2-42.24 3.84-60.16a260.672 260.672 0 0 1-35.84-290.56c49.28-94.08 152.96-149.76 258.56-136.96a259.84 259.84 0 0 1 220.8 192.64c5.12 18.56 21.76 32 40.96 32h47.36c68.48 0 124.16 35.84 142.08 91.52 19.2 60.8-2.56 126.08-55.04 163.2a42.88 42.88 0 0 0-10.24 59.52 42.112 42.112 0 0 0 58.88 10.24c83.2-59.52 118.4-163.2 87.68-259.84z"
-              ></path>
-              <path
-                d="M611.84 698.88l-56.96 56.96V490.88c0-23.68-19.2-42.24-42.88-42.24-23.68 0-42.24 19.2-42.24 42.88v264.96l-57.6-57.6a42.496 42.496 0 1 0-60.16 60.16l129.92 129.92c3.2 3.2 6.4 4.48 9.6 6.4 1.28 0.64 2.56 1.92 3.84 2.56 5.12 1.92 10.88 3.2 16.64 3.2 1.92 0 3.2-0.64 5.12-1.28 3.84-0.64 7.68-0.64 10.88-2.56 5.76-1.92 10.24-5.76 14.72-9.6l129.28-129.28c16.64-16.64 16.64-43.52 0-60.16s-43.52-16-60.16 0.64z"
-              ></path>
-            </svg>
+            <img src="${downloadIcon}" width="14" height="14" alt="download" />
           </button>
         </div>
       </div>

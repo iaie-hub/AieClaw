@@ -31,15 +31,13 @@ import type { ChannelPlugin } from "openclaw/plugin-sdk/channel-core";
 import { waitUntilAbort } from "openclaw/plugin-sdk/channel-lifecycle";
 import { dispatchInboundDirectDmWithRuntime } from "openclaw/plugin-sdk/direct-dm";
 import { buildAgentSessionKey, buildAgentMainSessionKey } from "openclaw/plugin-sdk/routing";
+import { discoverAgents } from "./agent-discovery.js";
+import type { DiscoverAgentsParams } from "./agent-discovery.js";
 import { createCollaborationArbiter } from "./arbiter.js";
 import type { ArbiterSession } from "./arbiter.js";
 import { parseConfig } from "./config.js";
 import { createCowork } from "./cowork-initiator.js";
 import type { CreateCoworkParams } from "./cowork-initiator.js";
-import { discoverAgents } from "./agent-discovery.js";
-import type { DiscoverAgentsParams } from "./agent-discovery.js";
-import { sendMessage } from "./unicast-sender.js";
-import type { SendMessageParams } from "./unicast-sender.js";
 import { sendCoworkMessage } from "./cowork-sender.js";
 import type { SendCoworkMessageParams } from "./cowork-sender.js";
 import { createOutboundAdapter } from "./outbound.js";
@@ -53,6 +51,8 @@ import type {
   NATSSubscription,
   RegistryEnvelope,
 } from "./types.js";
+import { sendMessage } from "./unicast-sender.js";
+import type { SendMessageParams } from "./unicast-sender.js";
 
 function resolveWorkerUrl(currentModuleUrl: string): URL {
   const currentPath = fileURLToPath(currentModuleUrl);
@@ -893,7 +893,8 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
                         mainKey: "main",
                       }).toLowerCase();
 
-                      route.lastRoutePolicy = route.sessionKey === route.mainSessionKey ? "main" : "session";
+                      route.lastRoutePolicy =
+                        route.sessionKey === route.mainSessionKey ? "main" : "session";
                     }
                   }
                   return route;
@@ -905,7 +906,9 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
           // Session override controller — bridges createAgentSession dispatch
           // with the resolveAgentRoute override above.
           const sessionOverrideCtrl = {
-            set: (key: string | undefined) => { pendingSessionKeyOverride = key; },
+            set: (key: string | undefined) => {
+              pendingSessionKeyOverride = key;
+            },
             resolveStorePath: () => {
               try {
                 return channelRuntime.session.resolveStorePath(cfg.session?.store);
@@ -943,7 +946,11 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             });
           };
 
-          const getOrCreateSession = (key: string, _agentId: string, envelope?: RegistryEnvelope): AgentSession => {
+          const getOrCreateSession = (
+            key: string,
+            _agentId: string,
+            envelope?: RegistryEnvelope,
+          ): AgentSession => {
             const existing = sessionTracker.get(key);
             if (existing) {
               return existing;
@@ -952,9 +959,8 @@ export const agentRegistryPlugin: ChannelPlugin<ResolvedAgentRegistryAccount> =
             // responses to the correct NATS subject:
             //   cw-*    → a2a.cowork.{coworkId}
             //   anything else → a2a.agent.unicast.{source}
-            const kind: "cowork" | "unicast" = key.startsWith("cw-") || key.startsWith("cowork-")
-              ? "cowork"
-              : "unicast";
+            const kind: "cowork" | "unicast" =
+              key.startsWith("cw-") || key.startsWith("cowork-") ? "cowork" : "unicast";
 
             // Derive fixedOpenClawSessionKey from the envelope's session field
             // at creation time. This binds the AgentSession to a specific OpenClaw

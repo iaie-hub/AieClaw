@@ -1,6 +1,10 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import type { AgentEntry } from "../types/agents-types.js";
+import downloadIcon from "../../asset/download.svg";
+import uploadIcon from "../../asset/upload.svg";
+
+
 
 /**
  * 智能体卡片组件 — 展示单个智能体的摘要信息。
@@ -193,7 +197,6 @@ export class AgentCard extends LitElement {
         no-repeat center;
     }
 
-
     .card-footer {
       display: flex;
       justify-content: flex-end;
@@ -380,19 +383,11 @@ export class AgentCard extends LitElement {
           </button>
           <button
             class="icon-btn"
-            title="下载配置"
-            aria-label="下载智能体 ${displayName}"
+            title="导出智能体"
+            aria-label="导出智能体 ${displayName}"
             @click=${this._onExport}
           >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 1024 1024"
-              fill="currentColor"
-            >
-              <path d="M960.64 499.2c-28.8-91.52-116.48-150.4-223.36-150.4h-16a345.216 345.216 0 0 0-283.52-224c-140.8-16.64-278.4 56.96-343.68 182.4a346.24 346.24 0 0 0 47.36 386.56c15.36 17.28 42.24 19.2 60.16 3.84 17.28-15.36 19.2-42.24 3.84-60.16a260.672 260.672 0 0 1-35.84-290.56c49.28-94.08 152.96-149.76 258.56-136.96a259.84 259.84 0 0 1 220.8 192.64c5.12 18.56 21.76 32 40.96 32h47.36c68.48 0 124.16 35.84 142.08 91.52 19.2 60.8-2.56 126.08-55.04 163.2a42.88 42.88 0 0 0-10.24 59.52 42.112 42.112 0 0 0 58.88 10.24c83.2-59.52 118.4-163.2 87.68-259.84z"></path>
-              <path d="M611.84 698.88l-56.96 56.96V490.88c0-23.68-19.2-42.24-42.88-42.24-23.68 0-42.24 19.2-42.24 42.88v264.96l-57.6-57.6a42.496 42.496 0 1 0-60.16 60.16l129.92 129.92c3.2 3.2 6.4 4.48 9.6 6.4 1.28 0.64 2.56 1.92 3.84 2.56 5.12 1.92 10.88 3.2 16.64 3.2 1.92 0 3.2-0.64 5.12-1.28 3.84-0.64 7.68-0.64 10.88-2.56 5.76-1.92 10.24-5.76 14.72-9.6l129.28-129.28c16.64-16.64 16.64-43.52 0-60.16s-43.52-16-60.16 0.64z"></path>
-            </svg>
+            <img src="${downloadIcon}" width="15" height="15" alt="export" />
           </button>
           <button
             class="icon-btn"
@@ -400,15 +395,7 @@ export class AgentCard extends LitElement {
             aria-label="上传智能体 ${displayName}"
             @click=${this._onUpload}
           >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 1024 1024"
-              fill="currentColor"
-            >
-              <path d="M768.35456 416a256 256 0 1 0-512 0 192 192 0 1 0 0 384v64a256 256 0 0 1-58.88-505.216 320.128 320.128 0 0 1 629.76 0A256.128 256.128 0 0 1 768.35456 864v-64a192 192 0 0 0 0-384z m-512 384h128v64H256.35456v-64z m384 0h128v64h-128v-64z"></path>
-              <path d="M539.04256 589.184v333.056a32.448 32.448 0 0 1-32 32.192 32.448 32.448 0 0 1-32-32.192V589.184l-36.096 36.096a32.192 32.192 0 0 1-45.056-0.192 31.616 31.616 0 0 1-0.192-45.056l90.88-90.88a31.36 31.36 0 0 1 22.528-9.152 30.08 30.08 0 0 1 22.4 9.088l90.88 90.944a32.192 32.192 0 0 1-0.192 45.056 31.616 31.616 0 0 1-45.056 0.192l-36.096-36.096z"></path>
-            </svg>
+            <img src="${uploadIcon}" width="15" height="15" alt="upload" />
           </button>
           <button
             class="icon-btn danger"

@@ -11,7 +11,10 @@
  * Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.10
  */
 
-import { emitAgentEvent, emitSessionTranscriptUpdate } from "openclaw/plugin-sdk/agent-harness-runtime";
+import {
+  emitAgentEvent,
+  emitSessionTranscriptUpdate,
+} from "openclaw/plugin-sdk/agent-harness-runtime";
 import { emitCollabEvent } from "openclaw/plugin-sdk/collab-runtime";
 import { deserializeEnvelope } from "./envelope.js";
 import { createLogger, fmtEnvelope } from "./logger.js";
@@ -245,9 +248,10 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
         if (envelope.session) {
           // 实时流改造：将响应文本组装为标准的 "assistant" 和 "lifecycle" 闭环事件
           // 使用唯一的 message_id 作为 runId，在主会话与参与者会话底部实现增量实时追加
-          const text = typeof envelope.payload["text"] === "string"
-            ? envelope.payload["text"]
-            : JSON.stringify(envelope.payload);
+          const text =
+            typeof envelope.payload["text"] === "string"
+              ? envelope.payload["text"]
+              : JSON.stringify(envelope.payload);
 
           // 触发 "assistant" 流输入事件
           emitAgentEvent({

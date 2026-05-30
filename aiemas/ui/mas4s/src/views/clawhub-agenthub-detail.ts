@@ -518,7 +518,14 @@ export class ClawHubAgentHubDetail extends LitElement {
           </div>
           <div class="actions">
             <button class="btn-import" @click=${this._onImport}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
                 <path d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1" />
                 <polyline points="16 10 12 14 8 10" />
                 <line x1="12" y1="14" x2="12" y2="3" />

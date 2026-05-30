@@ -1,7 +1,7 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { markdownMath } from "../lib/markdown-directive.js";
 import type { RegistryAgent } from "../gateway/clawhub-api.js";
+import { markdownMath } from "../lib/markdown-directive.js";
 
 @customElement("clawhub-agent-detail")
 export class ClawHubAgentDetail extends LitElement {
@@ -108,7 +108,6 @@ export class ClawHubAgentDetail extends LitElement {
       margin: 0;
     }
 
-
     .description-container {
       margin-top: 12px;
       position: relative;
@@ -184,7 +183,9 @@ export class ClawHubAgentDetail extends LitElement {
       border: 1px solid #e2e8f0;
       border-radius: 16px;
       padding: 24px;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.01);
+      box-shadow:
+        0 4px 6px -1px rgba(0, 0, 0, 0.02),
+        0 2px 4px -1px rgba(0, 0, 0, 0.01);
       display: flex;
       flex-direction: column;
       gap: 20px;
@@ -317,14 +318,25 @@ export class ClawHubAgentDetail extends LitElement {
       { key: "streaming", label: "Streaming", enabled: !!c.streaming },
       { key: "pushNotifications", label: "Push Notifications", enabled: !!c.pushNotifications },
       { key: "longRunningOperations", label: "Long Running", enabled: !!c.longRunningOperations },
-      { key: "stateTransitionHistory", label: "State History", enabled: !!c.stateTransitionHistory },
+      {
+        key: "stateTransitionHistory",
+        label: "State History",
+        enabled: !!c.stateTransitionHistory,
+      },
     ];
 
     return html`
       <div class="container">
         <!-- Back button -->
         <button class="back-btn" @click=${this._onBack}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
             <path d="M19 12H5" />
             <path d="M12 19l-7-7 7-7" />
           </svg>
@@ -337,7 +349,9 @@ export class ClawHubAgentDetail extends LitElement {
           <div class="merged-header">
             <div class="avatar-wrapper">
               <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1.07A7.001 7.001 0 0 1 14 23h-4a7.001 7.001 0 0 1-6.93-6H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2zm-2 9a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm4 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" />
+                <path
+                  d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1.07A7.001 7.001 0 0 1 14 23h-4a7.001 7.001 0 0 1-6.93-6H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2zm-2 9a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm4 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"
+                />
               </svg>
             </div>
             <div class="header-info">
@@ -347,7 +361,14 @@ export class ClawHubAgentDetail extends LitElement {
             </div>
           </div>
           <h2 class="card-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <rect x="3" y="3" width="18" height="18" rx="2" />
               <path d="M9 9h6v6H9z" />
             </svg>
@@ -397,12 +418,26 @@ export class ClawHubAgentDetail extends LitElement {
                   <span class="cap-badge ${cap.enabled ? "enabled" : "disabled"}">
                     ${cap.enabled
                       ? html`
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          >
                             <polyline points="20 6 9 17 4 12" />
                           </svg>
                         `
                       : html`
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          >
                             <line x1="18" y1="6" x2="6" y2="18" />
                             <line x1="6" y1="6" x2="18" y2="18" />
                           </svg>
@@ -420,7 +455,14 @@ export class ClawHubAgentDetail extends LitElement {
           ? html`
               <div class="detail-card">
                 <h2 class="card-title">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                     <polyline points="14 2 14 8 20 8"></polyline>
                     <line x1="16" y1="13" x2="8" y2="13"></line>
@@ -430,7 +472,9 @@ export class ClawHubAgentDetail extends LitElement {
                   详细描述
                 </h2>
                 <div class="description-container" style="margin-top: 0;">
-                  <div class="description-content ${this._descriptionExpanded ? "" : "line-clamp-3"}">
+                  <div
+                    class="description-content ${this._descriptionExpanded ? "" : "line-clamp-3"}"
+                  >
                     ${markdownMath(card.description)}
                   </div>
                   <button class="expand-btn" @click=${this._toggleDescription}>

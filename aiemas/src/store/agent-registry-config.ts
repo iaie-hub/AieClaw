@@ -19,9 +19,9 @@ export interface AgentRegistryConfigRecord {
  * Priority: DB value ?? env var value ?? null
  */
 export function getAgentRegistryConfig(db: DatabaseSync): AgentRegistryConfigRecord {
-  const row = db
-    .prepare("SELECT * FROM agent_registry WHERE id = 'default'")
-    .get() as RawConfigRow | undefined;
+  const row = db.prepare("SELECT * FROM agent_registry WHERE id = 'default'").get() as
+    | RawConfigRow
+    | undefined;
 
   const now = Date.now();
 
@@ -55,12 +55,13 @@ export function saveAgentRegistryConfig(
   const now = Date.now();
 
   // Read existing record to preserve fields not being updated
-  const existing = db
-    .prepare("SELECT * FROM agent_registry WHERE id = 'default'")
-    .get() as RawConfigRow | undefined;
+  const existing = db.prepare("SELECT * FROM agent_registry WHERE id = 'default'").get() as
+    | RawConfigRow
+    | undefined;
 
   const apiKey = config.apiKey !== undefined ? config.apiKey : (existing?.api_key ?? null);
-  const registryUrl = config.registryUrl !== undefined ? config.registryUrl : (existing?.registry_url ?? null);
+  const registryUrl =
+    config.registryUrl !== undefined ? config.registryUrl : (existing?.registry_url ?? null);
   const createdAt = existing?.created_at ?? now;
 
   db.prepare(
@@ -76,9 +77,9 @@ export function saveAgentRegistryConfig(
  */
 export function migrateFromEnvIfEmpty(db: DatabaseSync): void {
   try {
-    const existing = db
-      .prepare("SELECT id FROM agent_registry WHERE id = 'default'")
-      .get() as { id: string } | undefined;
+    const existing = db.prepare("SELECT id FROM agent_registry WHERE id = 'default'").get() as
+      | { id: string }
+      | undefined;
 
     if (existing) {
       return;
@@ -99,13 +100,7 @@ export function migrateFromEnvIfEmpty(db: DatabaseSync): void {
       `INSERT OR REPLACE INTO agent_registry
         (id, api_key, registry_url, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?)`,
-    ).run(
-      "default",
-      null,
-      registryUrl,
-      now,
-      now,
-    );
+    ).run("default", null, registryUrl, now, now);
   } catch (err) {
     console.error("[agent-registry-config] Migration from .env failed:", err);
   }

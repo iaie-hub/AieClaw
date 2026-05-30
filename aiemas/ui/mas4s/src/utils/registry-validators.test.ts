@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { validateApiKey, validateNatsUrl, validateAgentId, validateAgentName } from "./registry-validators.js";
+import {
+  validateApiKey,
+  validateNatsUrl,
+  validateAgentId,
+  validateAgentName,
+} from "./registry-validators.js";
 
 describe("validateApiKey", () => {
   it("valid key with correct prefix and length 64", () => {

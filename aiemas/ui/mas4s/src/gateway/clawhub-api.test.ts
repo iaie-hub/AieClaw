@@ -60,9 +60,7 @@ describe("clawhub-api", () => {
     it("should propagate gateway errors", async () => {
       mockRequest.mockRejectedValue(new Error("gateway not connected"));
 
-      await expect(fetchRegistryAgents(mockClient, 1, 20)).rejects.toThrow(
-        "gateway not connected",
-      );
+      await expect(fetchRegistryAgents(mockClient, 1, 20)).rejects.toThrow("gateway not connected");
     });
   });
 

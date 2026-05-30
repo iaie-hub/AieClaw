@@ -1,3 +1,5 @@
+import * as nodeOs from "node:os";
+import * as nodePath from "node:path";
 import type {
   GatewayClient,
   GatewayContext,
@@ -7,8 +9,6 @@ import type {
 } from "./aiemas-types.js";
 import type { MasAuthContext } from "./context.js";
 import { getMasAuth as _getMasAuth, NULL_MAS_AUTH as _NULL_MAS_AUTH } from "./context.js";
-import * as nodePath from "node:path";
-import * as nodeOs from "node:os";
 
 /**
  * Get the standardized temporary download directory path for agents.
@@ -17,7 +17,15 @@ import * as nodeOs from "node:os";
 export function getAgentDownloadTempDir(agentId: string): string {
   const now = new Date();
   const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
-  return nodePath.join(nodeOs.homedir(), ".openclaw", "aiemas", "data", "download", yyyymm, agentId);
+  return nodePath.join(
+    nodeOs.homedir(),
+    ".openclaw",
+    "aiemas",
+    "data",
+    "download",
+    yyyymm,
+    agentId,
+  );
 }
 
 /**

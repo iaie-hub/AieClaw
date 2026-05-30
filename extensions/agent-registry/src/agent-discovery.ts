@@ -101,7 +101,10 @@ export async function discoverAgents(
     }
 
     const agents: DiscoveredAgent[] = (p.agents ?? []).map((raw) => {
-      const card = raw["card"] && typeof raw["card"] === "object" ? (raw["card"] as Record<string, unknown>) : raw;
+      const card =
+        raw["card"] && typeof raw["card"] === "object"
+          ? (raw["card"] as Record<string, unknown>)
+          : raw;
       return {
         agentId: String(card["agent_id"] ?? card["agentId"] ?? ""),
         name: String(card["name"] ?? ""),

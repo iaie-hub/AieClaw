@@ -1,6 +1,6 @@
+import { createReadStream, statSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { createReadStream, statSync } from "node:fs";
 import { basename } from "node:path";
 
 /**
@@ -60,31 +60,37 @@ export async function proxyToRegistry(
     bodyBuffer = Buffer.from(JSON.stringify(bodyObj), "utf-8");
   }
 
-  console.log(`[mas4s:proxy] proxyToRegistry call: method=${method} url=${url.toString()} apiKey=${apiKey}`);
-  console.log(`[mas4s:proxy] Egress env vars: HTTP_PROXY=${process.env.HTTP_PROXY || "undefined"}, HTTPS_PROXY=${process.env.HTTPS_PROXY || "undefined"}, NO_PROXY=${process.env.NO_PROXY || "undefined"}, ALL_PROXY=${process.env.ALL_PROXY || "undefined"}`);
+  console.log(
+    `[mas4s:proxy] proxyToRegistry call: method=${method} url=${url.toString()} apiKey=${apiKey}`,
+  );
+  console.log(
+    `[mas4s:proxy] Egress env vars: HTTP_PROXY=${process.env.HTTP_PROXY || "undefined"}, HTTPS_PROXY=${process.env.HTTPS_PROXY || "undefined"}, NO_PROXY=${process.env.NO_PROXY || "undefined"}, ALL_PROXY=${process.env.ALL_PROXY || "undefined"}`,
+  );
 
   return new Promise((resolve, reject) => {
-      const startTime = Date.now();
-      
-      const headers: Record<string, string | number> = {
-        "X-API-Key": apiKey,
-        "Content-Type": "application/json",
-      };
-      if (bodyBuffer) {
-        headers["Content-Length"] = bodyBuffer.length;
-      }
+    const startTime = Date.now();
 
-      const req = requestFn(
-        url,
-        {
-          method: method.toUpperCase(),
-          headers,
-          timeout: TIMEOUT_MS,
-        },
-        (res) => {
+    const headers: Record<string, string | number> = {
+      "X-API-Key": apiKey,
+      "Content-Type": "application/json",
+    };
+    if (bodyBuffer) {
+      headers["Content-Length"] = bodyBuffer.length;
+    }
+
+    const req = requestFn(
+      url,
+      {
+        method: method.toUpperCase(),
+        headers,
+        timeout: TIMEOUT_MS,
+      },
+      (res) => {
         const chunks: Buffer[] = [];
         const elapsed = Date.now() - startTime;
-        console.log(`[mas4s:proxy] Response headers received: statusCode=${res.statusCode} elapsed=${elapsed}ms`);
+        console.log(
+          `[mas4s:proxy] Response headers received: statusCode=${res.statusCode} elapsed=${elapsed}ms`,
+        );
 
         res.on("data", (chunk: Buffer) => {
           chunks.push(chunk);
@@ -94,7 +100,9 @@ export async function proxyToRegistry(
           const body = Buffer.concat(chunks).toString("utf-8");
           const statusCode = res.statusCode ?? 0;
           const totalElapsed = Date.now() - startTime;
-          console.log(`[mas4s:proxy] Response fully received: statusCode=${statusCode} bodyLength=${body.length} totalElapsed=${totalElapsed}ms`);
+          console.log(
+            `[mas4s:proxy] Response fully received: statusCode=${statusCode} bodyLength=${body.length} totalElapsed=${totalElapsed}ms`,
+          );
 
           if (statusCode === 401) {
             reject(
@@ -151,7 +159,9 @@ export async function proxyToRegistry(
         console.log(`[mas4s:proxy] TCP connection established: elapsed=${elapsed}ms`);
       });
       socket.on("lookup", (err, address, _family, host) => {
-        console.log(`[mas4s:proxy] DNS lookup: host=${host} address=${address} err=${String(err || "none")}`);
+        console.log(
+          `[mas4s:proxy] DNS lookup: host=${host} address=${address} err=${String(err || "none")}`,
+        );
       });
     });
 
@@ -256,9 +266,12 @@ export async function proxyMultipartToRegistry(
     throw new Error(`Failed to stat file ${filePath}: ${err.message}`);
   }
 
-  const totalLength = fieldsBuffer.length + fileHeaderBuffer.length + fileSize + footerBuffer.length;
+  const totalLength =
+    fieldsBuffer.length + fileHeaderBuffer.length + fileSize + footerBuffer.length;
 
-  console.log(`[mas4s:proxy] proxyMultipartToRegistry call: method=${method} url=${url.toString()} totalLength=${totalLength}`);
+  console.log(
+    `[mas4s:proxy] proxyMultipartToRegistry call: method=${method} url=${url.toString()} totalLength=${totalLength}`,
+  );
 
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
@@ -284,7 +297,9 @@ export async function proxyMultipartToRegistry(
           const body = Buffer.concat(chunks).toString("utf-8");
           const statusCode = res.statusCode ?? 0;
           const totalElapsed = Date.now() - startTime;
-          console.log(`[mas4s:proxy] Multipart response received: statusCode=${statusCode} totalElapsed=${totalElapsed}ms`);
+          console.log(
+            `[mas4s:proxy] Multipart response received: statusCode=${statusCode} totalElapsed=${totalElapsed}ms`,
+          );
 
           if (statusCode === 401) {
             reject(
@@ -330,13 +345,16 @@ export async function proxyMultipartToRegistry(
             ),
           );
         });
-      }
+      },
     );
 
     req.on("timeout", () => {
       req.destroy();
       reject(
-        new ClawHubProxyError(CLAWHUB_ERROR_CODES.TIMEOUT, "AgentRegistry upload request timed out (60s)"),
+        new ClawHubProxyError(
+          CLAWHUB_ERROR_CODES.TIMEOUT,
+          "AgentRegistry upload request timed out (60s)",
+        ),
       );
     });
 

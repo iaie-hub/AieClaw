@@ -200,8 +200,17 @@ export function ensureMas4sSchema(db: DatabaseSync): void {
   try {
     const hasNatsRecord = db.prepare("SELECT id FROM nats_config WHERE id = 'default'").get();
     if (!hasNatsRecord) {
-      const oldRegistry = db.prepare("SELECT * FROM agent_registry WHERE id = 'default'").get() as any;
-      if (oldRegistry && (oldRegistry.nats_url || oldRegistry.nats_token || oldRegistry.agent_id || oldRegistry.agent_name || oldRegistry.bound_agent_id)) {
+      const oldRegistry = db
+        .prepare("SELECT * FROM agent_registry WHERE id = 'default'")
+        .get() as any;
+      if (
+        oldRegistry &&
+        (oldRegistry.nats_url ||
+          oldRegistry.nats_token ||
+          oldRegistry.agent_id ||
+          oldRegistry.agent_name ||
+          oldRegistry.bound_agent_id)
+      ) {
         const now = Date.now();
         db.prepare(`
           INSERT INTO nats_config (id, nats_url, nats_token, agent_id, agent_name, bound_agent_id, created_at, updated_at)
@@ -213,7 +222,7 @@ export function ensureMas4sSchema(db: DatabaseSync): void {
           oldRegistry.agent_name ?? null,
           oldRegistry.bound_agent_id ?? null,
           oldRegistry.created_at ?? now,
-          now
+          now,
         );
       }
     }

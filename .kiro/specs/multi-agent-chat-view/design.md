@@ -422,7 +422,7 @@ _For any_ 携带合法 `sessionKey` 的 WebSocket 事件（agent 或 chat 类型
 
 ### Property 3: Single_View_Mode 消息存储不丢失
 
-_For any_ 处于 Single_View_Mode 的会话，_for any_ 来自 Sub_Agent（agentId ≠ rootAgentId）的事件（包括 `stream=assistant`、`stream=tool`、`state=final`），Event_Handler SHALL 将该消息存储到 `messagesByAgent[sessionUuid][agentId]` 中，与 Multi_View_Mode 的路由行为完全一致。视图层通过隐藏 Secondary_Panel 的 DOM 来控制显示，而非在路由层丢弃消息。
+_For any_ 处于 Single*View_Mode 的会话，\_for any* 来自 Sub_Agent（agentId ≠ rootAgentId）的事件（包括 `stream=assistant`、`stream=tool`、`state=final`），Event_Handler SHALL 将该消息存储到 `messagesByAgent[sessionUuid][agentId]` 中，与 Multi_View_Mode 的路由行为完全一致。视图层通过隐藏 Secondary_Panel 的 DOM 来控制显示，而非在路由层丢弃消息。
 
 **Validates: Requirements 1.7, 1.8, 1.9, 6.4, 6.5**
 

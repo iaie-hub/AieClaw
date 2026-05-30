@@ -149,33 +149,28 @@ describe("Feature: clawhub-registry-integration, Property 4: NATS URL format val
   });
 
   it("valid=false for strings not matching nats:// prefix (negative: wrong scheme)", () => {
-    const arbWrongScheme = fc.constantFrom(
-      "http://",
-      "https://",
-      "tcp://",
-      "ws://",
-      "nats//",
-      "",
-    );
+    const arbWrongScheme = fc.constantFrom("http://", "https://", "tcp://", "ws://", "nats//", "");
     const arbHost = fc.stringOf(hostCharArb, { minLength: 1, maxLength: 20 });
     const arbPort = fc.integer({ min: 1, max: 65535 });
 
     fc.assert(
-      fc.property(arbWrongScheme, arbHost, arbPort, (scheme: string, host: string, port: number) => {
-        const url = `${scheme}${host}:${port}`;
-        const result = validateNatsUrl(url);
-        expect(result.valid).toBe(false);
-      }),
+      fc.property(
+        arbWrongScheme,
+        arbHost,
+        arbPort,
+        (scheme: string, host: string, port: number) => {
+          const url = `${scheme}${host}:${port}`;
+          const result = validateNatsUrl(url);
+          expect(result.valid).toBe(false);
+        },
+      ),
       { numRuns: 100 },
     );
   });
 
   it("valid=false for nats:// URLs with port outside 1-65535 (negative: invalid port)", () => {
     const arbHost = fc.stringOf(hostCharArb, { minLength: 1, maxLength: 10 });
-    const arbInvalidPort = fc.oneof(
-      fc.constant(0),
-      fc.integer({ min: 65536, max: 99999 }),
-    );
+    const arbInvalidPort = fc.oneof(fc.constant(0), fc.integer({ min: 65536, max: 99999 }));
 
     fc.assert(
       fc.property(arbHost, arbInvalidPort, (host: string, port: number) => {
@@ -256,13 +251,18 @@ describe("Feature: clawhub-registry-integration, Property 5: Agent ID format val
     const validPartArb = fc.stringOf(agentIdCharArb, { minLength: 0, maxLength: 30 });
 
     fc.assert(
-      fc.property(validPartArb, invalidCharArb, validPartArb, (prefix: string, badChar: string, suffix: string) => {
-        const id = `${prefix}${badChar}${suffix}`;
-        fc.pre(id.length >= 1 && id.length <= 64);
-        const result = validateAgentId(id);
-        expect(result.valid).toBe(false);
-        expect(result.error).toBeDefined();
-      }),
+      fc.property(
+        validPartArb,
+        invalidCharArb,
+        validPartArb,
+        (prefix: string, badChar: string, suffix: string) => {
+          const id = `${prefix}${badChar}${suffix}`;
+          fc.pre(id.length >= 1 && id.length <= 64);
+          const result = validateAgentId(id);
+          expect(result.valid).toBe(false);
+          expect(result.error).toBeDefined();
+        },
+      ),
       { numRuns: 100 },
     );
   });
@@ -272,9 +272,7 @@ describe("Feature: clawhub-registry-integration, Property 5: Agent ID format val
       fc.property(fc.string({ minLength: 0, maxLength: 128 }), (input: string) => {
         const result = validateAgentId(input);
         const shouldBeValid =
-          input.length >= 1 &&
-          input.length <= 64 &&
-          /^[a-zA-Z0-9_-]+$/.test(input);
+          input.length >= 1 && input.length <= 64 && /^[a-zA-Z0-9_-]+$/.test(input);
         expect(result.valid).toBe(shouldBeValid);
       }),
       { numRuns: 100 },

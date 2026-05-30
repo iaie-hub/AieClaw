@@ -3,6 +3,7 @@
 ## Overview
 
 本实现计划将 ClawHub Registry Integration 功能分解为可增量执行的编码任务。整体按照以下顺序推进：
+
 1. Python 后端健康检查端点
 2. 数据库 Schema 与配置持久化层
 3. Gateway RPC 处理器与权限注册
@@ -37,7 +38,7 @@
     - 实现 `AgentRegistryConfigRecord` 接口
     - 实现 `getAgentRegistryConfig(db)`: 从数据库读取配置，空值回退环境变量
     - 实现 `saveAgentRegistryConfig(db, config)`: 使用 INSERT OR REPLACE 保存配置
-    - 实现 `migrateFromEnvIfEmpty(db)`: 首次启动时从 `~/.openclaw/.env` 读取 AGENT_REGISTRY_* 变量并写入数据库
+    - 实现 `migrateFromEnvIfEmpty(db)`: 首次启动时从 `~/.openclaw/.env` 读取 AGENT*REGISTRY*\* 变量并写入数据库
     - 配置解析优先级: DB 值 ?? 环境变量值 ?? null
     - _Requirements: 2.3, 2.4, 2.5_
 

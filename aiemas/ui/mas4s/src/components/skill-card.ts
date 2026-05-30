@@ -1,6 +1,10 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import type { SkillStatusEntry } from "../types/skills-types.js";
+import downloadIcon from "../../asset/download.svg";
+import uploadIcon from "../../asset/upload.svg";
+
+
 
 /**
  * Skill 卡片组件
@@ -193,6 +197,11 @@ export class SkillCard extends LitElement {
       background: #f1f5f9;
       color: #3b82f6;
     }
+
+    .icon-btn.delete-btn:hover {
+      background: #fee2e2;
+      color: #ef4444;
+    }
   `;
 
   private _getStatusClass(): string {
@@ -258,9 +267,24 @@ export class SkillCard extends LitElement {
     );
   };
 
+  private _onDelete = (e: Event) => {
+    e.stopPropagation(); // 阻止事件冒泡以避免触发卡片选择
+    this.dispatchEvent(
+      new CustomEvent("skill-delete", {
+        detail: { skill: this.skill },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  };
+
   render() {
     const statusClass = this._getStatusClass();
     const statusText = this._getStatusText();
+    const isWorkspaceSkill =
+      this.skill.source === "openclaw-workspace" ||
+      this.skill.source === "agents-skills-project";
+    const showDelete = !this.skill.bundled && isWorkspaceSkill;
 
     return html`
       <div
@@ -306,18 +330,11 @@ export class SkillCard extends LitElement {
           <div class="skill-actions">
             <button
               class="icon-btn"
-              title="下载配置"
-              aria-label="下载技能 ${this.skill.name}"
+              title="导出Skill"
+              aria-label="导出Skill ${this.skill.name}"
               @click=${this._onExport}
             >
-              <svg width="14" height="14" viewBox="0 0 1024 1024" fill="currentColor">
-                <path
-                  d="M960.64 499.2c-28.8-91.52-116.48-150.4-223.36-150.4h-16a345.216 345.216 0 0 0-283.52-224c-140.8-16.64-278.4 56.96-343.68 182.4a346.24 346.24 0 0 0 47.36 386.56c15.36 17.28 42.24 19.2 60.16 3.84 17.28-15.36 19.2-42.24 3.84-60.16a260.672 260.672 0 0 1-35.84-290.56c49.28-94.08 152.96-149.76 258.56-136.96a259.84 259.84 0 0 1 220.8 192.64c5.12 18.56 21.76 32 40.96 32h47.36c68.48 0 124.16 35.84 142.08 91.52 19.2 60.8-2.56 126.08-55.04 163.2a42.88 42.88 0 0 0-10.24 59.52 42.112 42.112 0 0 0 58.88 10.24c83.2-59.52 118.4-163.2 87.68-259.84z"
-                ></path>
-                <path
-                  d="M611.84 698.88l-56.96 56.96V490.88c0-23.68-19.2-42.24-42.88-42.24-23.68 0-42.24 19.2-42.24 42.88v264.96l-57.6-57.6a42.496 42.496 0 1 0-60.16 60.16l129.92 129.92c3.2 3.2 6.4 4.48 9.6 6.4 1.28 0.64 2.56 1.92 3.84 2.56 5.12 1.92 10.88 3.2 16.64 3.2 1.92 0 3.2-0.64 5.12-1.28 3.84-0.64 7.68-0.64 10.88-2.56 5.76-1.92 10.24-5.76 14.72-9.6l129.28-129.28c16.64-16.64 16.64-43.52 0-60.16s-43.52-16-60.16 0.64z"
-                ></path>
-              </svg>
+              <img src="${downloadIcon}" width="14" height="14" alt="download" />
             </button>
             <button
               class="icon-btn"
@@ -325,15 +342,22 @@ export class SkillCard extends LitElement {
               aria-label="上传技能 ${this.skill.name}"
               @click=${this._onUpload}
             >
-              <svg width="14" height="14" viewBox="0 0 1024 1024" fill="currentColor">
-                <path
-                  d="M768.35456 416a256 256 0 1 0-512 0 192 192 0 1 0 0 384v64a256 256 0 0 1-58.88-505.216 320.128 320.128 0 0 1 629.76 0A256.128 256.128 0 0 1 768.35456 864v-64a192 192 0 0 0 0-384z m-512 384h128v64H256.35456v-64z m384 0h128v64h-128v-64z"
-                ></path>
-                <path
-                  d="M539.04256 589.184v333.056a32.448 32.448 0 0 1-32 32.192 32.448 32.448 0 0 1-32-32.192V589.184l-36.096 36.096a32.192 32.192 0 0 1-45.056-0.192 31.616 31.616 0 0 1-0.192-45.056l90.88-90.88a31.36 31.36 0 0 1 22.528-9.152 30.08 30.08 0 0 1 22.4 9.088l90.88 90.944a32.192 32.192 0 0 1-0.192 45.056 31.616 31.616 0 0 1-45.056 0.192l-36.096-36.096z"
-                ></path>
-              </svg>
+              <img src="${uploadIcon}" width="14" height="14" alt="upload" />
             </button>
+            ${showDelete
+              ? html`
+                  <button
+                    class="icon-btn delete-btn"
+                    title="删除技能"
+                    aria-label="删除技能 ${this.skill.name}"
+                    @click=${this._onDelete}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 1024 1024" fill="currentColor">
+                      <path d="M160 256h704v64H160zM320 160h384v64H320zM224 384v512c0 35.3 28.7 64 64 64h448c35.3 0 64-28.7 64-64V384H224zm192 416h-64V480h64v320zm160 0h-64V480h64v320zm160 0h-64V480h64v320z"></path>
+                    </svg>
+                  </button>
+                `
+              : ""}
           </div>
         </div>
       </div>

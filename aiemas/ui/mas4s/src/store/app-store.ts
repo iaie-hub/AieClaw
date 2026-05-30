@@ -862,7 +862,8 @@ export class AppStore {
       // 审核卡片在根 Agent 主面板和子 Agent 抽屉都显示，
       // 用户可以在任意面板审批，审批结果通过 exec.approval.resolved 广播同步。
       const session = this.sessions.find(
-        (s) => s.sessionUuid === targetSessionUuid || extractUuidFromKey(s.key) === targetSessionUuid
+        (s) =>
+          s.sessionUuid === targetSessionUuid || extractUuidFromKey(s.key) === targetSessionUuid,
       );
       const rootAgentId = session ? extractAgentNameFromKey(session.key) : null;
       const msgAgentId = targetSessionKey ? extractAgentNameFromKey(targetSessionKey) : "Agent";
@@ -983,7 +984,7 @@ export class AppStore {
         // 审批操作消息在根 Agent 主面板和子 Agent 抽屉都显示，
         // 与审核卡片的双面板显示策略一致。
         const session = this.sessions.find(
-          (s) => s.sessionUuid === sessionUuid || extractUuidFromKey(s.key) === sessionUuid
+          (s) => s.sessionUuid === sessionUuid || extractUuidFromKey(s.key) === sessionUuid,
         );
         const rootAgentId = session ? extractAgentNameFromKey(session.key) : null;
         const msgAgentId = sessionKey ? extractAgentNameFromKey(sessionKey) : "Agent";

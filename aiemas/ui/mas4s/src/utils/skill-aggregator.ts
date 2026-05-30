@@ -30,7 +30,9 @@ export function aggregateSkills(agents: RegistryAgent[]): AggregatedSkill[] {
   const skillMap = new Map<string, AggregatedSkill>();
 
   for (const agent of agents) {
-    const skillNames = (agent.card.skills || []).map((s) => (typeof s === "string" ? s : s?.name || ""));
+    const skillNames = (agent.card.skills || []).map((s) =>
+      typeof s === "string" ? s : s?.name || "",
+    );
     const uniqueSkills = new Set(skillNames.filter(Boolean));
     for (const skillName of uniqueSkills) {
       let entry = skillMap.get(skillName);

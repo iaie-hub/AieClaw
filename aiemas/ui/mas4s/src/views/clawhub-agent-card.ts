@@ -219,9 +219,7 @@ export class ClawHubAgentCard extends LitElement {
                 class="status-indicator ${this.status}"
                 title="${this._statusText(this.status)}"
               ></span>
-              <span class="status-label ${this.status}">
-                ${this._statusText(this.status)}
-              </span>
+              <span class="status-label ${this.status}"> ${this._statusText(this.status)} </span>
             </div>
             <p class="agent-id">ID: ${this.agentId}</p>
           </div>

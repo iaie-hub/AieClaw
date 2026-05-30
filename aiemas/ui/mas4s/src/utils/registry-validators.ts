@@ -60,7 +60,10 @@ export function validateAgentId(value: string): ValidationResult {
     return { valid: false, error: "Agent ID must be between 1 and 64 characters" };
   }
   if (!/^[a-zA-Z0-9_-]+$/.test(value)) {
-    return { valid: false, error: "Agent ID must only contain letters, digits, hyphens, and underscores" };
+    return {
+      valid: false,
+      error: "Agent ID must only contain letters, digits, hyphens, and underscores",
+    };
   }
   return { valid: true };
 }
@@ -87,4 +90,3 @@ export function validateRegistryUrl(value: string): ValidationResult {
   }
   return { valid: true };
 }
-

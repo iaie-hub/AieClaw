@@ -1,6 +1,7 @@
 import type { GatewayEventFrame } from "../lib/gateway.js";
 import { normalizeMessage } from "../lib/message-normalizer.js";
 import { AppStore } from "../store/app-store.js";
+import { SummaryStore } from "../store/summary-store.js";
 import type { ApprovalRequest, ApprovalResolved } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
 import type { MasSession } from "../types/session-types.js";
@@ -8,9 +9,8 @@ import { parseSenderPrefix } from "../utils/message-format.js";
 import { extractUuidFromKey, extractAgentNameFromKey } from "../utils/session-utils.js";
 import { addEventHandler, getClient } from "./client.js";
 import { dispatchCollabMessage } from "./collab-api.js";
-import { fetchSessionLabel } from "./session-manager.js";
 import { getSummary } from "./session-archive.js";
-import { SummaryStore } from "../store/summary-store.js";
+import { fetchSessionLabel } from "./session-manager.js";
 
 const TOOL_OUTPUT_CHAR_LIMIT = 120_000;
 
@@ -492,7 +492,7 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
     };
     console.info(
       `[mas4s:event-handler] stream=agent received. runId=${runId}, sessionUuid=${sessionUuid}, agentId=${agentId}, role=${chatMsg.role}, senderLabel=${chatMsg.senderLabel}, content length=${chatMsg.content.length}, content=`,
-      chatMsg.content
+      chatMsg.content,
     );
     debugLog(
       `[mas4s:event-handler] Updating/Appending A2A agent input message (role=${chatMsg.role})`,

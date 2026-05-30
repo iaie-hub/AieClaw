@@ -235,10 +235,7 @@ function buildNormalizeResolvedModelCacheKey(params: {
 }): string | null {
   // Only cache when using default runtime hooks (the common case).
   // Custom/static/skip hooks are used in special contexts and should not be cached.
-  if (
-    params.runtimeHooks &&
-    params.runtimeHooks !== DEFAULT_PROVIDER_RUNTIME_HOOKS
-  ) {
+  if (params.runtimeHooks && params.runtimeHooks !== DEFAULT_PROVIDER_RUNTIME_HOOKS) {
     return null;
   }
   const m = params.model;

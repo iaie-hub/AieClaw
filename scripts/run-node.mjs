@@ -438,7 +438,12 @@ const listRequiredOpenClawExtensionAliasOutputs = (deps) => {
   return [
     path.join(aliasDir, "package.json"),
     ...dirents
-      .filter((dirent) => dirent.isFile() && path.extname(dirent.name) === ".js" && (!publicDistFileNames || publicDistFileNames.has(dirent.name)))
+      .filter(
+        (dirent) =>
+          dirent.isFile() &&
+          path.extname(dirent.name) === ".js" &&
+          (!publicDistFileNames || publicDistFileNames.has(dirent.name)),
+      )
       .map((dirent) => path.join(aliasDir, "plugin-sdk", dirent.name)),
   ].toSorted((left, right) => left.localeCompare(right));
 };

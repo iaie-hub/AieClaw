@@ -70,9 +70,9 @@ describe("parseConfig — error message content", () => {
   });
 
   it("mentions AGENT_REGISTRY_AGENT_ID when agent ID is invalid", () => {
-    expect(() =>
-      parseConfig(validEnv({ AGENT_REGISTRY_AGENT_ID: "invalid id!" })),
-    ).toThrow("AGENT_REGISTRY_AGENT_ID");
+    expect(() => parseConfig(validEnv({ AGENT_REGISTRY_AGENT_ID: "invalid id!" }))).toThrow(
+      "AGENT_REGISTRY_AGENT_ID",
+    );
   });
 });
 
@@ -87,13 +87,11 @@ describe("Property 8: NATS URL validation", () => {
   it("rejects arbitrary strings that are not NATS URLs", () => {
     fc.assert(
       fc.property(
-        fc.string({ minLength: 0, maxLength: 100 }).filter(
-          (s) => !/^nats:\/\/[^:]+:\d{1,5}$/.test(s),
-        ),
+        fc
+          .string({ minLength: 0, maxLength: 100 })
+          .filter((s) => !/^nats:\/\/[^:]+:\d{1,5}$/.test(s)),
         (invalidUrl) => {
-          expect(() =>
-            parseConfig(validEnv({ AGENT_REGISTRY_NATS_URL: invalidUrl })),
-          ).toThrow();
+          expect(() => parseConfig(validEnv({ AGENT_REGISTRY_NATS_URL: invalidUrl }))).toThrow();
         },
       ),
     );
@@ -109,9 +107,7 @@ describe("Property 8: NATS URL validation", () => {
         fc.integer({ min: 1, max: 65535 }),
         (scheme, host, port) => {
           const url = `${scheme}://${host}:${port}`;
-          expect(() =>
-            parseConfig(validEnv({ AGENT_REGISTRY_NATS_URL: url })),
-          ).toThrow();
+          expect(() => parseConfig(validEnv({ AGENT_REGISTRY_NATS_URL: url }))).toThrow();
         },
       ),
     );
@@ -120,30 +116,20 @@ describe("Property 8: NATS URL validation", () => {
   // ── Invalid: missing port ──
   it("rejects nats:// URLs without a port", () => {
     fc.assert(
-      fc.property(
-        fc.stringMatching(/^[a-z0-9.-]+$/),
-        (host) => {
-          const url = `nats://${host}`;
-          expect(() =>
-            parseConfig(validEnv({ AGENT_REGISTRY_NATS_URL: url })),
-          ).toThrow();
-        },
-      ),
+      fc.property(fc.stringMatching(/^[a-z0-9.-]+$/), (host) => {
+        const url = `nats://${host}`;
+        expect(() => parseConfig(validEnv({ AGENT_REGISTRY_NATS_URL: url }))).toThrow();
+      }),
     );
   });
 
   // ── Invalid: port 0 ──
   it("rejects port 0", () => {
     fc.assert(
-      fc.property(
-        fc.stringMatching(/^[a-z0-9.-]+$/),
-        (host) => {
-          const url = `nats://${host}:0`;
-          expect(() =>
-            parseConfig(validEnv({ AGENT_REGISTRY_NATS_URL: url })),
-          ).toThrow();
-        },
-      ),
+      fc.property(fc.stringMatching(/^[a-z0-9.-]+$/), (host) => {
+        const url = `nats://${host}:0`;
+        expect(() => parseConfig(validEnv({ AGENT_REGISTRY_NATS_URL: url }))).toThrow();
+      }),
     );
   });
 
@@ -155,9 +141,7 @@ describe("Property 8: NATS URL validation", () => {
         fc.integer({ min: 65536, max: 99999 }),
         (host, port) => {
           const url = `nats://${host}:${port}`;
-          expect(() =>
-            parseConfig(validEnv({ AGENT_REGISTRY_NATS_URL: url })),
-          ).toThrow();
+          expect(() => parseConfig(validEnv({ AGENT_REGISTRY_NATS_URL: url }))).toThrow();
         },
       ),
     );
@@ -172,9 +156,7 @@ describe("Property 8: NATS URL validation", () => {
         fc.integer({ min: 1, max: 65535 }),
         (host, port) => {
           const url = `nats://${host}:${port}`;
-          expect(() =>
-            parseConfig(validEnv({ AGENT_REGISTRY_NATS_URL: url })),
-          ).not.toThrow();
+          expect(() => parseConfig(validEnv({ AGENT_REGISTRY_NATS_URL: url }))).not.toThrow();
         },
       ),
     );
@@ -191,14 +173,12 @@ describe("Property 9: Agent ID validation", () => {
   // ── Invalid: strings with out-of-charset characters ──
   it("rejects agent IDs containing characters outside [a-zA-Z0-9_-]", () => {
     // Generate strings that contain at least one invalid character
-    const invalidCharArb = fc.string({ minLength: 1, maxLength: 64 }).filter(
-      (s) => s.length > 0 && /[^a-zA-Z0-9_-]/.test(s),
-    );
+    const invalidCharArb = fc
+      .string({ minLength: 1, maxLength: 64 })
+      .filter((s) => s.length > 0 && /[^a-zA-Z0-9_-]/.test(s));
     fc.assert(
       fc.property(invalidCharArb, (invalidId) => {
-        expect(() =>
-          parseConfig(validEnv({ AGENT_REGISTRY_AGENT_ID: invalidId })),
-        ).toThrow();
+        expect(() => parseConfig(validEnv({ AGENT_REGISTRY_AGENT_ID: invalidId }))).toThrow();
       }),
     );
   });
@@ -212,9 +192,7 @@ describe("Property 9: Agent ID validation", () => {
         (base, targetLen) => {
           // Pad with valid chars to reach targetLen
           const padded = base.repeat(Math.ceil(targetLen / base.length)).slice(0, targetLen);
-          expect(() =>
-            parseConfig(validEnv({ AGENT_REGISTRY_AGENT_ID: padded })),
-          ).toThrow();
+          expect(() => parseConfig(validEnv({ AGENT_REGISTRY_AGENT_ID: padded }))).toThrow();
         },
       ),
     );
@@ -223,14 +201,9 @@ describe("Property 9: Agent ID validation", () => {
   // ── Valid: non-empty strings of [a-zA-Z0-9_-] with length 1–64 ──
   it("accepts valid agent IDs: non-empty [a-zA-Z0-9_-] strings up to 64 chars", () => {
     fc.assert(
-      fc.property(
-        fc.stringMatching(/^[a-zA-Z0-9_-]{1,64}$/),
-        (validId) => {
-          expect(() =>
-            parseConfig(validEnv({ AGENT_REGISTRY_AGENT_ID: validId })),
-          ).not.toThrow();
-        },
-      ),
+      fc.property(fc.stringMatching(/^[a-zA-Z0-9_-]{1,64}$/), (validId) => {
+        expect(() => parseConfig(validEnv({ AGENT_REGISTRY_AGENT_ID: validId }))).not.toThrow();
+      }),
     );
   });
 });
@@ -248,9 +221,7 @@ describe("Property 10: NATS token included in connect options", () => {
         // Non-empty string up to 512 chars
         fc.string({ minLength: 1, maxLength: 512 }),
         (token) => {
-          const config = parseConfig(
-            validEnv({ AGENT_REGISTRY_NATS_TOKEN: token }),
-          );
+          const config = parseConfig(validEnv({ AGENT_REGISTRY_NATS_TOKEN: token }));
           const opts = buildNatsConnectOptions(config);
           expect(opts.token).toBe(token);
         },

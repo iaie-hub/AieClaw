@@ -102,7 +102,9 @@ describe("Feature: clawhub-registry-integration, Property 8: Skill aggregation g
           }> = [];
 
           for (const agent of agents) {
-            const skillNames = (agent.card.skills || []).map((s) => (typeof s === "string" ? s : s.name));
+            const skillNames = (agent.card.skills || []).map((s) =>
+              typeof s === "string" ? s : s.name,
+            );
             if (skillNames.includes(entry.name)) {
               expectedAgents.push({
                 agentId: agent.card.agent_id,
@@ -250,9 +252,7 @@ describe("Feature: clawhub-registry-integration, Property 9: Skill search filter
 
         // Every skill from input that matches should be in the result
         const lowerQuery = query.toLowerCase();
-        const expectedMatches = skills.filter((s) =>
-          s.name.toLowerCase().includes(lowerQuery),
-        );
+        const expectedMatches = skills.filter((s) => s.name.toLowerCase().includes(lowerQuery));
 
         expect(result.length).toBe(expectedMatches.length);
 

@@ -50,12 +50,16 @@ export function registerChatHandlers(
 
       // Proxy respond to capture results and ensure transparency
       const wrappedRespond: typeof respond = (ok, payload, error, meta) => {
-        console.log(`[aiemas:chat.send] bridge respond callback triggered: ok=${ok}, clientRunId=${String(params["clientRunId"] || params["idempotencyKey"])}`);
+        console.log(
+          `[aiemas:chat.send] bridge respond callback triggered: ok=${ok}, clientRunId=${String(params["clientRunId"] || params["idempotencyKey"])}`,
+        );
         respond(ok, payload, error, meta);
       };
 
       try {
-        console.log(`[aiemas:chat.send] Invoking coreChatSend for sessionKey=${String(params["sessionKey"])}...`);
+        console.log(
+          `[aiemas:chat.send] Invoking coreChatSend for sessionKey=${String(params["sessionKey"])}...`,
+        );
         await coreChatSend({ ...opts, respond: wrappedRespond });
         console.log(`[aiemas:chat.send] coreChatSend finished execution.`);
       } catch (err) {

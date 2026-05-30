@@ -329,10 +329,7 @@ export class ClawHubView extends LitElement {
       "download-hub-skill",
       this._onDownloadHubSkill as unknown as EventListener,
     );
-    this.addEventListener(
-      "import-hub-agent",
-      this._onImportHubAgent as unknown as EventListener,
-    );
+    this.addEventListener("import-hub-agent", this._onImportHubAgent as unknown as EventListener);
     void this._init();
   }
 
@@ -703,8 +700,7 @@ export class ClawHubView extends LitElement {
           @back=${this._onBackToList}
           @toggle-visibility=${this._onToggleVisibility}
         ></clawhub-agenthub-detail>
-        ${this._renderDialogs()}
-        ${this._renderToast()}
+        ${this._renderDialogs()} ${this._renderToast()}
       `;
     }
 
@@ -715,8 +711,7 @@ export class ClawHubView extends LitElement {
           @back=${this._onBackToList}
           @toggle-visibility=${this._onToggleVisibility}
         ></clawhub-skillhub-detail>
-        ${this._renderDialogs()}
-        ${this._renderToast()}
+        ${this._renderDialogs()} ${this._renderToast()}
       `;
     }
 
@@ -748,8 +743,7 @@ export class ClawHubView extends LitElement {
         </div>
       </div>
       <div class="content-area">${this._renderContent()}</div>
-      ${this._renderDialogs()}
-      ${this._renderToast()}
+      ${this._renderDialogs()} ${this._renderToast()}
     `;
   }
 

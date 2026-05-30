@@ -2,14 +2,10 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { initDatabase } from "./database.js";
-import {
-  getNatsConfig,
-  saveNatsConfig,
-  migrateNatsFromEnvIfEmpty,
-} from "./nats-config.js";
-import type { DatabaseSync } from "node:sqlite";
+import { getNatsConfig, saveNatsConfig, migrateNatsFromEnvIfEmpty } from "./nats-config.js";
 
 function tmpDbPath(): string {
   return join(tmpdir(), `mas4s-test-${randomUUID()}`, "mas4s.db");
@@ -92,7 +88,10 @@ describe("saveNatsConfig", () => {
       natsToken: "test-token",
     });
 
-    const row = db.prepare("SELECT * FROM nats_config WHERE id = 'default'").get() as Record<string, unknown>;
+    const row = db.prepare("SELECT * FROM nats_config WHERE id = 'default'").get() as Record<
+      string,
+      unknown
+    >;
     expect(row).toBeDefined();
     expect(row.nats_url).toBe("nats://localhost:4222");
     expect(row.nats_token).toBe("test-token");
@@ -107,7 +106,10 @@ describe("saveNatsConfig", () => {
 
     saveNatsConfig(db, { natsUrl: "nats://new:4222" });
 
-    const row = db.prepare("SELECT * FROM nats_config WHERE id = 'default'").get() as Record<string, unknown>;
+    const row = db.prepare("SELECT * FROM nats_config WHERE id = 'default'").get() as Record<
+      string,
+      unknown
+    >;
     expect(row.nats_url).toBe("nats://new:4222");
     expect(row.nats_token).toBe("old-token");
     expect(row.created_at).toBe(now);
@@ -156,7 +158,10 @@ describe("migrateNatsFromEnvIfEmpty", () => {
     try {
       migrateNatsFromEnvIfEmpty(db);
 
-      const row = db.prepare("SELECT * FROM nats_config WHERE id = 'default'").get() as Record<string, unknown>;
+      const row = db.prepare("SELECT * FROM nats_config WHERE id = 'default'").get() as Record<
+        string,
+        unknown
+      >;
       expect(row).toBeDefined();
       expect(row.nats_url).toBe("nats://migrated:4222");
       expect(row.nats_token).toBe("migrated-token");

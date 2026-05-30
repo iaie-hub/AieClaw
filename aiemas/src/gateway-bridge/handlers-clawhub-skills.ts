@@ -1,8 +1,8 @@
 import { getAgentRegistryConfig } from "../store/agent-registry-config.js";
 import { getNatsConfig } from "../store/nats-config.js";
 import { errorShape, getAgentDownloadTempDir, type SimpleHandlers } from "./aiemas-utils.js";
-import { proxyToRegistry, ClawHubProxyError, CLAWHUB_ERROR_CODES } from "./clawhub-proxy.js";
 import { getRegistryBaseUrl, type ClawHubHandlersDeps } from "./clawhub-helpers.js";
+import { proxyToRegistry, ClawHubProxyError, CLAWHUB_ERROR_CODES } from "./clawhub-proxy.js";
 
 export function registerClawHubSkillsHandlers(
   handlers: SimpleHandlers,

@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { aggregateSkills, filterSkills, type RegistryAgent, type AggregatedSkill } from "./skill-aggregator.js";
+import {
+  aggregateSkills,
+  filterSkills,
+  type RegistryAgent,
+  type AggregatedSkill,
+} from "./skill-aggregator.js";
 
 describe("aggregateSkills", () => {
   it("returns empty array for empty agent list", () => {
@@ -8,7 +13,10 @@ describe("aggregateSkills", () => {
 
   it("aggregates skills from a single agent", () => {
     const agents: RegistryAgent[] = [
-      { card: { agent_id: "a1", name: "Agent One", skills: ["coding", "testing"] }, status: "online" },
+      {
+        card: { agent_id: "a1", name: "Agent One", skills: ["coding", "testing"] },
+        status: "online",
+      },
     ];
     const result = aggregateSkills(agents);
     expect(result).toHaveLength(2);
@@ -31,8 +39,16 @@ describe("aggregateSkills", () => {
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe("coding");
     expect(result[0].agents).toHaveLength(2);
-    expect(result[0].agents).toContainEqual({ agentId: "a1", agentName: "Agent One", status: "online" });
-    expect(result[0].agents).toContainEqual({ agentId: "a2", agentName: "Agent Two", status: "idle" });
+    expect(result[0].agents).toContainEqual({
+      agentId: "a1",
+      agentName: "Agent One",
+      status: "online",
+    });
+    expect(result[0].agents).toContainEqual({
+      agentId: "a2",
+      agentName: "Agent Two",
+      status: "idle",
+    });
   });
 
   it("treats skill names as case-sensitive", () => {
@@ -67,7 +83,10 @@ describe("aggregateSkills", () => {
 
 describe("filterSkills", () => {
   const skills: AggregatedSkill[] = [
-    { name: "Natural Language Processing", agents: [{ agentId: "a1", agentName: "NLP Agent", status: "online" }] },
+    {
+      name: "Natural Language Processing",
+      agents: [{ agentId: "a1", agentName: "NLP Agent", status: "online" }],
+    },
     { name: "Code Generation", agents: [{ agentId: "a2", agentName: "Coder", status: "idle" }] },
     { name: "code review", agents: [{ agentId: "a3", agentName: "Reviewer", status: "online" }] },
     { name: "Testing", agents: [{ agentId: "a4", agentName: "Tester", status: "busy" }] },

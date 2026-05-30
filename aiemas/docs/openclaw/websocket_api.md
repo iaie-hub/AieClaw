@@ -126,12 +126,12 @@
 
 ### 6. ClawHub 注册中心 (ClawHub Registry)
 
-| 方法                          | 说明                                   | 处理程序 |
-| :---------------------------- | :------------------------------------- | :------- |
-| `aiemas.clawhub.config.get`   | 获取 AgentRegistry 配置（API Key 掩码）| `aiemas` |
-| `aiemas.clawhub.config.save`  | 保存 AgentRegistry 配置（含在线验证）  | `aiemas` |
-| `aiemas.clawhub.agents.list`  | 代理获取远程 Agent 列表                | `aiemas` |
-| `aiemas.clawhub.healthy`      | 代理 AgentRegistry 健康检查            | `aiemas` |
+| 方法                         | 说明                                    | 处理程序 |
+| :--------------------------- | :-------------------------------------- | :------- |
+| `aiemas.clawhub.config.get`  | 获取 AgentRegistry 配置（API Key 掩码） | `aiemas` |
+| `aiemas.clawhub.config.save` | 保存 AgentRegistry 配置（含在线验证）   | `aiemas` |
+| `aiemas.clawhub.agents.list` | 代理获取远程 Agent 列表                 | `aiemas` |
+| `aiemas.clawhub.healthy`     | 代理 AgentRegistry 健康检查             | `aiemas` |
 
 ### 7. 节点、设备与协作 (Node & Pairing)
 
@@ -872,7 +872,6 @@
 
 这使得 UI 和审计系统能够区分"人类用户直接发送"和"Agent 间转发"的消息。
 
-
 ---
 
 ## 八、ClawHub 注册中心 API (ClawHub Registry API Detail)
@@ -881,7 +880,7 @@ ClawHub 模块通过 Gateway WebSocket RPC 代理所有对 AgentRegistry 远程�
 
 ### 1. 获取配置 (aiemas.clawhub.config.get)
 
-获取当前 AgentRegistry 配置。API Key 以掩码形式返回（前 10 字符 + "****"）。
+获取当前 AgentRegistry 配置。API Key 以掩码形式返回（前 10 字符 + "\*\*\*\*"）。
 
 **权限**: admin, member, viewer
 
@@ -918,14 +917,14 @@ ClawHub 模块通过 Gateway WebSocket RPC 代理所有对 AgentRegistry 远程�
 
 **响应字段说明**:
 
-| 字段         | 类型           | 说明                                              |
-| ------------ | -------------- | ------------------------------------------------- |
-| apiKey       | string \| null | AgentRegistry API Key（掩码：前 10 字符 + "****"）|
-| natsUrl      | string \| null | NATS 连接 URL                                     |
-| natsToken    | string \| null | NATS 认证 Token                                   |
-| agentId      | string \| null | 本机 Agent 注册 ID                                |
-| agentName    | string \| null | 本机 Agent 显示名称                               |
-| boundAgentId | string \| null | 绑定的本地 Agent ID                               |
+| 字段         | 类型           | 说明                                                   |
+| ------------ | -------------- | ------------------------------------------------------ |
+| apiKey       | string \| null | AgentRegistry API Key（掩码：前 10 字符 + "\*\*\*\*"） |
+| natsUrl      | string \| null | NATS 连接 URL                                          |
+| natsToken    | string \| null | NATS 认证 Token                                        |
+| agentId      | string \| null | 本机 Agent 注册 ID                                     |
+| agentName    | string \| null | 本机 Agent 显示名称                                    |
+| boundAgentId | string \| null | 绑定的本地 Agent ID                                    |
 
 ---
 
@@ -937,14 +936,14 @@ ClawHub 模块通过 Gateway WebSocket RPC 代理所有对 AgentRegistry 远程�
 
 **请求参数**:
 
-| 参数         | 类型   | 必填 | 说明                                    |
-| ------------ | ------ | ---- | --------------------------------------- |
+| 参数         | 类型   | 必填 | 说明                                                    |
+| ------------ | ------ | ---- | ------------------------------------------------------- |
 | apiKey       | string | 否   | AgentRegistry API Key（以 `api-ar-` 为前缀，总长度 64） |
 | natsUrl      | string | 否   | NATS 连接 URL（格式 `nats://{host}:{port}`）            |
-| natsToken    | string | 否   | NATS 认证 Token                         |
-| agentId      | string | 否   | 本机 Agent 注册 ID                      |
-| agentName    | string | 否   | 本机 Agent 显示名称                     |
-| boundAgentId | string | 否   | 绑定的本地 Agent ID                     |
+| natsToken    | string | 否   | NATS 认证 Token                                         |
+| agentId      | string | 否   | 本机 Agent 注册 ID                                      |
+| agentName    | string | 否   | 本机 Agent 显示名称                                     |
+| boundAgentId | string | 否   | 绑定的本地 Agent ID                                     |
 
 **请求示例**：
 
@@ -999,12 +998,12 @@ ClawHub 模块通过 Gateway WebSocket RPC 代理所有对 AgentRegistry 远程�
 
 **错误码**:
 
-| 错误码             | 说明                                                |
-| ------------------ | --------------------------------------------------- |
-| INVALID_API_KEY    | API Key 验证失败（AgentRegistry 返回 401）          |
-| SERVICE_UNREACHABLE| AgentRegistry 服务不可达（网络错误或连接超时）      |
-| INTERNAL           | 数据库写入失败或其他内部错误                        |
-| PERMISSION_DENIED  | 角色权限不足（仅 admin 可调用）                     |
+| 错误码              | 说明                                           |
+| ------------------- | ---------------------------------------------- |
+| INVALID_API_KEY     | API Key 验证失败（AgentRegistry 返回 401）     |
+| SERVICE_UNREACHABLE | AgentRegistry 服务不可达（网络错误或连接超时） |
+| INTERNAL            | 数据库写入失败或其他内部错误                   |
+| PERMISSION_DENIED   | 角色权限不足（仅 admin 可调用）                |
 
 ---
 
@@ -1016,10 +1015,10 @@ ClawHub 模块通过 Gateway WebSocket RPC 代理所有对 AgentRegistry 远程�
 
 **请求参数**:
 
-| 参数     | 类型   | 必填 | 说明                         |
-| -------- | ------ | ---- | ---------------------------- |
-| page     | number | 是   | 页码（从 1 开始）            |
-| pageSize | number | 是   | 每页条数（最大 100）         |
+| 参数     | 类型   | 必填 | 说明                 |
+| -------- | ------ | ---- | -------------------- |
+| page     | number | 是   | 页码（从 1 开始）    |
+| pageSize | number | 是   | 每页条数（最大 100） |
 
 **请求示例**：
 
@@ -1076,24 +1075,24 @@ ClawHub 模块通过 Gateway WebSocket RPC 代理所有对 AgentRegistry 远程�
 
 **响应字段说明**:
 
-| 字段      | 类型             | 说明                           |
-| --------- | ---------------- | ------------------------------ |
-| agents    | RegistryAgent[]  | Agent 记录数组                 |
-| count     | number           | 当前页返回的记录数             |
-| total     | number           | 总记录数                       |
-| page      | number           | 当前页码                       |
-| page_size | number           | 每页条数                       |
+| 字段      | 类型            | 说明               |
+| --------- | --------------- | ------------------ |
+| agents    | RegistryAgent[] | Agent 记录数组     |
+| count     | number          | 当前页返回的记录数 |
+| total     | number          | 总记录数           |
+| page      | number          | 当前页码           |
+| page_size | number          | 每页条数           |
 
 **RegistryAgent 结构**:
 
-| 字段        | 类型                                    | 说明                                |
-| ----------- | --------------------------------------- | ----------------------------------- |
-| card        | object                                  | Agent 基本信息                      |
-| card.agent_id | string                                | Agent 唯一标识                      |
-| card.name   | string                                  | Agent 显示名称                      |
-| card.skills | string[]                                | Agent 声明的技能列表                |
-| status      | "online" \| "idle" \| "busy" \| "offline" | Agent 当前状态                    |
-| load        | object \| undefined                     | 负载信息（离线时可能不存在）        |
+| 字段          | 类型                                      | 说明                         |
+| ------------- | ----------------------------------------- | ---------------------------- |
+| card          | object                                    | Agent 基本信息               |
+| card.agent_id | string                                    | Agent 唯一标识               |
+| card.name     | string                                    | Agent 显示名称               |
+| card.skills   | string[]                                  | Agent 声明的技能列表         |
+| status        | "online" \| "idle" \| "busy" \| "offline" | Agent 当前状态               |
+| load          | object \| undefined                       | 负载信息（离线时可能不存在） |
 
 **错误响应示例**（API Key 未配置）：
 
@@ -1108,14 +1107,14 @@ ClawHub 模块通过 Gateway WebSocket RPC 代理所有对 AgentRegistry 远程�
 
 **错误码**:
 
-| 错误码                | 说明                                           |
-| --------------------- | ---------------------------------------------- |
-| API_KEY_NOT_CONFIGURED| 数据库中未配置 API Key                         |
-| INVALID_API_KEY       | API Key 无效或已过期（AgentRegistry 返回 401） |
-| SERVICE_UNREACHABLE   | AgentRegistry 服务不可达（网络错误或连接超时） |
-| REGISTRY_ERROR        | AgentRegistry 返回非预期的错误响应（4xx/5xx）  |
-| TIMEOUT               | 请求超时（10 秒）                              |
-| PERMISSION_DENIED     | 角色权限不足                                   |
+| 错误码                 | 说明                                           |
+| ---------------------- | ---------------------------------------------- |
+| API_KEY_NOT_CONFIGURED | 数据库中未配置 API Key                         |
+| INVALID_API_KEY        | API Key 无效或已过期（AgentRegistry 返回 401） |
+| SERVICE_UNREACHABLE    | AgentRegistry 服务不可达（网络错误或连接超时） |
+| REGISTRY_ERROR         | AgentRegistry 返回非预期的错误响应（4xx/5xx）  |
+| TIMEOUT                | 请求超时（10 秒）                              |
+| PERMISSION_DENIED      | 角色权限不足                                   |
 
 ---
 
@@ -1127,9 +1126,9 @@ ClawHub 模块通过 Gateway WebSocket RPC 代理所有对 AgentRegistry 远程�
 
 **请求参数**:
 
-| 参数   | 类型   | 必填 | 说明                                              |
-| ------ | ------ | ---- | ------------------------------------------------- |
-| apiKey | string | 是   | 待验证的 API Key（以 `api-ar-` 为前缀，总长度 64）|
+| 参数   | 类型   | 必填 | 说明                                               |
+| ------ | ------ | ---- | -------------------------------------------------- |
+| apiKey | string | 是   | 待验证的 API Key（以 `api-ar-` 为前缀，总长度 64） |
 
 **请求示例**：
 
@@ -1182,10 +1181,10 @@ ClawHub 模块通过 Gateway WebSocket RPC 代理所有对 AgentRegistry 远程�
 
 **错误码**:
 
-| 错误码                | 说明                                           |
-| --------------------- | ---------------------------------------------- |
-| API_KEY_NOT_CONFIGURED| 未提供 apiKey 参数                             |
-| INVALID_API_KEY       | API Key 无效或已过期（AgentRegistry 返回 401） |
-| SERVICE_UNREACHABLE   | AgentRegistry 服务不可达（网络错误或连接超时） |
-| TIMEOUT               | 请求超时（10 秒）                              |
-| PERMISSION_DENIED     | 角色权限不足（仅 admin 可调用）                |
+| 错误码                 | 说明                                           |
+| ---------------------- | ---------------------------------------------- |
+| API_KEY_NOT_CONFIGURED | 未提供 apiKey 参数                             |
+| INVALID_API_KEY        | API Key 无效或已过期（AgentRegistry 返回 401） |
+| SERVICE_UNREACHABLE    | AgentRegistry 服务不可达（网络错误或连接超时） |
+| TIMEOUT                | 请求超时（10 秒）                              |
+| PERMISSION_DENIED      | 角色权限不足（仅 admin 可调用）                |

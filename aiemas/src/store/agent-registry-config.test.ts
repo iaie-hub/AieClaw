@@ -2,14 +2,14 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { initDatabase } from "./database.js";
 import {
   getAgentRegistryConfig,
   saveAgentRegistryConfig,
   migrateFromEnvIfEmpty,
 } from "./agent-registry-config.js";
-import type { DatabaseSync } from "node:sqlite";
+import { initDatabase } from "./database.js";
 
 function tmpDbPath(): string {
   return join(tmpdir(), `mas4s-test-${randomUUID()}`, "mas4s.db");
@@ -84,7 +84,10 @@ describe("saveAgentRegistryConfig", () => {
       registryUrl: "http://localhost:8000",
     });
 
-    const row = db.prepare("SELECT * FROM agent_registry WHERE id = 'default'").get() as Record<string, unknown>;
+    const row = db.prepare("SELECT * FROM agent_registry WHERE id = 'default'").get() as Record<
+      string,
+      unknown
+    >;
     expect(row).toBeDefined();
     expect(row.api_key).toBe("api-ar-test");
     expect(row.registry_url).toBe("http://localhost:8000");
@@ -99,7 +102,10 @@ describe("saveAgentRegistryConfig", () => {
 
     saveAgentRegistryConfig(db, { apiKey: "new-key" });
 
-    const row = db.prepare("SELECT * FROM agent_registry WHERE id = 'default'").get() as Record<string, unknown>;
+    const row = db.prepare("SELECT * FROM agent_registry WHERE id = 'default'").get() as Record<
+      string,
+      unknown
+    >;
     expect(row.api_key).toBe("new-key");
     expect(row.registry_url).toBe("http://old:8000");
     expect(row.created_at).toBe(now);
@@ -133,9 +139,7 @@ describe("migrateFromEnvIfEmpty", () => {
   });
 
   it("migrates env vars from .env file when table is empty", () => {
-    const envContent = [
-      "AGENT_REGISTRY_URL=http://migrated:8000",
-    ].join("\n");
+    const envContent = ["AGENT_REGISTRY_URL=http://migrated:8000"].join("\n");
 
     writeFileSync(join(tmpHome, ".openclaw", ".env"), envContent);
 
@@ -144,7 +148,10 @@ describe("migrateFromEnvIfEmpty", () => {
     try {
       migrateFromEnvIfEmpty(db);
 
-      const row = db.prepare("SELECT * FROM agent_registry WHERE id = 'default'").get() as Record<string, unknown>;
+      const row = db.prepare("SELECT * FROM agent_registry WHERE id = 'default'").get() as Record<
+        string,
+        unknown
+      >;
       expect(row).toBeDefined();
       expect(row.registry_url).toBe("http://migrated:8000");
       expect(row.api_key).toBeNull();

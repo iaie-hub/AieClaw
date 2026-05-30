@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from "vitest";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
+import { describe, it, expect, afterEach } from "vitest";
 import { proxyToRegistry, ClawHubProxyError, CLAWHUB_ERROR_CODES } from "./clawhub-proxy.js";
 
 function createTestServer(

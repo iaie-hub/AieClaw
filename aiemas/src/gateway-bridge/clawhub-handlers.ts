@@ -1,7 +1,7 @@
 import type { SimpleHandlers } from "./aiemas-utils.js";
 import type { ClawHubHandlersDeps } from "./clawhub-helpers.js";
-import { registerClawHubConfigHandlers } from "./handlers-clawhub-config.js";
 import { registerClawHubAgentsHandlers } from "./handlers-clawhub-agents.js";
+import { registerClawHubConfigHandlers } from "./handlers-clawhub-config.js";
 import { registerClawHubSkillsHandlers } from "./handlers-clawhub-skills.js";
 
 export type { ClawHubHandlersDeps } from "./clawhub-helpers.js";

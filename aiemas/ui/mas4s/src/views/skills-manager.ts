@@ -1,21 +1,26 @@
 import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
+import { runSkillImport } from "../components/skill/skill-import-controller.js";
 import { SkillsController } from "../controllers/skills-controller.js";
 import {
   listWorkspaceFiles,
   exportAgent,
   downloadFile,
   fetchAgentFileContentSafe,
+  fetchAgents,
 } from "../gateway/agents-api.js";
 import { uploadSkillToHub } from "../gateway/clawhub-api.js";
+import { deleteSkill } from "../gateway/skills-api.js";
 import { getClient } from "../gateway/client.js";
-import { AppStore, AppStoreController } from "../store/app-store.js";
 import "../components/skill-card.js";
 import "../components/skill-detail-panel.js";
+import "../components/confirm-dialog.js";
 import "../components/skill/skill-export-dialog.js";
 import "../components/skill/skill-upload-dialog.js";
+import "../components/skill/skill-import-dialog.js";
 import "../components/toast-message.js";
-import type { WorkspaceEntry } from "../types/agents-types.js";
+import { AppStore, AppStoreController } from "../store/app-store.js";
+import type { WorkspaceEntry, AgentEntry } from "../types/agents-types.js";
 import type { SkillStatusEntry } from "../types/skills-types.js";
 
 type TabKind = "all" | "workspace" | "builtin";
@@ -23,7 +28,11 @@ type TabKind = "all" | "workspace" | "builtin";
 type DialogState =
   | { kind: "none" }
   | { kind: "export"; skill: SkillStatusEntry; entries: WorkspaceEntry[] }
-  | { kind: "upload"; skill: SkillStatusEntry; entries: WorkspaceEntry[]; description: string };
+  | { kind: "upload"; skill: SkillStatusEntry; entries: WorkspaceEntry[]; description: string }
+  | { kind: "import" }
+  | { kind: "delete"; skill: SkillStatusEntry }
+  | { kind: "delete-batch"; skills: SkillStatusEntry[] };
+
 
 @customElement("skills-manager")
 export class SkillsManager extends LitElement {
@@ -39,6 +48,8 @@ export class SkillsManager extends LitElement {
   @state() private _batchMode = false;
   @state() private _checkedSkills = new Set<string>();
   @state() private _batchUpdating = false;
+
+  @state() private _agents: AgentEntry[] = [];
 
   @state() private _dialog: DialogState = { kind: "none" };
   @state() private _toastMsg = "";
@@ -316,7 +327,17 @@ export class SkillsManager extends LitElement {
 
   private _fetchData = () => {
     void this._controller.fetchSkills();
+    void this._fetchAgentsList();
   };
+
+  private async _fetchAgentsList() {
+    try {
+      const result = await fetchAgents(getClient());
+      this._agents = result.agents;
+    } catch (err: unknown) {
+      console.error("获取智能体列表失败", err);
+    }
+  }
 
   private _handleSearch = (e: Event) => {
     const target = e.target as HTMLInputElement;
@@ -502,6 +523,113 @@ export class SkillsManager extends LitElement {
     }
   };
 
+  private _onImportClick = () => {
+    this._dialog = { kind: "import" };
+  };
+
+  private _onImportConfirm = async (
+    e: CustomEvent<{ file: File; slug: string; workspace?: string }>,
+  ) => {
+    this._dialog = { kind: "none" };
+    try {
+      const result = await runSkillImport(e.detail);
+      if (result.ok) {
+        this._showToast("导入成功");
+        void this._controller.fetchSkills();
+      } else {
+        this._showToast(result.message, true);
+      }
+    } catch (err: unknown) {
+      this._showToast(err instanceof Error ? err.message : "导入失败", true);
+    }
+  };
+
+  private _onDeleteEvent = (e: CustomEvent<{ skill: SkillStatusEntry }>) => {
+    this._dialog = { kind: "delete", skill: e.detail.skill };
+  };
+
+  private _onDeleteConfirm = async () => {
+    if (this._dialog.kind !== "delete") {
+      return;
+    }
+    const { skill } = this._dialog;
+    this._dialog = { kind: "none" };
+    try {
+      const client = getClient();
+      await deleteSkill(client, skill.skillKey, skill.baseDir);
+      this._showToast("技能已成功删除");
+      if (this._selectedSkill?.skillKey === skill.skillKey) {
+        this._selectedSkill = null;
+        this._detailOpen = false;
+      }
+      void this._controller.fetchSkills();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "删除失败";
+      this._showToast(msg, true);
+    }
+  };
+
+  private _handleBatchDeleteClick = () => {
+    const store = this._store.store;
+    const allSkills = store.skillsReport?.skills || [];
+    const deletableSkills = Array.from(this._checkedSkills)
+      .map((key) => allSkills.find((s) => s.skillKey === key))
+      .filter(
+        (s): s is SkillStatusEntry =>
+          !!s &&
+          !s.bundled &&
+          (s.source === "openclaw-workspace" || s.source === "agents-skills-project"),
+      );
+
+    if (deletableSkills.length === 0) {
+      this._showToast("选中的技能均为内置只读技能，无法删除", true);
+      return;
+    }
+
+    this._dialog = { kind: "delete-batch", skills: deletableSkills };
+  };
+
+  private _onBatchDeleteConfirm = async () => {
+    if (this._dialog.kind !== "delete-batch") {
+      return;
+    }
+    const { skills } = this._dialog;
+    this._dialog = { kind: "none" };
+    this._batchUpdating = true;
+    try {
+      const client = getClient();
+      let successCount = 0;
+      let failCount = 0;
+      for (const skill of skills) {
+        try {
+          await deleteSkill(client, skill.skillKey, skill.baseDir);
+          successCount++;
+          if (this._selectedSkill?.skillKey === skill.skillKey) {
+            this._selectedSkill = null;
+            this._detailOpen = false;
+          }
+        } catch (err) {
+          console.error(`Failed to delete skill ${skill.name}:`, err);
+          failCount++;
+        }
+      }
+      if (failCount === 0) {
+        this._showToast(`批量删除成功，已成功删除 ${successCount} 个技能`);
+      } else {
+        this._showToast(`部分删除成功: 成功 ${successCount} 个, 失败 ${failCount} 个`, true);
+      }
+      this._checkedSkills.clear();
+      this._batchMode = false;
+      void this._controller.fetchSkills();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "批量删除失败";
+      this._showToast(msg, true);
+    } finally {
+      this._batchUpdating = false;
+    }
+  };
+
+
   private renderGrid(skills: SkillStatusEntry[]) {
     return html`
       <div class="cards-grid">
@@ -516,6 +644,7 @@ export class SkillsManager extends LitElement {
               @skill-check=${this._handleSkillCheck}
               @skill-export=${this._onExportEvent}
               @skill-upload=${this._onUploadEvent}
+              @skill-delete=${this._onDeleteEvent}
             ></skill-card>
           `,
         )}
@@ -526,6 +655,7 @@ export class SkillsManager extends LitElement {
   render() {
     const store = this._store.store;
     const allSkills = store.skillsReport?.skills || [];
+    const existingSkills = allSkills.map((s) => s.skillKey);
 
     // 如果整体数据为空
     if (!store.skillsLoading && !store.skillsError && allSkills.length === 0) {
@@ -557,6 +687,7 @@ export class SkillsManager extends LitElement {
               .value=${this._searchText}
               @input=${this._handleSearch}
             />
+            <button class="batch-toggle-btn" @click=${this._onImportClick}>📥 导入技能</button>
             <button
               class="batch-toggle-btn ${this._batchMode ? "active" : ""}"
               @click=${() => {
@@ -673,6 +804,48 @@ export class SkillsManager extends LitElement {
             ></skill-upload-dialog>
           `
         : ""}
+      ${this._dialog.kind === "import"
+        ? html`
+            <skill-import-dialog
+              .agents=${this._agents}
+              .managedSkillsDir=${store.skillsReport?.managedSkillsDir || "~/.openclaw/skills"}
+              .existingSkills=${existingSkills}
+              @confirm=${this._onImportConfirm}
+              @cancel=${() => {
+                this._dialog = { kind: "none" };
+              }}
+            ></skill-import-dialog>
+          `
+        : ""}
+      ${this._dialog.kind === "delete"
+        ? html`
+            <confirm-dialog
+              title="删除技能"
+              message="确定要永久删除技能「${this._dialog.skill.name}」及其物理目录吗？此操作不可撤销。"
+              confirmText="删除"
+              confirmVariant="danger"
+              @confirm=${this._onDeleteConfirm}
+              @cancel=${() => {
+                this._dialog = { kind: "none" };
+              }}
+            ></confirm-dialog>
+          `
+        : ""}
+      ${this._dialog.kind === "delete-batch"
+        ? html`
+            <confirm-dialog
+              title="批量删除技能"
+              message="确定要永久删除选中的 ${this._dialog.skills.length} 个技能及其物理目录吗？（选中的内置技能将自动过滤不予处理）此操作不可撤销。"
+              confirmText="删除"
+              confirmVariant="danger"
+              @confirm=${this._onBatchDeleteConfirm}
+              @cancel=${() => {
+                this._dialog = { kind: "none" };
+              }}
+            ></confirm-dialog>
+          `
+        : ""}
+
 
       <div class="batch-toolbar ${this._batchMode ? "visible" : ""}">
         <div class="batch-info">已选择 ${this._checkedSkills.size} 个 Skills</div>
@@ -700,6 +873,13 @@ export class SkillsManager extends LitElement {
             ?disabled=${this._checkedSkills.size === 0 || this._batchUpdating}
           >
             ${this._batchUpdating ? "操作中..." : "禁用"}
+          </button>
+          <button
+            class="btn-danger"
+            @click=${this._handleBatchDeleteClick}
+            ?disabled=${this._checkedSkills.size === 0 || this._batchUpdating}
+          >
+            ${this._batchUpdating ? "操作中..." : "批量删除"}
           </button>
         </div>
       </div>

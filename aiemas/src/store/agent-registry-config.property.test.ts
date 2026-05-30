@@ -8,11 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as fc from "fast-check";
 import { describe, it, expect, afterEach } from "vitest";
+import { getAgentRegistryConfig, migrateFromEnvIfEmpty } from "./agent-registry-config.js";
 import { initDatabase } from "./database.js";
-import {
-  getAgentRegistryConfig,
-  migrateFromEnvIfEmpty,
-} from "./agent-registry-config.js";
 
 // Track temp paths for cleanup
 const tempPaths: string[] = [];
@@ -55,13 +52,7 @@ describe("Property 1: Config resolution priority", () => {
           `INSERT INTO agent_registry
             (id, api_key, registry_url, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?)`,
-        ).run(
-          "default",
-          null,
-          dbVal,
-          now,
-          now,
-        );
+        ).run("default", null, dbVal, now, now);
 
         const originalEnv = { ...process.env };
         if (envVal !== null) {
@@ -126,9 +117,9 @@ describe("Property 2: Env migration correctness", () => {
         try {
           migrateFromEnvIfEmpty(db);
 
-          const row = db
-            .prepare("SELECT * FROM agent_registry WHERE id = 'default'")
-            .get() as Record<string, unknown> | undefined;
+          const row = db.prepare("SELECT * FROM agent_registry WHERE id = 'default'").get() as
+            | Record<string, unknown>
+            | undefined;
 
           expect(row).toBeDefined();
           expect(row!.registry_url).toBe(envVal);

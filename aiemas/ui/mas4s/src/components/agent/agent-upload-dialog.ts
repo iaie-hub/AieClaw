@@ -336,7 +336,8 @@ export class AgentUploadDialog extends LitElement {
               id="agent-desc-input"
               rows="3"
               .value=${this._uploadDescription}
-              @input=${(e: Event) => (this._uploadDescription = (e.target as HTMLTextAreaElement).value)}
+              @input=${(e: Event) =>
+                (this._uploadDescription = (e.target as HTMLTextAreaElement).value)}
               placeholder="请输入智能体详细描述"
             ></textarea>
           </div>

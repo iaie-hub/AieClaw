@@ -3,6 +3,7 @@
 ## Introduction
 
 本功能为 mas4s Web UI 新增 ClawHub 模块，实现与 AgentRegistry 的集成。主要包括四部分：
+
 1. AgentRegistry 新增健康检查端点 `GET /api/v1/healthy`，用于验证服务在线状态及 API Key 有效性
 2. 在设置页面中支持配置 AgentRegistry 的 API Key（保存前通过健康检查端点验证有效性）
 3. 新增 ClawHub 导航页面，包含 Agents 和 Skills 两个页签，以卡片形式展示从 AgentRegistry（远程注册中心）查询的数据

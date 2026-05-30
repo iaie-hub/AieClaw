@@ -1623,7 +1623,9 @@ export async function startGatewayServer(
     // 非阻塞预热会导致请求处理期间 event loop 延迟高达 18s，所有 I/O 被放大 3-5 倍。
     // 参考：aiemas/docs/mas4s/multi-agent/multi-agent-perf.md
     try {
-      console.log(`[perf:warmup] starting blocking warmup (server bound, not yet accepting requests)`);
+      console.log(
+        `[perf:warmup] starting blocking warmup (server bound, not yet accepting requests)`,
+      );
       const { warmupAgentCaches } = await import("./agent-perf-warmup.js");
       await warmupAgentCaches(cfgAtStart);
     } catch (err) {

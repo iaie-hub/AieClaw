@@ -43,7 +43,8 @@ function getMacSuffix(): string {
         if (info.internal) continue;
         if (!info.address) continue;
         if (info.address === "127.0.0.1" || info.address === "::1") continue;
-        if (!info.mac || info.mac === "00:00:00:00:00:00" || info.mac === "00-00-00-00-00-00") continue;
+        if (!info.mac || info.mac === "00:00:00:00:00:00" || info.mac === "00-00-00-00-00-00")
+          continue;
 
         // Clean the MAC address (remove colons, hyphens, and convert to lowercase)
         const cleaned = info.mac.replace(/[: -]/g, "").toLowerCase();
@@ -73,7 +74,8 @@ function getRealMac(): string {
         if (info.internal) continue;
         if (!info.address) continue;
         if (info.address === "127.0.0.1" || info.address === "::1") continue;
-        if (!info.mac || info.mac === "00:00:00:00:00:00" || info.mac === "00-00-00-00-00-00") continue;
+        if (!info.mac || info.mac === "00:00:00:00:00:00" || info.mac === "00-00-00-00-00-00")
+          continue;
         return info.mac.toLowerCase();
       }
     }

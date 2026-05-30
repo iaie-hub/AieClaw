@@ -49,7 +49,7 @@ export class ClawHubAgentImportDialog extends LitElement {
       padding: 32px;
       width: 460px;
       max-width: 90vw;
-      box-shadow: 
+      box-shadow:
         0 20px 25px -5px rgba(0, 0, 0, 0.1),
         0 10px 10px -5px rgba(0, 0, 0, 0.04),
         0 0 0 1px rgba(0, 0, 0, 0.02);
@@ -304,7 +304,9 @@ export class ClawHubAgentImportDialog extends LitElement {
           </div>
 
           <div class="field">
-            <label for="import-agent-id">本地智能体 ID <span aria-hidden="true" style="color: #ef4444;">*</span></label>
+            <label for="import-agent-id"
+              >本地智能体 ID <span aria-hidden="true" style="color: #ef4444;">*</span></label
+            >
             <input
               id="import-agent-id"
               type="text"
@@ -319,7 +321,9 @@ export class ClawHubAgentImportDialog extends LitElement {
           </div>
 
           <div class="field">
-            <label for="import-workspace">本地工作区目录 <span aria-hidden="true" style="color: #ef4444;">*</span></label>
+            <label for="import-workspace"
+              >本地工作区目录 <span aria-hidden="true" style="color: #ef4444;">*</span></label
+            >
             <input
               id="import-workspace"
               type="text"

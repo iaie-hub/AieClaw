@@ -13,7 +13,10 @@ export interface NatsConfigRecord {
   updatedAt: number;
 }
 
-const ENV_FIELD_MAP: Record<string, keyof Omit<NatsConfigRecord, "id" | "createdAt" | "updatedAt">> = {
+const ENV_FIELD_MAP: Record<
+  string,
+  keyof Omit<NatsConfigRecord, "id" | "createdAt" | "updatedAt">
+> = {
   AGENT_REGISTRY_NATS_URL: "natsUrl",
   AGENT_REGISTRY_NATS_TOKEN: "natsToken",
   AGENT_REGISTRY_AGENT_ID: "agentId",
@@ -22,9 +25,9 @@ const ENV_FIELD_MAP: Record<string, keyof Omit<NatsConfigRecord, "id" | "created
 };
 
 export function getNatsConfig(db: DatabaseSync): NatsConfigRecord {
-  const row = db
-    .prepare("SELECT * FROM nats_config WHERE id = 'default'")
-    .get() as RawNatsRow | undefined;
+  const row = db.prepare("SELECT * FROM nats_config WHERE id = 'default'").get() as
+    | RawNatsRow
+    | undefined;
 
   const now = Date.now();
 
@@ -59,9 +62,9 @@ export function saveNatsConfig(
 ): void {
   const now = Date.now();
 
-  const existing = db
-    .prepare("SELECT * FROM nats_config WHERE id = 'default'")
-    .get() as RawNatsRow | undefined;
+  const existing = db.prepare("SELECT * FROM nats_config WHERE id = 'default'").get() as
+    | RawNatsRow
+    | undefined;
 
   const natsUrl = config.natsUrl !== undefined ? config.natsUrl : (existing?.nats_url ?? null);
   const natsToken =
@@ -82,9 +85,9 @@ export function saveNatsConfig(
 
 export function migrateNatsFromEnvIfEmpty(db: DatabaseSync): void {
   try {
-    const existing = db
-      .prepare("SELECT id FROM nats_config WHERE id = 'default'")
-      .get() as { id: string } | undefined;
+    const existing = db.prepare("SELECT id FROM nats_config WHERE id = 'default'").get() as
+      | { id: string }
+      | undefined;
 
     if (existing) {
       return;

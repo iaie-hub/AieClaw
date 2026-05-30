@@ -16,20 +16,19 @@
  */
 
 const DEBUG_ENABLED =
-  process.env["AGENT_REGISTRY_DEBUG"] === "1" ||
-  process.env["AGENT_REGISTRY_DEBUG"] === "true";
+  process.env["AGENT_REGISTRY_DEBUG"] === "1" || process.env["AGENT_REGISTRY_DEBUG"] === "true";
 
 // ANSI colour codes — only when stderr is a TTY
 const isTTY = process.stderr.isTTY === true;
 const C = {
-  reset:  isTTY ? "\x1b[0m"  : "",
-  dim:    isTTY ? "\x1b[2m"  : "",
-  cyan:   isTTY ? "\x1b[36m" : "",
-  green:  isTTY ? "\x1b[32m" : "",
+  reset: isTTY ? "\x1b[0m" : "",
+  dim: isTTY ? "\x1b[2m" : "",
+  cyan: isTTY ? "\x1b[36m" : "",
+  green: isTTY ? "\x1b[32m" : "",
   yellow: isTTY ? "\x1b[33m" : "",
-  red:    isTTY ? "\x1b[31m" : "",
-  blue:   isTTY ? "\x1b[34m" : "",
-  magenta:isTTY ? "\x1b[35m" : "",
+  red: isTTY ? "\x1b[31m" : "",
+  blue: isTTY ? "\x1b[34m" : "",
+  magenta: isTTY ? "\x1b[35m" : "",
 };
 
 type Level = "DEBUG" | "INFO" | "WARN" | "ERROR";
@@ -40,10 +39,14 @@ function ts(): string {
 
 function levelTag(level: Level): string {
   switch (level) {
-    case "DEBUG": return `${C.dim}[DEBUG]${C.reset}`;
-    case "INFO":  return `${C.green}[INFO ]${C.reset}`;
-    case "WARN":  return `${C.yellow}[WARN ]${C.reset}`;
-    case "ERROR": return `${C.red}[ERROR]${C.reset}`;
+    case "DEBUG":
+      return `${C.dim}[DEBUG]${C.reset}`;
+    case "INFO":
+      return `${C.green}[INFO ]${C.reset}`;
+    case "WARN":
+      return `${C.yellow}[WARN ]${C.reset}`;
+    case "ERROR":
+      return `${C.red}[ERROR]${C.reset}`;
   }
 }
 
@@ -54,10 +57,7 @@ function write(level: Level, module: string, msg: string, extra?: unknown): void
   const line = `${prefix} ${msg}`;
 
   if (extra !== undefined) {
-    const detail =
-      typeof extra === "string"
-        ? extra
-        : JSON.stringify(extra, null, 2);
+    const detail = typeof extra === "string" ? extra : JSON.stringify(extra, null, 2);
     process.stderr.write(`${line}\n${C.dim}${detail}${C.reset}\n`);
   } else {
     process.stderr.write(`${line}\n`);
@@ -78,8 +78,8 @@ export interface Logger {
 export function createLogger(module: string): Logger {
   return {
     debug: (msg, extra) => write("DEBUG", module, msg, extra),
-    info:  (msg, extra) => write("INFO",  module, msg, extra),
-    warn:  (msg, extra) => write("WARN",  module, msg, extra),
+    info: (msg, extra) => write("INFO", module, msg, extra),
+    warn: (msg, extra) => write("WARN", module, msg, extra),
     error: (msg, extra) => write("ERROR", module, msg, extra),
   };
 }

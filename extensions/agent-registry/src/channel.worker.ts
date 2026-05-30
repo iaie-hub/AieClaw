@@ -71,7 +71,9 @@ async function attemptRegistration(): Promise<boolean> {
       for (const subject of oldBaseSubjects) {
         const sub = subscriptions.get(subject);
         if (sub) {
-          try { sub.unsubscribe(); } catch {}
+          try {
+            sub.unsubscribe();
+          } catch {}
           subscriptions.delete(subject);
         }
       }
