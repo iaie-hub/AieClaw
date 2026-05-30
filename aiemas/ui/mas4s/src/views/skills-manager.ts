@@ -1,12 +1,19 @@
 import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { SkillsController } from "../controllers/skills-controller.js";
-import { listWorkspaceFiles, exportAgent, downloadFile } from "../gateway/agents-api.js";
+import {
+  listWorkspaceFiles,
+  exportAgent,
+  downloadFile,
+  fetchAgentFileContentSafe,
+} from "../gateway/agents-api.js";
+import { uploadSkillToHub } from "../gateway/clawhub-api.js";
 import { getClient } from "../gateway/client.js";
 import { AppStore, AppStoreController } from "../store/app-store.js";
 import "../components/skill-card.js";
 import "../components/skill-detail-panel.js";
 import "../components/skill/skill-export-dialog.js";
+import "../components/skill/skill-upload-dialog.js";
 import type { WorkspaceEntry } from "../types/agents-types.js";
 import type { SkillStatusEntry } from "../types/skills-types.js";
 
@@ -14,7 +21,8 @@ type TabKind = "all" | "workspace" | "builtin";
 
 type DialogState =
   | { kind: "none" }
-  | { kind: "export"; skill: SkillStatusEntry; entries: WorkspaceEntry[] };
+  | { kind: "export"; skill: SkillStatusEntry; entries: WorkspaceEntry[] }
+  | { kind: "upload"; skill: SkillStatusEntry; entries: WorkspaceEntry[]; description: string };
 
 @customElement("skills-manager")
 export class SkillsManager extends LitElement {
@@ -438,6 +446,55 @@ export class SkillsManager extends LitElement {
     }
   };
 
+  private _onUploadEvent = async (e: CustomEvent<{ skill: SkillStatusEntry }>) => {
+    const { skill } = e.detail;
+    try {
+      const client = getClient();
+      const result = await listWorkspaceFiles(client, skill.baseDir);
+      let desc = "";
+      try {
+        desc = await fetchAgentFileContentSafe(client, skill.baseDir, "SKILL.md");
+      } catch {
+        try {
+          desc = await fetchAgentFileContentSafe(client, skill.baseDir, "README.md");
+        } catch {
+          desc = skill.description || "";
+        }
+      }
+      this._dialog = { kind: "upload", skill, entries: result.entries, description: desc };
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "获取工作空间文件失败");
+    }
+  };
+
+  private _onUploadConfirm = async (
+    e: CustomEvent<{ items: string[]; name: string; description: string }>,
+  ) => {
+    if (this._dialog.kind !== "upload") {
+      return;
+    }
+    const { skill } = this._dialog;
+    this._dialog = { kind: "none" };
+    try {
+      const client = getClient();
+      alert("正在上传到 SkillHub，请稍候...");
+      const uploadRes = await uploadSkillToHub(client, {
+        skillKey: skill.skillKey,
+        workspace: skill.baseDir,
+        items: e.detail.items,
+        name: e.detail.name,
+        description: e.detail.description,
+      });
+      if (uploadRes && uploadRes.success) {
+        alert("上传成功！可在 SkillHub 中查看");
+      } else {
+        alert("上传失败，请检查 AgentRegistry 状态");
+      }
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "上传失败");
+    }
+  };
+
   private renderGrid(skills: SkillStatusEntry[]) {
     return html`
       <div class="cards-grid">
@@ -451,6 +508,7 @@ export class SkillsManager extends LitElement {
               @skill-select=${this._handleSkillSelect}
               @skill-check=${this._handleSkillCheck}
               @skill-export=${this._onExportEvent}
+              @skill-upload=${this._onUploadEvent}
             ></skill-card>
           `,
         )}
@@ -593,6 +651,19 @@ export class SkillsManager extends LitElement {
                 this._dialog = { kind: "none" };
               }}
             ></skill-export-dialog>
+          `
+        : ""}
+      ${this._dialog.kind === "upload"
+        ? html`
+            <skill-upload-dialog
+              .entries=${this._dialog.entries}
+              skillName=${this._dialog.skill.name}
+              description=${this._dialog.description}
+              @confirm=${this._onUploadConfirm}
+              @cancel=${() => {
+                this._dialog = { kind: "none" };
+              }}
+            ></skill-upload-dialog>
           `
         : ""}
 

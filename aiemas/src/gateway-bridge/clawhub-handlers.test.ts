@@ -378,4 +378,59 @@ describe("clawhub-handlers", () => {
       expect((payload as Record<string, unknown>).success).toBe(true);
     });
   });
+
+  describe("aiemas.clawhub.skill.upload", () => {
+    it("returns error when API key is not configured", async () => {
+      const { ok, error } = await callHandler(handlers, "aiemas.clawhub.skill.upload", {
+        skillKey: "s1",
+        workspace: tmpdir(),
+        items: [],
+        name: "test-skill",
+      });
+      expect(ok).toBe(false);
+      const e = error as Record<string, unknown>;
+      expect(e.code).toBe("API_KEY_NOT_CONFIGURED");
+    });
+
+    it("zips items and POSTs to registry", async () => {
+      let receivedUrl = "";
+      let receivedMethod = "";
+      let receivedHeaders: Record<string, string> = {};
+
+      const setup = await createTestServer((req, res) => {
+        receivedUrl = req.url ?? "";
+        receivedMethod = req.method ?? "";
+        receivedHeaders = (req.headers as Record<string, string>) ?? {};
+
+        res.writeHead(201, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, skill: { id: "s1", name: "test-skill" } }));
+      });
+      server = setup.server;
+
+      const apiKey = "api-ar-" + "k".repeat(57);
+      saveAgentRegistryConfig(db, { apiKey, registryUrl: setup.baseUrl });
+
+      const workspaceDir = join(tmpdir(), `mas4s-skill-test-ws-${randomUUID()}`);
+      const { mkdirSync, writeFileSync } = await import("node:fs");
+      mkdirSync(workspaceDir, { recursive: true });
+      writeFileSync(join(workspaceDir, "SKILL.md"), "hello skill description");
+
+      const { ok, payload } = await callHandler(handlers, "aiemas.clawhub.skill.upload", {
+        skillKey: "s1",
+        workspace: workspaceDir,
+        items: ["SKILL.md"],
+        name: "test-skill",
+        description: "my test skill",
+      });
+
+      expect(ok).toBe(true);
+      expect(receivedMethod).toBe("POST");
+      expect(receivedUrl).toContain("/api/v1/clawhub/skill");
+      expect(receivedHeaders["x-api-key"]).toBe(apiKey);
+      expect(receivedHeaders["content-type"]).toContain("multipart/form-data");
+      expect((payload as Record<string, unknown>).success).toBe(true);
+
+      rmSync(workspaceDir, { recursive: true, force: true });
+    });
+  });
 });

@@ -247,6 +247,17 @@ export class SkillCard extends LitElement {
     );
   };
 
+  private _onUpload = (e: Event) => {
+    e.stopPropagation(); // 阻止事件冒泡以避免触发卡片选择
+    this.dispatchEvent(
+      new CustomEvent("skill-upload", {
+        detail: { skill: this.skill },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  };
+
   render() {
     const statusClass = this._getStatusClass();
     const statusText = this._getStatusText();
@@ -305,6 +316,21 @@ export class SkillCard extends LitElement {
                 ></path>
                 <path
                   d="M611.84 698.88l-56.96 56.96V490.88c0-23.68-19.2-42.24-42.88-42.24-23.68 0-42.24 19.2-42.24 42.88v264.96l-57.6-57.6a42.496 42.496 0 1 0-60.16 60.16l129.92 129.92c3.2 3.2 6.4 4.48 9.6 6.4 1.28 0.64 2.56 1.92 3.84 2.56 5.12 1.92 10.88 3.2 16.64 3.2 1.92 0 3.2-0.64 5.12-1.28 3.84-0.64 7.68-0.64 10.88-2.56 5.76-1.92 10.24-5.76 14.72-9.6l129.28-129.28c16.64-16.64 16.64-43.52 0-60.16s-43.52-16-60.16 0.64z"
+                ></path>
+              </svg>
+            </button>
+            <button
+              class="icon-btn"
+              title="上传到 SkillHub"
+              aria-label="上传技能 ${this.skill.name}"
+              @click=${this._onUpload}
+            >
+              <svg width="14" height="14" viewBox="0 0 1024 1024" fill="currentColor">
+                <path
+                  d="M768.35456 416a256 256 0 1 0-512 0 192 192 0 1 0 0 384v64a256 256 0 0 1-58.88-505.216 320.128 320.128 0 0 1 629.76 0A256.128 256.128 0 0 1 768.35456 864v-64a192 192 0 0 0 0-384z m-512 384h128v64H256.35456v-64z m384 0h128v64h-128v-64z"
+                ></path>
+                <path
+                  d="M539.04256 589.184v333.056a32.448 32.448 0 0 1-32 32.192 32.448 32.448 0 0 1-32-32.192V589.184l-36.096 36.096a32.192 32.192 0 0 1-45.056-0.192 31.616 31.616 0 0 1-0.192-45.056l90.88-90.88a31.36 31.36 0 0 1 22.528-9.152 30.08 30.08 0 0 1 22.4 9.088l90.88 90.944a32.192 32.192 0 0 1-0.192 45.056 31.616 31.616 0 0 1-45.056 0.192l-36.096-36.096z"
                 ></path>
               </svg>
             </button>

@@ -157,6 +157,20 @@ export async function uploadAgentToHub(
   return client.request("aiemas.clawhub.agent.upload", params);
 }
 
+/** 上传 Skill 到 SkillHub */
+export async function uploadSkillToHub(
+  client: GatewayBrowserClient,
+  params: {
+    skillKey: string;
+    workspace: string;
+    items: string[];
+    name: string;
+    description: string;
+  },
+): Promise<{ success: boolean; skill?: unknown }> {
+  return client.request("aiemas.clawhub.skill.upload", params);
+}
+
 export interface HubAgent {
   id: string;
   name: string;

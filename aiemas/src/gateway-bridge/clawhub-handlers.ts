@@ -538,6 +538,106 @@ export function registerClawHubHandlers(handlers: SimpleHandlers, deps: ClawHubH
     }
   };
 
+  // ── 7.5 UPLOAD SKILL TO HUB ──
+  handlers["aiemas.clawhub.skill.upload"] = async ({ params, respond }) => {
+    try {
+      const skillKey = params["skillKey"] as string | undefined;
+      const workspace = params["workspace"] as string | undefined;
+      const items = params["items"] as string[] | undefined;
+      const name = params["name"] as string | undefined;
+      const description = (params["description"] as string | undefined) || "";
+
+      if (!skillKey || !workspace || !Array.isArray(items) || !name) {
+        respond(
+          false,
+          undefined,
+          errorShape("INVALID_PARAMS", "skillKey, workspace, items, and name required"),
+        );
+        return;
+      }
+
+      // Check config
+      const config = getAgentRegistryConfig(db);
+      const nats = getNatsConfig(db);
+      if (!config.apiKey) {
+        respond(false, undefined, {
+          ok: false,
+          error: "API Key not configured",
+          code: CLAWHUB_ERROR_CODES.API_KEY_NOT_CONFIGURED,
+        });
+        return;
+      }
+      const baseUrl = getRegistryBaseUrl(config.registryUrl, nats.natsUrl);
+
+      // Node native modules
+      const nodePath = await import("node:path");
+      const { access: fsAccess, cp, rm } = await import("node:fs/promises");
+      const { mkdirSync } = await import("node:fs");
+      const { promisify } = await import("node:util");
+      const { execFile } = await import("node:child_process");
+      const execFileAsync = promisify(execFile);
+
+      try {
+        await fsAccess(workspace);
+      } catch {
+        respond(false, undefined, errorShape("NOT_FOUND", "技能工作区目录不存在"));
+        return;
+      }
+
+      const tempDir = getAgentDownloadTempDir(skillKey);
+      const archivePath = `${tempDir}-upload.zip`;
+
+      mkdirSync(tempDir, { recursive: true });
+      try {
+        for (const item of items) {
+          const src = nodePath.join(workspace, item);
+          const dest = nodePath.join(tempDir, item);
+          await cp(src, dest, { recursive: true });
+        }
+
+        // Remove any pre-existing archive for a clean full export
+        await rm(archivePath, { force: true });
+        await execFileAsync("zip", ["-r", archivePath, "."], { cwd: tempDir });
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+
+      // Call proxyMultipartToRegistry to upload it
+      let uploadResult;
+      try {
+        const { proxyMultipartToRegistry } = await import("./clawhub-proxy.js");
+        uploadResult = await proxyMultipartToRegistry(
+          "POST",
+          baseUrl,
+          "/api/v1/clawhub/skill",
+          config.apiKey,
+          { name, description },
+          archivePath,
+          "file",
+        );
+      } finally {
+        // Cleanup local zip package
+        await rm(archivePath, { force: true });
+      }
+
+      respond(true, uploadResult, undefined);
+    } catch (err) {
+      if (err instanceof ClawHubProxyError) {
+        respond(false, undefined, {
+          ok: false,
+          error: err.message,
+          code: err.code,
+        });
+        return;
+      }
+      respond(false, undefined, {
+        ok: false,
+        error: String(err),
+        code: "INTERNAL",
+      });
+    }
+  };
+
   // ── 8. DOWNLOAD AGENT FROM HUB ──
   handlers["aiemas.clawhub.agent.download"] = async ({ params, respond }) => {
     try {
