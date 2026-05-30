@@ -40,6 +40,9 @@ export class SkillsManager extends LitElement {
   @state() private _batchUpdating = false;
 
   @state() private _dialog: DialogState = { kind: "none" };
+  @state() private _toastMsg = "";
+  @state() private _toastError = false;
+  private _toastTimer: any = null;
 
   static styles = css`
     :host {
@@ -304,6 +307,40 @@ export class SkillsManager extends LitElement {
       gap: 12px;
       align-items: center;
     }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 500;
+      color: white;
+      z-index: 2000;
+      animation: toastIn 0.25s ease-out;
+      max-width: 400px;
+      text-align: center;
+    }
+
+    .toast.success {
+      background: #22c55e;
+    }
+    .toast.error {
+      background: #ef4444;
+    }
+
+    @keyframes toastIn {
+      from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+    }
   `;
 
   connectedCallback() {
@@ -323,6 +360,17 @@ export class SkillsManager extends LitElement {
   private _clearSearch = () => {
     this._searchText = "";
   };
+
+  private _showToast(msg: string, isError = false) {
+    if (this._toastTimer) {
+      clearTimeout(this._toastTimer);
+    }
+    this._toastMsg = msg;
+    this._toastError = isError;
+    this._toastTimer = setTimeout(() => {
+      this._toastMsg = "";
+    }, 3000);
+  }
 
   private _handleSkillSelect = (e: CustomEvent<{ skill: SkillStatusEntry }>) => {
     if (this._batchMode) {
@@ -365,7 +413,7 @@ export class SkillsManager extends LitElement {
         this._selectedSkill = { ...this._selectedSkill, disabled: !enabled };
       }
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "操作失败");
+      this._showToast(err instanceof Error ? err.message : "操作失败", true);
     }
   };
 
@@ -376,11 +424,11 @@ export class SkillsManager extends LitElement {
     this._batchUpdating = true;
     try {
       await this._controller.toggleSkillsBatch(Array.from(this._checkedSkills), true);
-      alert("批量启用成功");
+      this._showToast("批量启用成功");
       this._checkedSkills.clear();
       this._batchMode = false;
     } catch (error: unknown) {
-      alert(error instanceof Error ? error.message : "批量操作失败");
+      this._showToast(error instanceof Error ? error.message : "批量操作失败", true);
     } finally {
       this._batchUpdating = false;
     }
@@ -393,11 +441,11 @@ export class SkillsManager extends LitElement {
     this._batchUpdating = true;
     try {
       await this._controller.toggleSkillsBatch(Array.from(this._checkedSkills), false);
-      alert("批量禁用成功");
+      this._showToast("批量禁用成功");
       this._checkedSkills.clear();
       this._batchMode = false;
     } catch (error: unknown) {
-      alert(error instanceof Error ? error.message : "批量操作失败");
+      this._showToast(error instanceof Error ? error.message : "批量操作失败", true);
     } finally {
       this._batchUpdating = false;
     }
@@ -410,7 +458,7 @@ export class SkillsManager extends LitElement {
       const result = await listWorkspaceFiles(client, skill.baseDir);
       this._dialog = { kind: "export", skill, entries: result.entries };
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "获取工作空间文件失败");
+      this._showToast(err instanceof Error ? err.message : "获取工作空间文件失败", true);
     }
   };
 
@@ -442,7 +490,7 @@ export class SkillsManager extends LitElement {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "导出失败");
+      this._showToast(err instanceof Error ? err.message : "导出失败", true);
     }
   };
 
@@ -463,7 +511,7 @@ export class SkillsManager extends LitElement {
       }
       this._dialog = { kind: "upload", skill, entries: result.entries, description: desc };
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "获取工作空间文件失败");
+      this._showToast(err instanceof Error ? err.message : "获取工作空间文件失败", true);
     }
   };
 
@@ -477,7 +525,7 @@ export class SkillsManager extends LitElement {
     this._dialog = { kind: "none" };
     try {
       const client = getClient();
-      alert("正在上传到 SkillHub，请稍候...");
+      this._showToast("正在上传到 SkillHub，请稍候...");
       const uploadRes = await uploadSkillToHub(client, {
         skillKey: skill.skillKey,
         workspace: skill.baseDir,
@@ -486,12 +534,12 @@ export class SkillsManager extends LitElement {
         description: e.detail.description,
       });
       if (uploadRes && uploadRes.success) {
-        alert("上传成功！可在 SkillHub 中查看");
+        this._showToast("上传成功！可在 SkillHub 中查看");
       } else {
-        alert("上传失败，请检查 AgentRegistry 状态");
+        this._showToast("上传失败，请检查 AgentRegistry 状态", true);
       }
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "上传失败");
+      this._showToast(err instanceof Error ? err.message : "上传失败", true);
     }
   };
 
@@ -696,6 +744,10 @@ export class SkillsManager extends LitElement {
           </button>
         </div>
       </div>
+
+      ${this._toastMsg
+        ? html`<div class="toast ${this._toastError ? "error" : "success"}">${this._toastMsg}</div>`
+        : ""}
     `;
   }
 }
