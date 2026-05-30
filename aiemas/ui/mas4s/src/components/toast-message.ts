@@ -22,25 +22,42 @@ export class ToastMessage extends LitElement {
       position: fixed;
       bottom: 24px;
       right: 24px;
-      padding: 12px 20px;
+      padding: 12px 18px;
       border-radius: 10px;
       font-size: 14px;
       font-weight: 500;
-      background: white;
-      color: #1e293b;
-      border: 1px solid #e2e8f0;
+      background: #0f172a;
+      color: #f8fafc;
+      border: 1px solid #1e293b;
       z-index: 2000;
       animation: toastIn 0.25s ease-out;
       max-width: 400px;
-      text-align: center;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
       word-break: break-all;
+      backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .toast-icon {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+    }
+
+    .toast.success .toast-icon {
+      color: #22c55e;
     }
 
     .toast.error {
-      background: #ef4444;
+      background: #dc2626;
       color: white;
-      border-color: transparent;
+      border-color: #b91c1c;
+    }
+
+    .toast.error .toast-icon {
+      color: white;
     }
 
     @keyframes toastIn {
@@ -71,8 +88,27 @@ export class ToastMessage extends LitElement {
   }
 
   render() {
+    const icon = this.isError
+      ? html`<svg class="toast-icon" viewBox="0 0 20 20" fill="currentColor">
+          <path
+            fill-rule="evenodd"
+            d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM8.707 7.293a1 1 0 0 0-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 1 0 1.414 1.414L10 11.414l1.293 1.293a1 1 0 0 0 1.414-1.414L11.414 10l1.293-1.293a1 1 0 0 0-1.414-1.414L10 8.586 8.707 7.293z"
+            clip-rule="evenodd"
+          />
+        </svg>`
+      : html`<svg class="toast-icon" viewBox="0 0 20 20" fill="currentColor">
+          <path
+            fill-rule="evenodd"
+            d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5z"
+            clip-rule="evenodd"
+          />
+        </svg>`;
+
     return html`
-      <div class="toast ${this.isError ? "error" : "success"}" role="alert">${this.message}</div>
+      <div class="toast ${this.isError ? "error" : "success"}" role="alert">
+        ${icon}
+        <span>${this.message}</span>
+      </div>
     `;
   }
 }
