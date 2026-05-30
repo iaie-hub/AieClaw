@@ -861,21 +861,30 @@ export class AppStore {
 
       // 审核卡片在根 Agent 主面板和子 Agent 抽屉都显示，
       // 用户可以在任意面板审批，审批结果通过 exec.approval.resolved 广播同步。
-      const msgs = this.messagesBySession.get(targetSessionUuid) ?? [];
-      // 避免重复插入
-      if (!msgs.some((m) => m.id === req.id)) {
-        this.messagesBySession.set(targetSessionUuid, [...msgs, pendingMsg]);
-        console.log(
-          `[mas4s:addApproval] inserted pending msg into messagesBySession[${targetSessionUuid}], count=${msgs.length + 1}`,
-        );
-      } else {
-        console.log(
-          `[mas4s:addApproval] SKIPPED duplicate in messagesBySession[${targetSessionUuid}]`,
-        );
+      const session = this.sessions.find(
+        (s) =>
+          s.sessionUuid === targetSessionUuid || extractUuidFromKey(s.key) === targetSessionUuid,
+      );
+      const rootAgentId = session ? extractAgentNameFromKey(session.key) : null;
+      const msgAgentId = targetSessionKey ? extractAgentNameFromKey(targetSessionKey) : "Agent";
+      const isRootAgent = !targetSessionKey || msgAgentId === rootAgentId;
+
+      if (isRootAgent) {
+        const msgs = this.messagesBySession.get(targetSessionUuid) ?? [];
+        // 避免重复插入
+        if (!msgs.some((m) => m.id === req.id)) {
+          this.messagesBySession.set(targetSessionUuid, [...msgs, pendingMsg]);
+          console.log(
+            `[mas4s:addApproval] inserted pending msg into messagesBySession[${targetSessionUuid}], count=${msgs.length + 1}`,
+          );
+        } else {
+          console.log(
+            `[mas4s:addApproval] SKIPPED duplicate in messagesBySession[${targetSessionUuid}]`,
+          );
+        }
       }
 
       // Sync to messagesByAgent（审批来源 Agent）
-      const msgAgentId = targetSessionKey ? extractAgentNameFromKey(targetSessionKey) : "Agent";
       let agentMap = this.messagesByAgent.get(targetSessionUuid);
       if (!agentMap) {
         agentMap = new Map();
@@ -974,14 +983,22 @@ export class AppStore {
 
         // 审批操作消息在根 Agent 主面板和子 Agent 抽屉都显示，
         // 与审核卡片的双面板显示策略一致。
-        const msgs = this.messagesBySession.get(sessionUuid) ?? [];
-        // 避免重复插入（乐观 + gateway 广播各触发一次）
-        if (!msgs.some((m) => m.id === actionMsg.id)) {
-          this.messagesBySession.set(sessionUuid, [...msgs, actionMsg]);
+        const session = this.sessions.find(
+          (s) => s.sessionUuid === sessionUuid || extractUuidFromKey(s.key) === sessionUuid,
+        );
+        const rootAgentId = session ? extractAgentNameFromKey(session.key) : null;
+        const msgAgentId = sessionKey ? extractAgentNameFromKey(sessionKey) : "Agent";
+        const isRootAgent = !sessionKey || msgAgentId === rootAgentId;
+
+        if (isRootAgent) {
+          const msgs = this.messagesBySession.get(sessionUuid) ?? [];
+          // 避免重复插入（乐观 + gateway 广播各触发一次）
+          if (!msgs.some((m) => m.id === actionMsg.id)) {
+            this.messagesBySession.set(sessionUuid, [...msgs, actionMsg]);
+          }
         }
 
         // Sync to messagesByAgent（审批来源 Agent）
-        const msgAgentId = sessionKey ? extractAgentNameFromKey(sessionKey) : "Agent";
         let agentMap = this.messagesByAgent.get(sessionUuid);
         if (!agentMap) {
           agentMap = new Map();
@@ -1004,7 +1021,7 @@ export class AppStore {
           }
         }
 
-        if (!sessionKey) {
+        if (!sessionKey && isRootAgent) {
           // 无 sessionKey 时用 gateway 广播的完整数据（含 resolvedBy）覆盖
           const msgs = this.messagesBySession.get(sessionUuid) ?? [];
           this.messagesBySession.set(

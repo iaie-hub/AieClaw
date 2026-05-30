@@ -8,13 +8,13 @@
 
 在开始部署之前，请确保目标服务器或本地环境已配置以下依赖：
 
-| 组件名称 | 推荐版本 | 作用说明 |
-| :--- | :--- | :--- |
-| **Node.js** | `>= 22.0.0` (如 v22.x) | 核心运行时，包含原生高效 `node:sqlite` 支持 |
-| **pnpm** | `>= 9.x` | Monorepo 多包依赖管理及快速安装工具 |
-| **NATS Server** | `>= 2.10.x` (JetStream 开启) | 多智能体总线（A2A Collaboration）的消息队列引擎 |
-| **Nginx** (可选) | `>= 1.24.x` | 生产环境下用于静态资源托管与 WebSocket 安全代理 |
-| **OS 兼容性** | Linux (Ubuntu/CentOS), macOS | 完美适配，自带服务管理器挂载能力 |
+| 组件名称         | 推荐版本                     | 作用说明                                        |
+| :--------------- | :--------------------------- | :---------------------------------------------- |
+| **Node.js**      | `>= 22.0.0` (如 v22.x)       | 核心运行时，包含原生高效 `node:sqlite` 支持     |
+| **pnpm**         | `>= 9.x`                     | Monorepo 多包依赖管理及快速安装工具             |
+| **NATS Server**  | `>= 2.10.x` (JetStream 开启) | 多智能体总线（A2A Collaboration）的消息队列引擎 |
+| **Nginx** (可选) | `>= 1.24.x`                  | 生产环境下用于静态资源托管与 WebSocket 安全代理 |
+| **OS 兼容性**    | Linux (Ubuntu/CentOS), macOS | 完美适配，自带服务管理器挂载能力                |
 
 ---
 
@@ -37,9 +37,9 @@ pnpm install
 pnpm run build
 ```
 
-* **构建产出物**：
-  * 根目录下的 `dist/` 目录。
-  * 根目录下的 `openclaw.mjs`（网关命令入口文件）。
+- **构建产出物**：
+  - 根目录下的 `dist/` 目录。
+  - 根目录下的 `openclaw.mjs`（网关命令入口文件）。
 
 ### 2. 构建 MAS4S UI (前端控制台)
 
@@ -56,8 +56,8 @@ pnpm install
 pnpm run build
 ```
 
-* **构建产出物**：
-  * 生成静态资源文件夹 `aiemas/ui/mas4s/dist/`，内含 `index.html` 及编译后的 JS/CSS 静态文件。
+- **构建产出物**：
+  - 生成静态资源文件夹 `aiemas/ui/mas4s/dist/`，内含 `index.html` 及编译后的 JS/CSS 静态文件。
 
 ---
 
@@ -99,6 +99,7 @@ touch ~/.openclaw/openclaw.json
 ```
 
 > [!IMPORTANT]
+>
 > - `gateway.jwtSecret` 与 `gateway.auth.token` 是保证 WebSocket 通信安全的关键。请使用 `openssl rand -hex 32` 生成高强度随机字符串填充。
 > - `"agent-registry": { "enabled": true }` 必须启用，以便网关能加载 NATS 多智能体协作和进化功能。
 
@@ -142,6 +143,7 @@ AieClaw 网关提供了两种部署 MAS4S 静态界面的方案：**网关内嵌
 在该模式下，AieClaw 的 Node.js 进程会自动挂载静态资源服务，无需额外配置 Web 服务器，非常适合**本地调试**或**快速上线**。
 
 #### 1. 配置 UI 指向
+
 在 `~/.openclaw/openclaw.json` 中配置 `gateway.controlUi` 节点：
 
 ```json
@@ -163,11 +165,13 @@ AieClaw 网关提供了两种部署 MAS4S 静态界面的方案：**网关内嵌
 > 请确保 `gateway.controlUi.root` 填入的是 UI 构建产物 `dist` 目录的**绝对路径**。
 
 #### 2. 启动服务
+
 ```bash
 # 进入根目录直接运行
 node openclaw.mjs gateway
 ```
-* **访问入口**：在浏览器中打开 `http://localhost:18789` 即可访问集成好的 MAS4S 管理系统，长连接会自动解析到同端口。
+
+- **访问入口**：在浏览器中打开 `http://localhost:18789` 即可访问集成好的 MAS4S 管理系统，长连接会自动解析到同端口。
 
 ---
 
@@ -185,6 +189,7 @@ graph TD
 ```
 
 #### 1. Nginx 配置文件示例
+
 创建 Nginx 虚拟主机配置文件（例如 `/etc/nginx/conf.d/mas4s.conf`）：
 
 ```nginx
@@ -197,7 +202,7 @@ server {
         root /path/to/AieClaw/aiemas/ui/mas4s/dist;
         index index.html;
         try_files $uri $uri/ /index.html; # 支持 Single Page Application 路由规则
-        
+
         # 静态资源缓存控制
         expires 7d;
         add_header Cache-Control "public, no-transform";
@@ -206,12 +211,12 @@ server {
     # 2. 反向代理 AieClaw 核心网关接口与 WebSocket 通道
     location /gateway {
         proxy_pass http://127.0.0.1:18789; # 指向 openclaw 运行端口
-        
+
         # 必须配置：支持协议提升，保持 WebSocket 握手长连接
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-        
+
         # 穿透真实客户端 IP 与 Host 头
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -226,6 +231,7 @@ server {
 ```
 
 #### 2. 加载 Nginx 配置并检查
+
 ```bash
 # 检查 Nginx 配置格式是否正确
 nginx -t
@@ -261,6 +267,7 @@ openclaw gateway status
 如果你的服务器环境常驻 Node.js 生态，可以使用 `pm2` 进行进程级别监控。
 
 #### 1. 创建进程配置文件 `ecosystem.config.cjs`
+
 在项目根目录下新建 `ecosystem.config.cjs` :
 
 ```javascript
@@ -281,12 +288,13 @@ module.exports = {
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",
       autorestart: true,
       max_memory_restart: "1G",
-    }
-  ]
+    },
+  ],
 };
 ```
 
 #### 2. PM2 命令运维
+
 ```bash
 # 启动守护网关
 pm2 start ecosystem.config.cjs
@@ -307,17 +315,23 @@ pm2 save
 ## 🔍 六、 部署验证与排错
 
 ### 1. 验证网关健康度
+
 在部署服务器上执行 Curl，预期应返回状态 `{"status":"ok"}`：
+
 ```bash
 curl http://127.0.0.1:18789/healthz
 ```
 
 ### 2. 检查 SQLite 数据库状态
+
 MAS4S 数据表将自动在网关初次启动时完成注册建表，持久化于：
-* **存储路径**：`~/.openclaw/aiemas/mas4s.db`
-* **查看数据库**：可以使用 `sqlite3 ~/.openclaw/aiemas/mas4s.db` 命令行查看会话及讨论总线消息记录。
+
+- **存储路径**：`~/.openclaw/aiemas/mas4s.db`
+- **查看数据库**：可以使用 `sqlite3 ~/.openclaw/aiemas/mas4s.db` 命令行查看会话及讨论总线消息记录。
 
 ### 3. 日志排查
+
 当协作 UI 发生无法连接长连接或消息卡顿等异常时，可通过下列方式审查实时日志：
-* **守护进程日志**：运行 `tail -f ~/.openclaw/logs/gateway.log`（具体取决于 `openclaw.json` 定义的日志输出位置）。
-* **WebSocket 通信流调试**：在 `.env` 中调高 `VITE_DEBUG_MAS4S_EVENTS=true` 并在浏览器控制台（Console）过滤 WebSocket 事务信息。
+
+- **守护进程日志**：运行 `tail -f ~/.openclaw/logs/gateway.log`（具体取决于 `openclaw.json` 定义的日志输出位置）。
+- **WebSocket 通信流调试**：在 `.env` 中调高 `VITE_DEBUG_MAS4S_EVENTS=true` 并在浏览器控制台（Console）过滤 WebSocket 事务信息。

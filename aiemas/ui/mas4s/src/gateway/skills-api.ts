@@ -98,3 +98,43 @@ export async function toggleSkillEnabled(
     throw new Error("更新 Skill 状态失败", { cause: error });
   }
 }
+
+/**
+ * 通过 Gateway API 导入 Skill 压缩包。
+ *
+ * @param client - Gateway 客户端实例
+ * @param archivePath - 服务器上的临时 zip 绝对路径
+ * @param slug - 技能 ID / Slug
+ * @param workspace - 可选，目标智能体工作区路径。不传时，后端导入至 openclaw.json 的默认技能目录。
+ */
+export async function importSkill(
+  client: GatewayBrowserClient,
+  archivePath: string,
+  slug: string,
+  workspace?: string,
+): Promise<{ ok: boolean; slug: string; targetDir: string }> {
+  return client.request("aiemas.skills.import", {
+    archivePath,
+    slug,
+    ...(workspace ? { workspace } : {}),
+  });
+}
+
+/**
+ * 通过 Gateway API 删除指定的 Skill 物理目录。
+ *
+ * @param client - Gateway 客户端实例
+ * @param skillKey - 技能唯一标识
+ * @param baseDir - 技能目录物理绝对路径
+ */
+export async function deleteSkill(
+  client: GatewayBrowserClient,
+  skillKey: string,
+  baseDir: string,
+): Promise<{ ok: boolean }> {
+  return client.request("aiemas.skills.delete", {
+    skillKey,
+    baseDir,
+  });
+}
+

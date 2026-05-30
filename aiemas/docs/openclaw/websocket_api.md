@@ -124,7 +124,16 @@
 | `secrets.reload`  | 重新加载机密           | `secrets.ts`  |
 | `update.run`      | 触发系统更新           | `update.ts`   |
 
-### 6. 节点、设备与协作 (Node & Pairing)
+### 6. ClawHub 注册中心 (ClawHub Registry)
+
+| 方法                         | 说明                                    | 处理程序 |
+| :--------------------------- | :-------------------------------------- | :------- |
+| `aiemas.clawhub.config.get`  | 获取 AgentRegistry 配置（API Key 掩码） | `aiemas` |
+| `aiemas.clawhub.config.save` | 保存 AgentRegistry 配置（含在线验证）   | `aiemas` |
+| `aiemas.clawhub.agents.list` | 代理获取远程 Agent 列表                 | `aiemas` |
+| `aiemas.clawhub.healthy`     | 代理 AgentRegistry 健康检查             | `aiemas` |
+
+### 7. 节点、设备与协作 (Node & Pairing)
 
 | 方法                    | 说明                 | 处理程序           |
 | :---------------------- | :------------------- | :----------------- |
@@ -862,3 +871,320 @@
 - 子 Agent session 中该消息的 `role = "agent"`，`sourceAgentId = "aieiaas"`
 
 这使得 UI 和审计系统能够区分"人类用户直接发送"和"Agent 间转发"的消息。
+
+---
+
+## 八、ClawHub 注册中心 API (ClawHub Registry API Detail)
+
+ClawHub 模块通过 Gateway WebSocket RPC 代理所有对 AgentRegistry 远程注册中心的请求，前端不直接调用 AgentRegistry REST API。所有命令使用 `aiemas.clawhub.*` 前缀。
+
+### 1. 获取配置 (aiemas.clawhub.config.get)
+
+获取当前 AgentRegistry 配置。API Key 以掩码形式返回（前 10 字符 + "\*\*\*\*"）。
+
+**权限**: admin, member, viewer
+
+**请求参数**: 无
+
+**请求示例**：
+
+```json
+{
+  "type": "req",
+  "id": "40",
+  "method": "aiemas.clawhub.config.get",
+  "params": {}
+}
+```
+
+**成功响应**：
+
+```json
+{
+  "type": "res",
+  "id": "40",
+  "ok": true,
+  "payload": {
+    "apiKey": "api-ar-abc****",
+    "natsUrl": "nats://registry.example.com:4222",
+    "natsToken": "token-xyz",
+    "agentId": "Agent-550e8400-e29b",
+    "agentName": "My Agent",
+    "boundAgentId": "aie-iaas"
+  }
+}
+```
+
+**响应字段说明**:
+
+| 字段         | 类型           | 说明                                                   |
+| ------------ | -------------- | ------------------------------------------------------ |
+| apiKey       | string \| null | AgentRegistry API Key（掩码：前 10 字符 + "\*\*\*\*"） |
+| natsUrl      | string \| null | NATS 连接 URL                                          |
+| natsToken    | string \| null | NATS 认证 Token                                        |
+| agentId      | string \| null | 本机 Agent 注册 ID                                     |
+| agentName    | string \| null | 本机 Agent 显示名称                                    |
+| boundAgentId | string \| null | 绑定的本地 Agent ID                                    |
+
+---
+
+### 2. 保存配置 (aiemas.clawhub.config.save)
+
+保存 AgentRegistry 配置。若请求中包含 `apiKey`，保存前会先通过 AgentRegistry 的 `/api/v1/healthy` 端点验证其有效性，验证通过后才持久化。
+
+**权限**: admin
+
+**请求参数**:
+
+| 参数         | 类型   | 必填 | 说明                                                    |
+| ------------ | ------ | ---- | ------------------------------------------------------- |
+| apiKey       | string | 否   | AgentRegistry API Key（以 `api-ar-` 为前缀，总长度 64） |
+| natsUrl      | string | 否   | NATS 连接 URL（格式 `nats://{host}:{port}`）            |
+| natsToken    | string | 否   | NATS 认证 Token                                         |
+| agentId      | string | 否   | 本机 Agent 注册 ID                                      |
+| agentName    | string | 否   | 本机 Agent 显示名称                                     |
+| boundAgentId | string | 否   | 绑定的本地 Agent ID                                     |
+
+**请求示例**：
+
+```json
+{
+  "type": "req",
+  "id": "41",
+  "method": "aiemas.clawhub.config.save",
+  "params": {
+    "apiKey": "api-ar-a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6",
+    "natsUrl": "nats://registry.example.com:4222",
+    "natsToken": "my-nats-token",
+    "agentId": "Agent-550e8400-e29b",
+    "agentName": "Production Agent",
+    "boundAgentId": "aie-iaas"
+  }
+}
+```
+
+**成功响应**：
+
+```json
+{
+  "type": "res",
+  "id": "41",
+  "ok": true,
+  "payload": { "ok": true }
+}
+```
+
+**错误响应示例**（API Key 无效）：
+
+```json
+{
+  "type": "res",
+  "id": "41",
+  "ok": false,
+  "error": { "code": "INVALID_API_KEY", "message": "API Key 无效或已过期" }
+}
+```
+
+**错误响应示例**（服务不可达）：
+
+```json
+{
+  "type": "res",
+  "id": "41",
+  "ok": false,
+  "error": { "code": "SERVICE_UNREACHABLE", "message": "AgentRegistry 服务不可达" }
+}
+```
+
+**错误码**:
+
+| 错误码              | 说明                                           |
+| ------------------- | ---------------------------------------------- |
+| INVALID_API_KEY     | API Key 验证失败（AgentRegistry 返回 401）     |
+| SERVICE_UNREACHABLE | AgentRegistry 服务不可达（网络错误或连接超时） |
+| INTERNAL            | 数据库写入失败或其他内部错误                   |
+| PERMISSION_DENIED   | 角色权限不足（仅 admin 可调用）                |
+
+---
+
+### 3. 获取远程 Agent 列表 (aiemas.clawhub.agents.list)
+
+通过 Gateway 代理向 AgentRegistry 发送 `GET /api/v1/agents` 请求，获取远程注册中心中已注册的 Agent 列表。
+
+**权限**: admin, member, viewer
+
+**请求参数**:
+
+| 参数     | 类型   | 必填 | 说明                 |
+| -------- | ------ | ---- | -------------------- |
+| page     | number | 是   | 页码（从 1 开始）    |
+| pageSize | number | 是   | 每页条数（最大 100） |
+
+**请求示例**：
+
+```json
+{
+  "type": "req",
+  "id": "42",
+  "method": "aiemas.clawhub.agents.list",
+  "params": {
+    "page": 1,
+    "pageSize": 20
+  }
+}
+```
+
+**成功响应**：
+
+```json
+{
+  "type": "res",
+  "id": "42",
+  "ok": true,
+  "payload": {
+    "agents": [
+      {
+        "card": {
+          "agent_id": "agent-abc123",
+          "name": "Research Agent",
+          "skills": ["web-search", "summarize", "translate"]
+        },
+        "status": "online",
+        "load": {
+          "cpu": 45.2,
+          "memory": 68.1,
+          "active_task_count": 3
+        }
+      },
+      {
+        "card": {
+          "agent_id": "agent-def456",
+          "name": "Code Assistant",
+          "skills": ["code-review", "refactor", "test-gen", "debug", "deploy", "monitor"]
+        },
+        "status": "idle"
+      }
+    ],
+    "count": 2,
+    "total": 42,
+    "page": 1,
+    "page_size": 20
+  }
+}
+```
+
+**响应字段说明**:
+
+| 字段      | 类型            | 说明               |
+| --------- | --------------- | ------------------ |
+| agents    | RegistryAgent[] | Agent 记录数组     |
+| count     | number          | 当前页返回的记录数 |
+| total     | number          | 总记录数           |
+| page      | number          | 当前页码           |
+| page_size | number          | 每页条数           |
+
+**RegistryAgent 结构**:
+
+| 字段          | 类型                                      | 说明                         |
+| ------------- | ----------------------------------------- | ---------------------------- |
+| card          | object                                    | Agent 基本信息               |
+| card.agent_id | string                                    | Agent 唯一标识               |
+| card.name     | string                                    | Agent 显示名称               |
+| card.skills   | string[]                                  | Agent 声明的技能列表         |
+| status        | "online" \| "idle" \| "busy" \| "offline" | Agent 当前状态               |
+| load          | object \| undefined                       | 负载信息（离线时可能不存在） |
+
+**错误响应示例**（API Key 未配置）：
+
+```json
+{
+  "type": "res",
+  "id": "42",
+  "ok": false,
+  "error": { "code": "API_KEY_NOT_CONFIGURED", "message": "API Key 未配置，请前往设置页面配置" }
+}
+```
+
+**错误码**:
+
+| 错误码                 | 说明                                           |
+| ---------------------- | ---------------------------------------------- |
+| API_KEY_NOT_CONFIGURED | 数据库中未配置 API Key                         |
+| INVALID_API_KEY        | API Key 无效或已过期（AgentRegistry 返回 401） |
+| SERVICE_UNREACHABLE    | AgentRegistry 服务不可达（网络错误或连接超时） |
+| REGISTRY_ERROR         | AgentRegistry 返回非预期的错误响应（4xx/5xx）  |
+| TIMEOUT                | 请求超时（10 秒）                              |
+| PERMISSION_DENIED      | 角色权限不足                                   |
+
+---
+
+### 4. 健康检查 (aiemas.clawhub.healthy)
+
+通过 Gateway 代理向 AgentRegistry 发送健康检查请求，验证指定 API Key 的有效性及 AgentRegistry 服务在线状态。主要用于保存配置前的在线验证。
+
+**权限**: admin
+
+**请求参数**:
+
+| 参数   | 类型   | 必填 | 说明                                               |
+| ------ | ------ | ---- | -------------------------------------------------- |
+| apiKey | string | 是   | 待验证的 API Key（以 `api-ar-` 为前缀，总长度 64） |
+
+**请求示例**：
+
+```json
+{
+  "type": "req",
+  "id": "43",
+  "method": "aiemas.clawhub.healthy",
+  "params": {
+    "apiKey": "api-ar-a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6"
+  }
+}
+```
+
+**成功响应**：
+
+```json
+{
+  "type": "res",
+  "id": "43",
+  "ok": true,
+  "payload": {
+    "success": true,
+    "status": "healthy"
+  }
+}
+```
+
+**错误响应示例**（API Key 无效）：
+
+```json
+{
+  "type": "res",
+  "id": "43",
+  "ok": false,
+  "error": { "code": "INVALID_API_KEY", "message": "API Key 无效或已过期" }
+}
+```
+
+**错误响应示例**（服务不可达）：
+
+```json
+{
+  "type": "res",
+  "id": "43",
+  "ok": false,
+  "error": { "code": "SERVICE_UNREACHABLE", "message": "AgentRegistry 服务不可达" }
+}
+```
+
+**错误码**:
+
+| 错误码                 | 说明                                           |
+| ---------------------- | ---------------------------------------------- |
+| API_KEY_NOT_CONFIGURED | 未提供 apiKey 参数                             |
+| INVALID_API_KEY        | API Key 无效或已过期（AgentRegistry 返回 401） |
+| SERVICE_UNREACHABLE    | AgentRegistry 服务不可达（网络错误或连接超时） |
+| TIMEOUT                | 请求超时（10 秒）                              |
+| PERMISSION_DENIED      | 角色权限不足（仅 admin 可调用）                |

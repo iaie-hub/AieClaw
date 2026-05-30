@@ -211,4 +211,20 @@ describe("skill-card", () => {
     expect(indicator).not.toBeNull();
     cleanupElement(el);
   });
+
+  it("should dispatch skill-export event when download button is clicked", async () => {
+    const el = createSkillCard(mockSkill);
+    await el.updateComplete;
+    const eventSpy = vi.fn();
+    el.addEventListener("skill-export", eventSpy);
+
+    const downloadBtn = el.shadowRoot?.querySelector(".icon-btn") as HTMLElement;
+    expect(downloadBtn).not.toBeNull();
+    downloadBtn.click();
+
+    expect(eventSpy).toHaveBeenCalledOnce();
+    const event = eventSpy.mock.calls[0][0] as CustomEvent;
+    expect(event.detail.skill).toEqual(mockSkill);
+    cleanupElement(el);
+  });
 });

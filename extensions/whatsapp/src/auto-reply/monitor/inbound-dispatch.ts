@@ -5,6 +5,7 @@ import {
 import type { CommandTurnContext } from "openclaw/plugin-sdk/channel-inbound";
 import { deliverInboundReplyWithMessageSendContext } from "openclaw/plugin-sdk/channel-message";
 import { hasVisibleInboundReplyDispatch } from "openclaw/plugin-sdk/inbound-reply-dispatch";
+import { buildInboundHistoryFromEntries } from "openclaw/plugin-sdk/reply-history";
 import type { FinalizedMsgContext } from "openclaw/plugin-sdk/reply-runtime";
 import {
   type DeliverableWhatsAppOutboundPayload,
@@ -78,6 +79,14 @@ type WhatsAppMediaOnlyFlushResult = {
   droppedDuplicateMedia: number;
 };
 
+function normalizeErrForLog(err: unknown): unknown {
+  if (err instanceof Error) {
+    const ownEnumerableProps = Object.fromEntries(Object.entries(err));
+    return { ...ownEnumerableProps, type: err.name, message: err.message, stack: err.stack };
+  }
+  return err;
+}
+
 function logWhatsAppReplyDeliveryError(params: {
   err: unknown;
   info: ReplyDeliveryInfo;
@@ -88,7 +97,7 @@ function logWhatsAppReplyDeliveryError(params: {
 }) {
   params.replyLogger.error(
     {
-      err: params.err,
+      err: normalizeErrForLog(params.err),
       replyKind: params.info.kind,
       correlationId: params.msg.id ?? null,
       connectionId: params.connectionId,
@@ -243,11 +252,15 @@ export function buildWhatsAppInboundContext(params: {
 }) {
   const inboundHistory =
     params.msg.chatType === "group"
-      ? (params.groupHistory ?? []).map((entry) => ({
-          sender: entry.sender,
-          body: entry.body,
-          timestamp: entry.timestamp,
-        }))
+      ? buildInboundHistoryFromEntries({
+          entries: (params.groupHistory ?? []).map((entry) => ({
+            sender: entry.sender,
+            body: entry.body,
+            timestamp: entry.timestamp,
+            messageId: entry.id,
+          })),
+          limit: params.groupHistory?.length ?? 1,
+        })
       : undefined;
 
   const result = finalizeInboundContext({

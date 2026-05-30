@@ -1,14 +1,14 @@
 {
   "folders": [
     {
-      "path": "."
+      "path": ".",
     },
     {
-      "path": "../../../.openclaw"
+      "path": "../../../.openclaw",
     },
     {
-      "path": "../AgentRegistry"
-    }
+      "path": "../AgentRegistry",
+    },
   ],
   "settings": {
     "typescript.reportStyleChecksAsWarnings": false,

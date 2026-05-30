@@ -9,6 +9,7 @@ export type NavItem =
   | "cron"
   | "users"
   | "discussions"
+  | "clawhub"
   | "settings";
 
 const ICON_WORKSPACE = html`
@@ -74,21 +75,7 @@ const ICON_SKILLS = html`
     <polyline points="2 12 12 17 22 12"></polyline>
   </svg>
 `;
-const ICON_CRON = html`
-  <svg
-    width="20"
-    height="20"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-  >
-    <circle cx="12" cy="12" r="10"></circle>
-    <polyline points="12 6 12 12 16 14"></polyline>
-  </svg>
-`;
+
 const ICON_USERS = html`
   <svg
     width="20"
@@ -122,6 +109,24 @@ const ICON_DISCUSSIONS = html`
     <line x1="12" y1="7" x2="12" y2="13"></line>
   </svg>
 `;
+const ICON_CLAWHUB = html`
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <circle cx="12" cy="12" r="10"></circle>
+    <line x1="2" y1="12" x2="22" y2="12"></line>
+    <path
+      d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
+    ></path>
+  </svg>
+`;
 const ICON_SETTINGS = html`
   <svg
     width="20"
@@ -145,9 +150,9 @@ const NAV_ITEMS: Array<{ id: NavItem; label: string; icon: TemplateResult }> = [
   { id: "usage", label: "使用情况", icon: ICON_USAGE },
   { id: "agents", label: "智能体", icon: ICON_AGENTS },
   { id: "skills", label: "Skills", icon: ICON_SKILLS },
-  { id: "cron", label: "定时任务", icon: ICON_CRON },
   { id: "users", label: "用户列表", icon: ICON_USERS },
   { id: "discussions", label: "协作讨论", icon: ICON_DISCUSSIONS },
+  { id: "clawhub", label: "ClawHub", icon: ICON_CLAWHUB },
 ];
 
 const BOTTOM_ITEMS: Array<{ id: NavItem; label: string; icon: TemplateResult }> = [

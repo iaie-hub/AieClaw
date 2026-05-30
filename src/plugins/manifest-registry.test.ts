@@ -1794,6 +1794,16 @@ describe("loadPluginManifestRegistry", () => {
             video: "ignored",
           },
           nativeDocumentInputs: ["pdf", "docx"],
+          documentModels: {
+            pdf: {
+              textExtraction: "gpt-5.4-mini",
+              image: false,
+              unsupported: "ignored",
+            },
+            docx: {
+              textExtraction: "ignored",
+            },
+          },
         },
       },
       toolMetadata: {
@@ -1863,6 +1873,12 @@ describe("loadPluginManifestRegistry", () => {
           audio: 20,
         },
         nativeDocumentInputs: ["pdf"],
+        documentModels: {
+          pdf: {
+            textExtraction: "gpt-5.4-mini",
+            image: false,
+          },
+        },
       },
     });
     expect(registry.plugins[0]?.toolMetadata).toEqual({
@@ -2402,6 +2418,7 @@ describe("loadPluginManifestRegistry", () => {
           manifestRelativePath: ".claude-plugin/plugin.json",
           manifest: {
             name: "Claude Sample",
+            activation: { onStartup: false },
             skills: ["skill-packs/starter"],
             commands: "commands-pack",
           },
@@ -2413,6 +2430,7 @@ describe("loadPluginManifestRegistry", () => {
         bundleFormat: "claude",
         skills: ["skill-packs/starter", "commands-pack"],
         settingsFiles: ["settings.json"],
+        activation: { onStartup: false },
       },
       expectedCapabilities: ["skills", "commands", "settings"],
     },

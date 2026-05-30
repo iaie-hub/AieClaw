@@ -10,14 +10,18 @@ import {
   listWorkspaceFiles,
   exportAgent,
   downloadFile,
+  fetchAgentFileContentSafe,
 } from "../gateway/agents-api.js";
+import { uploadAgentToHub } from "../gateway/clawhub-api.js";
 import "../components/agent-card.js";
 import "../components/agent-detail-dialog.js";
 import "../components/confirm-dialog.js";
 import "../components/agent/agent-create-dialog.js";
 import "../components/agent/agent-export-dialog.js";
 import "../components/agent/agent-import-dialog.js";
+import "../components/agent/agent-upload-dialog.js";
 import "./agent-topology-view.js";
+import "../components/toast-message.js";
 import { getClient } from "../gateway/client.js";
 import type { AgentEntry, WorkspaceEntry } from "../types/agents-types.js";
 
@@ -26,7 +30,8 @@ type DialogState =
   | { kind: "create" }
   | { kind: "delete"; agent: AgentEntry }
   | { kind: "export"; agent: AgentEntry; entries: WorkspaceEntry[] }
-  | { kind: "import" };
+  | { kind: "import" }
+  | { kind: "upload"; agent: AgentEntry; entries: WorkspaceEntry[]; description: string };
 
 /**
  * 智能体列表视图 — 以卡片网格展示所有智能体，支持创建、删除、导出、导入。
@@ -44,7 +49,6 @@ export class AgentsView extends LitElement {
   @state() private _toastError = false;
   @state() private _topologyAgent: AgentEntry | null = null;
   @state() private _searchQuery = "";
-  private _toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   static styles = css`
     :host {
@@ -205,40 +209,6 @@ export class AgentsView extends LitElement {
     .btn-secondary:hover {
       background: #e2e8f0;
     }
-
-    .toast {
-      position: fixed;
-      bottom: 24px;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 12px 20px;
-      border-radius: 10px;
-      font-size: 14px;
-      font-weight: 500;
-      color: white;
-      z-index: 2000;
-      animation: toastIn 0.25s ease-out;
-      max-width: 400px;
-      text-align: center;
-    }
-
-    .toast.success {
-      background: #22c55e;
-    }
-    .toast.error {
-      background: #ef4444;
-    }
-
-    @keyframes toastIn {
-      from {
-        opacity: 0;
-        transform: translateX(-50%) translateY(10px);
-      }
-      to {
-        opacity: 1;
-        transform: translateX(-50%) translateY(0);
-      }
-    }
   `;
 
   connectedCallback() {
@@ -248,9 +218,6 @@ export class AgentsView extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
-    if (this._toastTimer) {
-      clearTimeout(this._toastTimer);
-    }
   }
 
   private async _fetch() {
@@ -270,14 +237,8 @@ export class AgentsView extends LitElement {
   }
 
   private _showToast(msg: string, isError = false) {
-    if (this._toastTimer) {
-      clearTimeout(this._toastTimer);
-    }
     this._toastMsg = msg;
     this._toastError = isError;
-    this._toastTimer = setTimeout(() => {
-      this._toastMsg = "";
-    }, 3000);
   }
 
   // ── Create ────────────────────────────────────────────────────────────────
@@ -375,6 +336,47 @@ export class AgentsView extends LitElement {
     }
   };
 
+  // ── Upload ────────────────────────────────────────────────────────────────
+
+  private async _onUploadEvent(e: CustomEvent<{ agent: AgentEntry }>) {
+    const { agent } = e.detail;
+    try {
+      const client = getClient();
+      const result = await listWorkspaceFiles(client, agent.workspace);
+      const desc = await fetchAgentFileContentSafe(client, agent.workspace, "AGENTS.md");
+      this._dialog = { kind: "upload", agent, entries: result.entries, description: desc };
+    } catch (err: unknown) {
+      this._showToast(err instanceof Error ? err.message : "获取工作区文件失败", true);
+    }
+  }
+
+  private _onUploadConfirm = async (
+    e: CustomEvent<{ items: string[]; name: string; description: string }>,
+  ) => {
+    if (this._dialog.kind !== "upload") {
+      return;
+    }
+    const { agent } = this._dialog;
+    this._dialog = { kind: "none" };
+    try {
+      const client = getClient();
+      const uploadRes = await uploadAgentToHub(client, {
+        agentId: agent.id,
+        workspace: agent.workspace,
+        items: e.detail.items,
+        name: e.detail.name,
+        description: e.detail.description,
+      });
+      if (uploadRes && uploadRes.success) {
+        this._showToast("上传成功！可在 AgentHub 中查看");
+      } else {
+        this._showToast("上传失败，请检查 AgentRegistry 状态", true);
+      }
+    } catch (err: unknown) {
+      this._showToast(err instanceof Error ? err.message : "上传失败", true);
+    }
+  };
+
   // ── Topology ────────────────────────────────────────────────────────────────
 
   private _onTopologyEvent(e: CustomEvent<{ agent: AgentEntry }>) {
@@ -440,6 +442,19 @@ export class AgentsView extends LitElement {
             this._dialog = { kind: "none" };
           }}
         ></agent-import-dialog>
+      `;
+    }
+    if (d.kind === "upload") {
+      return html`
+        <agent-upload-dialog
+          .entries=${d.entries}
+          agentName=${d.agent.name ?? d.agent.id}
+          description=${d.description}
+          @confirm=${this._onUploadConfirm}
+          @cancel=${() => {
+            this._dialog = { kind: "none" };
+          }}
+        ></agent-upload-dialog>
       `;
     }
     return "";
@@ -563,6 +578,7 @@ export class AgentsView extends LitElement {
                         @agent-select=${(e: CustomEvent) => this._onAgentSelect(e)}
                         @agent-delete=${(e: CustomEvent) => this._onDeleteEvent(e)}
                         @agent-export=${(e: CustomEvent) => this._onExportEvent(e)}
+                        @agent-upload=${(e: CustomEvent) => this._onUploadEvent(e)}
                         @agent-topology=${(e: CustomEvent) => this._onTopologyEvent(e)}
                         @agent-toast=${(e: CustomEvent) => this._showToast(e.detail.message)}
                       ></agent-card>
@@ -573,7 +589,13 @@ export class AgentsView extends LitElement {
       </div>
       ${this._renderDialogs()}
       ${this._toastMsg
-        ? html`<div class="toast ${this._toastError ? "error" : "success"}">${this._toastMsg}</div>`
+        ? html`<toast-message
+            .message=${this._toastMsg}
+            ?isError=${this._toastError}
+            @close=${() => {
+              this._toastMsg = "";
+            }}
+          ></toast-message>`
         : ""}
     `;
   }

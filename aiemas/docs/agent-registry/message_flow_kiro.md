@@ -92,14 +92,14 @@ NATS Server
 
 ### 关键模块职责
 
-| 模块 | 职责 |
-|------|------|
+| 模块                | 职责                                          |
+| ------------------- | --------------------------------------------- |
 | `channel.worker.ts` | Worker 线程，持有 NATS 物理连接，隔离网络 I/O |
-| `channel.ts` | 主线程组装，Worker 消息代理，Session 工厂 |
-| `router.ts` | 消息反序列化、自环过滤、主题路由分发 |
-| `envelope.ts` | RegistryEnvelope 序列化/反序列化/工厂 |
-| `outbound.ts` | 响应信封构建与 NATS 发布 |
-| `arbiter.ts` | 协作仲裁器，处理 broadcast 中的协作邀请 |
+| `channel.ts`        | 主线程组装，Worker 消息代理，Session 工厂     |
+| `router.ts`         | 消息反序列化、自环过滤、主题路由分发          |
+| `envelope.ts`       | RegistryEnvelope 序列化/反序列化/工厂         |
+| `outbound.ts`       | 响应信封构建与 NATS 发布                      |
+| `arbiter.ts`        | 协作仲裁器，处理 broadcast 中的协作邀请       |
 
 ---
 
@@ -216,14 +216,14 @@ C2A（Client-to-Agent），基于 WebSocket 的 RPC + 事件流模型。
 
 ### 关键模块职责
 
-| 模块 | 职责 |
-|------|------|
-| `message-controller.ts` | 用户操作入口，乐观更新，RPC 调用编排 |
-| `message-format.ts` | 请求参数组装，发送者前缀解析 |
-| `client.ts` | Gateway 客户端单例管理，事件处理器注册 |
-| `gateway.ts` | WebSocket 连接管理，RPC 请求/响应，事件分发 |
-| `event-handler.ts` | 流式事件路由，消息归一化，Store 状态同步 |
-| `app-store.ts` | 响应式状态容器，消息列表管理 |
+| 模块                    | 职责                                        |
+| ----------------------- | ------------------------------------------- |
+| `message-controller.ts` | 用户操作入口，乐观更新，RPC 调用编排        |
+| `message-format.ts`     | 请求参数组装，发送者前缀解析                |
+| `client.ts`             | Gateway 客户端单例管理，事件处理器注册      |
+| `gateway.ts`            | WebSocket 连接管理，RPC 请求/响应，事件分发 |
+| `event-handler.ts`      | 流式事件路由，消息归一化，Store 状态同步    |
+| `app-store.ts`          | 响应式状态容器，消息列表管理                |
 
 ---
 
@@ -231,49 +231,49 @@ C2A（Client-to-Agent），基于 WebSocket 的 RPC + 事件流模型。
 
 ### 3.1 通信协议与架构
 
-| 维度 | agent-registry (接收) | mas4s UI (发送) |
-|------|----------------------|-----------------|
+| 维度     | agent-registry (接收)       | mas4s UI (发送)          |
+| -------- | --------------------------- | ------------------------ |
 | 物理协议 | NATS JetStream (消息中间件) | WebSocket (浏览器长连接) |
-| 通信模式 | 去中心化 Pub/Sub | 同步 RPC + 单向事件流 |
-| 会话模型 | A2A 对等通信 | C2A 操作员→智能体 |
-| 线程模型 | Worker 线程隔离网络 I/O | 单线程事件循环 |
+| 通信模式 | 去中心化 Pub/Sub            | 同步 RPC + 单向事件流    |
+| 会话模型 | A2A 对等通信                | C2A 操作员→智能体        |
+| 线程模型 | Worker 线程隔离网络 I/O     | 单线程事件循环           |
 
 ### 3.2 消息入口与路由
 
-| 维度 | agent-registry | mas4s UI |
-|------|---------------|----------|
-| 入口 | NATS 订阅回调 (bytes) | 用户 UI 事件 (CustomEvent) |
-| 路由依据 | NATS 主题前缀模式匹配 | 固定方法名 ("chat.send") |
-| 路由复杂度 | 5 种主题模式 (unicast/group/broadcast/discussion/cowork) | 单一路径，无分支路由 |
-| 反序列化 | deserializeEnvelope (自定义二进制→JSON) | JSON.parse (标准 WebSocket 帧) |
+| 维度       | agent-registry                                           | mas4s UI                       |
+| ---------- | -------------------------------------------------------- | ------------------------------ |
+| 入口       | NATS 订阅回调 (bytes)                                    | 用户 UI 事件 (CustomEvent)     |
+| 路由依据   | NATS 主题前缀模式匹配                                    | 固定方法名 ("chat.send")       |
+| 路由复杂度 | 5 种主题模式 (unicast/group/broadcast/discussion/cowork) | 单一路径，无分支路由           |
+| 反序列化   | deserializeEnvelope (自定义二进制→JSON)                  | JSON.parse (标准 WebSocket 帧) |
 
 ### 3.3 会话管理
 
-| 维度 | agent-registry | mas4s UI |
-|------|---------------|----------|
-| 会话标识 | NATS 主题 + sourceAgentId 组合键 | sessionKey (逻辑键) |
-| 会话创建 | 按需动态创建 (getOrCreateSession) | 预先存在，由 Gateway 管理 |
-| 负载均衡 | getLeastLoadedSession (多会话分发) | 无，串行单会话 |
-| 并发控制 | 多会话并行处理 | isChattingBySession 互斥锁 |
+| 维度     | agent-registry                     | mas4s UI                   |
+| -------- | ---------------------------------- | -------------------------- |
+| 会话标识 | NATS 主题 + sourceAgentId 组合键   | sessionKey (逻辑键)        |
+| 会话创建 | 按需动态创建 (getOrCreateSession)  | 预先存在，由 Gateway 管理  |
+| 负载均衡 | getLeastLoadedSession (多会话分发) | 无，串行单会话             |
+| 并发控制 | 多会话并行处理                     | isChattingBySession 互斥锁 |
 
 ### 3.4 消息生命周期
 
-| 维度 | agent-registry | mas4s UI |
-|------|---------------|----------|
-| 发送前 | 无本地状态 (纯后端) | 乐观渲染 + 状态标记 |
-| 确认机制 | Fire-and-forget (无 ACK) | 同步 RPC 响应确认 |
-| 幂等保障 | envelope.message_id 去重 | clientRunId + idempotencyKey |
-| 自环防护 | source === effectiveAgentId 过滤 | 无需 (单向 C→S) |
-| 错误恢复 | catch 日志 + 丢弃 (不崩溃) | GatewayRequestError + 自动重连 |
+| 维度     | agent-registry                   | mas4s UI                       |
+| -------- | -------------------------------- | ------------------------------ |
+| 发送前   | 无本地状态 (纯后端)              | 乐观渲染 + 状态标记            |
+| 确认机制 | Fire-and-forget (无 ACK)         | 同步 RPC 响应确认              |
+| 幂等保障 | envelope.message_id 去重         | clientRunId + idempotencyKey   |
+| 自环防护 | source === effectiveAgentId 过滤 | 无需 (单向 C→S)                |
+| 错误恢复 | catch 日志 + 丢弃 (不崩溃)       | GatewayRequestError + 自动重连 |
 
 ### 3.5 响应/反馈机制
 
-| 维度 | agent-registry | mas4s UI |
-|------|---------------|----------|
-| 响应路径 | outboundAdapter → NATS publish | Gateway 事件流 → event-handler |
-| 流式支持 | 无 (单次完整响应) | delta/final 增量流式更新 |
-| 状态同步 | 无 UI 状态 | thinking/assistant/tool 多流并行 |
-| 中断机制 | 无 (异步独立) | chat.abort RPC 主动中断 |
+| 维度     | agent-registry                 | mas4s UI                         |
+| -------- | ------------------------------ | -------------------------------- |
+| 响应路径 | outboundAdapter → NATS publish | Gateway 事件流 → event-handler   |
+| 流式支持 | 无 (单次完整响应)              | delta/final 增量流式更新         |
+| 状态同步 | 无 UI 状态                     | thinking/assistant/tool 多流并行 |
+| 中断机制 | 无 (异步独立)                  | chat.abort RPC 主动中断          |
 
 ### 3.6 调用链深度对比
 

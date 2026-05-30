@@ -113,9 +113,11 @@ describe("HeartbeatManager — unit tests", () => {
     expect(manager.isRunning).toBe(false);
 
     // Advance time — no more publishes should happen after stop
-    const publishCallsBefore = (mockNatsClient.publish as ReturnType<typeof vi.fn>).mock.calls.length;
+    const publishCallsBefore = (mockNatsClient.publish as ReturnType<typeof vi.fn>).mock.calls
+      .length;
     vi.advanceTimersByTime(6000);
-    const publishCallsAfter = (mockNatsClient.publish as ReturnType<typeof vi.fn>).mock.calls.length;
+    const publishCallsAfter = (mockNatsClient.publish as ReturnType<typeof vi.fn>).mock.calls
+      .length;
     expect(publishCallsAfter).toBe(publishCallsBefore);
   });
 

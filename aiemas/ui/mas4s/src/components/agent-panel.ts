@@ -533,7 +533,7 @@ export class AgentPanel extends LitElement {
                   const containerRect = _container.getBoundingClientRect();
                   const nodeRect = lastUserNode.getBoundingClientRect();
                   const relativeTop = nodeRect.top - containerRect.top + _container.scrollTop;
-                  _container.scrollTo({ top: relativeTop - 30, behavior: "smooth" });
+                  this._safeScrollTo(_container, { top: relativeTop - 30, behavior: "smooth" });
                   return;
                 }
               }
@@ -553,13 +553,16 @@ export class AgentPanel extends LitElement {
               const textBottomTarget =
                 msgList.offsetTop + msgList.offsetHeight + 30 - _container.clientHeight;
               if (_container.scrollTop < textBottomTarget) {
-                _container.scrollTo({ top: textBottomTarget, behavior: scrollBehavior });
+                this._safeScrollTo(_container, { top: textBottomTarget, behavior: scrollBehavior });
               }
             });
           });
         } else if (_container) {
           requestAnimationFrame(() => {
-            _container.scrollTo({ top: _container.scrollHeight, behavior: scrollBehavior });
+            this._safeScrollTo(_container, {
+              top: _container.scrollHeight,
+              behavior: scrollBehavior,
+            });
           });
         }
       }
@@ -661,6 +664,14 @@ export class AgentPanel extends LitElement {
     }, 3000);
   }
 
+  private _safeScrollTo(element: HTMLElement, options: ScrollToOptions) {
+    if (typeof element.scrollTo === "function") {
+      element.scrollTo(options);
+    } else if (options.top !== undefined) {
+      element.scrollTop = options.top;
+    }
+  }
+
   private _scrollToBottom() {
     if (!this._container) {
       return;
@@ -671,11 +682,17 @@ export class AgentPanel extends LitElement {
         if (this._container) {
           const textBottomTarget =
             msgList.offsetTop + msgList.offsetHeight + 30 - this._container.clientHeight;
-          this._container.scrollTo({ top: Math.max(0, textBottomTarget), behavior: "smooth" });
+          this._safeScrollTo(this._container, {
+            top: Math.max(0, textBottomTarget),
+            behavior: "smooth",
+          });
         }
       });
     } else {
-      this._container.scrollTo({ top: this._container.scrollHeight, behavior: "smooth" });
+      this._safeScrollTo(this._container, {
+        top: this._container.scrollHeight,
+        behavior: "smooth",
+      });
     }
     this._isAtBottom = true;
   }

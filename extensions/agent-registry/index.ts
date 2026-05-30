@@ -17,9 +17,17 @@ export default defineBundledChannelEntry({
     exportName: "agentRegistryPlugin",
   },
   registerFull(api) {
-    api.registerTool(discoverAgentsToolFactory as unknown as (ctx: unknown) => AnyAgentTool, { name: "discover_agents" });
-    api.registerTool(sendMessageToolFactory as unknown as (ctx: unknown) => AnyAgentTool, { name: "send_message_to_agent" });
-    api.registerTool(createCoworkToolFactory as unknown as (ctx: unknown) => AnyAgentTool, { name: "create_cowork" });
-    api.registerTool(sendCoworkMessageToolFactory as unknown as (ctx: unknown) => AnyAgentTool, { name: "send_cowork_message" });
+    api.registerTool(discoverAgentsToolFactory as unknown as (ctx: unknown) => AnyAgentTool, {
+      name: "discover_agents",
+    });
+    api.registerTool(sendMessageToolFactory as unknown as (ctx: unknown) => AnyAgentTool, {
+      name: "send_message_to_agent",
+    });
+    api.registerTool(createCoworkToolFactory as unknown as (ctx: unknown) => AnyAgentTool, {
+      name: "create_cowork",
+    });
+    api.registerTool(sendCoworkMessageToolFactory as unknown as (ctx: unknown) => AnyAgentTool, {
+      name: "send_cowork_message",
+    });
   },
 });

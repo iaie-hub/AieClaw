@@ -1,5 +1,5 @@
-import { defineConfig } from "vitest/config";
 import * as fc from "fast-check";
+import { defineConfig } from "vitest/config";
 
 // Configure fast-check global defaults for all property tests in this package.
 fc.configureGlobal({ numRuns: 100 });

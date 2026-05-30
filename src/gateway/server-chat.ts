@@ -229,7 +229,15 @@ export function createAgentEventHandler({
   lifecycleErrorRetryGraceMs = AGENT_LIFECYCLE_ERROR_RETRY_GRACE_MS,
   isChatSendRunActive = () => false,
 }: AgentEventHandlerOptions) {
-  const pendingTerminalLifecycleErrors = new Map<string, NodeJS.Timeout>();
+  type TerminalLifecycleOptions = { skipChatErrorFinal?: boolean };
+  type PendingTerminalLifecycleError = {
+    timer: NodeJS.Timeout;
+    event: AgentEventPayload;
+    opts?: TerminalLifecycleOptions;
+  };
+
+  const pendingTerminalLifecycleErrors = new Map<string, PendingTerminalLifecycleError>();
+  const runSenderLabels = new Map<string, string>();
 
   type AgentTextThrottleStream = "assistant" | "thinking";
 
@@ -263,7 +271,7 @@ export function createAgentEventHandler({
     if (!pending) {
       return;
     }
-    clearTimeout(pending);
+    clearTimeout(pending.timer);
     pendingTerminalLifecycleErrors.delete(runId);
   };
 
@@ -362,10 +370,7 @@ export function createAgentEventHandler({
     };
   };
 
-  const finalizeLifecycleEvent = (
-    evt: AgentEventPayload,
-    opts?: { skipChatErrorFinal?: boolean },
-  ) => {
+  const finalizeLifecycleEvent = (evt: AgentEventPayload, opts?: TerminalLifecycleOptions) => {
     const lifecyclePhase =
       evt.stream === "lifecycle" && typeof evt.data?.phase === "string" ? evt.data.phase : null;
     if (lifecyclePhase !== "end" && lifecyclePhase !== "error") {
@@ -445,6 +450,7 @@ export function createAgentEventHandler({
             sessionKey,
             phase: lifecyclePhase,
             runId: evt.runId,
+            ...(eventRunId !== evt.runId ? { clientRunId: eventRunId } : {}),
             ts: evt.ts,
             ...buildSessionEventSnapshot(sessionKey, evt),
           },
@@ -457,15 +463,19 @@ export function createAgentEventHandler({
 
   const scheduleTerminalLifecycleError = (
     evt: AgentEventPayload,
-    opts?: { skipChatErrorFinal?: boolean },
+    opts?: TerminalLifecycleOptions,
   ) => {
     clearPendingTerminalLifecycleError(evt.runId);
     const timer = setSafeTimeout(() => {
+      const pending = pendingTerminalLifecycleErrors.get(evt.runId);
+      if (!pending || pending.timer !== timer) {
+        return;
+      }
       pendingTerminalLifecycleErrors.delete(evt.runId);
-      finalizeLifecycleEvent(evt, opts);
+      finalizeLifecycleEvent(pending.event, pending.opts);
     }, lifecycleErrorRetryGraceMs);
     timer.unref?.();
-    pendingTerminalLifecycleErrors.set(evt.runId, timer);
+    pendingTerminalLifecycleErrors.set(evt.runId, { timer, event: evt, opts });
   };
 
   const emitChatDelta = (
@@ -624,6 +634,8 @@ export function createAgentEventHandler({
     chatRunState.deltaSentAt.delete(clientRunId);
     clearAgentTextThrottleState(clientRunId);
     const spawnedBy = resolveSpawnedBy(sessionKey);
+    const senderLabel = runSenderLabels.get(sourceRunId);
+    runSenderLabels.delete(sourceRunId);
     if (jobState === "done") {
       const payload = {
         runId: clientRunId,
@@ -638,6 +650,7 @@ export function createAgentEventHandler({
                 role: "assistant",
                 content: [{ type: "text", text }],
                 timestamp: Date.now(),
+                ...(senderLabel && { senderLabel }),
               }
             : undefined,
       };
@@ -803,9 +816,12 @@ export function createAgentEventHandler({
   };
 
   return (evt: AgentEventPayload) => {
+    if (evt.stream === "assistant" && typeof evt.data?.senderLabel === "string") {
+      runSenderLabels.set(evt.runId, evt.data.senderLabel);
+    }
     const lifecyclePhase =
       evt.stream === "lifecycle" && typeof evt.data?.phase === "string" ? evt.data.phase : null;
-    if (evt.stream !== "lifecycle" || lifecyclePhase !== "error") {
+    if (lifecyclePhase !== null && lifecyclePhase !== "error") {
       clearPendingTerminalLifecycleError(evt.runId);
     }
 
@@ -986,6 +1002,7 @@ export function createAgentEventHandler({
             sessionKey,
             phase: lifecyclePhase,
             runId: evt.runId,
+            ...(eventRunId !== evt.runId ? { clientRunId: eventRunId } : {}),
             ts: evt.ts,
             ...buildSessionEventSnapshot(sessionKey, evt),
           },

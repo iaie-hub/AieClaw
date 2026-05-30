@@ -1,6 +1,10 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import type { AgentEntry } from "../types/agents-types.js";
+import downloadIcon from "../../asset/download.svg";
+import uploadIcon from "../../asset/upload.svg";
+
+
 
 /**
  * 智能体卡片组件 — 展示单个智能体的摘要信息。
@@ -193,23 +197,6 @@ export class AgentCard extends LitElement {
         no-repeat center;
     }
 
-    .fallback-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      margin-top: 2px;
-    }
-
-    .fallback-tag {
-      font-size: 11px;
-      padding: 1px 6px;
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 4px;
-      color: #64748b;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    }
-
     .card-footer {
       display: flex;
       justify-content: flex-end;
@@ -307,6 +294,17 @@ export class AgentCard extends LitElement {
     );
   };
 
+  private _onUpload = (e: Event) => {
+    e.stopPropagation();
+    this.dispatchEvent(
+      new CustomEvent("agent-upload", {
+        detail: { agent: this.agent },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  };
+
   render() {
     const a = this.agent;
     const displayName = a.name || a.id;
@@ -339,18 +337,6 @@ export class AgentCard extends LitElement {
               <span class="model-tag">${a.model.primary}</span>
             </span>
           </div>
-          ${a.model.fallbacks.length > 0
-            ? html`
-                <div class="detail-row">
-                  <span class="detail-label">回退</span>
-                  <span class="detail-value">
-                    <div class="fallback-list">
-                      ${a.model.fallbacks.map((f) => html`<span class="fallback-tag">${f}</span>`)}
-                    </div>
-                  </span>
-                </div>
-              `
-            : ""}
           <div class="detail-row">
             <span class="detail-label">目录</span>
             <span class="detail-value">
@@ -397,24 +383,19 @@ export class AgentCard extends LitElement {
           </button>
           <button
             class="icon-btn"
-            title="导出配置"
+            title="导出智能体"
             aria-label="导出智能体 ${displayName}"
             @click=${this._onExport}
           >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="17 8 12 3 7 8"></polyline>
-              <line x1="12" y1="3" x2="12" y2="15"></line>
-            </svg>
+            <img src="${downloadIcon}" width="15" height="15" alt="export" />
+          </button>
+          <button
+            class="icon-btn"
+            title="上传到 AgentHub"
+            aria-label="上传智能体 ${displayName}"
+            @click=${this._onUpload}
+          >
+            <img src="${uploadIcon}" width="15" height="15" alt="upload" />
           </button>
           <button
             class="icon-btn danger"

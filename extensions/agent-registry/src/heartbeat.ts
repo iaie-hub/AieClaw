@@ -177,7 +177,6 @@ export function createHeartbeatManager(options: HeartbeatManagerOptions): Heartb
       log.debug(`subscribed to heartbeat ack subject`, { subject: ackSubject });
 
       const interval = computeHeartbeatInterval(ttlMs);
-      log.info(`heartbeat timer started`, { ttlMs, intervalMs: interval, agentId });
       timer = setInterval(publishHeartbeat, interval);
       running = true;
     },

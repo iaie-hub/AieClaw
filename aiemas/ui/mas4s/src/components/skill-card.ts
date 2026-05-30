@@ -1,6 +1,10 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import type { SkillStatusEntry } from "../types/skills-types.js";
+import downloadIcon from "../../asset/download.svg";
+import uploadIcon from "../../asset/upload.svg";
+
+
 
 /**
  * Skill 卡片组件
@@ -123,6 +127,19 @@ export class SkillCard extends LitElement {
       font-weight: 500;
     }
 
+    .skill-top-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .skill-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
     .skill-status-indicator {
       width: 8px;
       height: 8px;
@@ -156,6 +173,34 @@ export class SkillCard extends LitElement {
 
     .skill-status-text.disabled {
       color: #94a3b8;
+    }
+
+    .icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: #64748b;
+      cursor: pointer;
+      transition: all 0.15s;
+      padding: 0;
+      font-size: 14px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .icon-btn:hover {
+      background: #f1f5f9;
+      color: #3b82f6;
+    }
+
+    .icon-btn.delete-btn:hover {
+      background: #fee2e2;
+      color: #ef4444;
     }
   `;
 
@@ -200,9 +245,46 @@ export class SkillCard extends LitElement {
     );
   };
 
+  private _onExport = (e: Event) => {
+    e.stopPropagation(); // 阻止事件冒泡以避免触发卡片选择
+    this.dispatchEvent(
+      new CustomEvent("skill-export", {
+        detail: { skill: this.skill },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  };
+
+  private _onUpload = (e: Event) => {
+    e.stopPropagation(); // 阻止事件冒泡以避免触发卡片选择
+    this.dispatchEvent(
+      new CustomEvent("skill-upload", {
+        detail: { skill: this.skill },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  };
+
+  private _onDelete = (e: Event) => {
+    e.stopPropagation(); // 阻止事件冒泡以避免触发卡片选择
+    this.dispatchEvent(
+      new CustomEvent("skill-delete", {
+        detail: { skill: this.skill },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  };
+
   render() {
     const statusClass = this._getStatusClass();
     const statusText = this._getStatusText();
+    const isWorkspaceSkill =
+      this.skill.source === "openclaw-workspace" ||
+      this.skill.source === "agents-skills-project";
+    const showDelete = !this.skill.bundled && isWorkspaceSkill;
 
     return html`
       <div
@@ -224,24 +306,58 @@ export class SkillCard extends LitElement {
             <h3 class="skill-name">${this.skill.name}</h3>
             <p class="skill-description">${this.skill.description}</p>
           </div>
-          ${this.showCheckbox
-            ? html`
-                <div class="skill-checkbox-wrapper" @click=${this._handleCheck}>
-                  <input
-                    type="checkbox"
-                    class="skill-checkbox"
-                    .checked=${this.checked}
-                    tabindex="-1"
-                  />
-                </div>
-              `
-            : ""}
+          <div class="skill-top-right">
+            <div class="skill-status">
+              <span class="skill-status-indicator ${statusClass}"></span>
+              <span class="skill-status-text ${statusClass}">${statusText}</span>
+            </div>
+            ${this.showCheckbox
+              ? html`
+                  <div class="skill-checkbox-wrapper" @click=${this._handleCheck}>
+                    <input
+                      type="checkbox"
+                      class="skill-checkbox"
+                      .checked=${this.checked}
+                      tabindex="-1"
+                    />
+                  </div>
+                `
+              : ""}
+          </div>
         </div>
         <div class="skill-footer">
           <span class="skill-source">${this.skill.source}</span>
-          <div class="skill-status">
-            <span class="skill-status-indicator ${statusClass}"></span>
-            <span class="skill-status-text ${statusClass}">${statusText}</span>
+          <div class="skill-actions">
+            <button
+              class="icon-btn"
+              title="导出Skill"
+              aria-label="导出Skill ${this.skill.name}"
+              @click=${this._onExport}
+            >
+              <img src="${downloadIcon}" width="14" height="14" alt="download" />
+            </button>
+            <button
+              class="icon-btn"
+              title="上传到 SkillHub"
+              aria-label="上传技能 ${this.skill.name}"
+              @click=${this._onUpload}
+            >
+              <img src="${uploadIcon}" width="14" height="14" alt="upload" />
+            </button>
+            ${showDelete
+              ? html`
+                  <button
+                    class="icon-btn delete-btn"
+                    title="删除技能"
+                    aria-label="删除技能 ${this.skill.name}"
+                    @click=${this._onDelete}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 1024 1024" fill="currentColor">
+                      <path d="M160 256h704v64H160zM320 160h384v64H320zM224 384v512c0 35.3 28.7 64 64 64h448c35.3 0 64-28.7 64-64V384H224zm192 416h-64V480h64v320zm160 0h-64V480h64v320zm160 0h-64V480h64v320z"></path>
+                    </svg>
+                  </button>
+                `
+              : ""}
           </div>
         </div>
       </div>

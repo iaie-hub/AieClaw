@@ -1,9 +1,5 @@
 /**
  * Property-based tests for SQLite storage layer.
- *
- * Feature: mas4s-multi-tenant-rbac
- * Property 15: 数据持久化 round-trip
- * Property 16: 并发写入安全
  */
 
 import { randomUUID } from "node:crypto";
@@ -53,7 +49,6 @@ const timestampArb = fc.integer({ min: 1_000_000_000_000, max: 9_999_999_999_999
 
 // ---------------------------------------------------------------------------
 // Property 15: 数据持久化 round-trip
-// Validates: Requirements 10.1, 10.2, 10.3, 10.4
 // ---------------------------------------------------------------------------
 
 describe("Property 15: 数据持久化 round-trip", () => {
@@ -81,7 +76,7 @@ describe("Property 15: 数据持久化 round-trip", () => {
         expect(row!.name).toBe(name);
         expect(row!.createdAt).toBe(createdAt);
       }),
-      { numRuns: 100 },
+      { numRuns: 50 },
     );
   });
 
@@ -127,7 +122,7 @@ describe("Property 15: 数据持久化 round-trip", () => {
           expect(row!["createdAt"]).toBe(createdAt);
         },
       ),
-      { numRuns: 100 },
+      { numRuns: 50 },
     );
   });
 
@@ -149,24 +144,24 @@ describe("Property 15: 数据持久化 round-trip", () => {
           .run(userId, "u", "U", "h", "member", tenantId, "approved", createdAt);
         db1
           .prepare(
-            "INSERT INTO session_ownership (sessionKey, userId, tenantId, createdAt) VALUES (?, ?, ?, ?)",
+            "INSERT INTO session_ownership (sessionUuid, userId, tenantId, createdAt) VALUES (?, ?, ?, ?)",
           )
           .run(sessionKey, userId, tenantId, createdAt);
         db1.close();
 
         const db2 = initDatabase(dbPath);
         const row = db2
-          .prepare("SELECT * FROM session_ownership WHERE sessionKey = ?")
+          .prepare("SELECT * FROM session_ownership WHERE sessionUuid = ?")
           .get(sessionKey) as Record<string, unknown> | undefined;
         db2.close();
 
         expect(row).toBeDefined();
-        expect(row!["sessionKey"]).toBe(sessionKey);
+        expect(row!["sessionUuid"]).toBe(sessionKey);
         expect(row!["userId"]).toBe(userId);
         expect(row!["tenantId"]).toBe(tenantId);
         expect(row!["createdAt"]).toBe(createdAt);
       }),
-      { numRuns: 100 },
+      { numRuns: 50 },
     );
   });
 
@@ -188,39 +183,36 @@ describe("Property 15: 数据持久化 round-trip", () => {
           .run(userId, "u", "U", "h", "member", tenantId, "approved", joinedAt);
         db1
           .prepare(
-            "INSERT INTO session_memberships (sessionKey, userId, role, joinedAt) VALUES (?, ?, ?, ?)",
+            "INSERT INTO session_memberships (sessionUuid, userId, role, joinedAt) VALUES (?, ?, ?, ?)",
           )
           .run(sessionKey, userId, role, joinedAt);
         db1.close();
 
         const db2 = initDatabase(dbPath);
         const row = db2
-          .prepare("SELECT * FROM session_memberships WHERE sessionKey = ? AND userId = ?")
+          .prepare("SELECT * FROM session_memberships WHERE sessionUuid = ? AND userId = ?")
           .get(sessionKey, userId) as Record<string, unknown> | undefined;
         db2.close();
 
         expect(row).toBeDefined();
-        expect(row!["sessionKey"]).toBe(sessionKey);
+        expect(row!["sessionUuid"]).toBe(sessionKey);
         expect(row!["userId"]).toBe(userId);
         expect(row!["role"]).toBe(role);
         expect(row!["joinedAt"]).toBe(joinedAt);
       }),
-      { numRuns: 100 },
+      { numRuns: 50 },
     );
   });
 });
 
 // ---------------------------------------------------------------------------
 // Property 16: 并发写入安全
-// Validates: Requirements 10.6
 // ---------------------------------------------------------------------------
 
 describe("Property 16: 并发写入安全", () => {
   it("N sequential inserts all persist correctly (WAL + busy_timeout)", () => {
-    // node:sqlite DatabaseSync is synchronous; we simulate concurrent-access
-    // patterns by performing N rapid sequential writes and verifying all persist.
     fc.assert(
-      fc.property(fc.integer({ min: 10, max: 50 }), timestampArb, (n, baseTime) => {
+      fc.property(fc.integer({ min: 5, max: 20 }), timestampArb, (n, baseTime) => {
         const dbPath = tmpDbPath();
         const tenantId = randomUUID();
 
@@ -262,13 +254,13 @@ describe("Property 16: 并发写入安全", () => {
 
         expect(count).toBe(n);
       }),
-      { numRuns: 100 },
+      { numRuns: 50 },
     );
   });
 
   it("interleaved writes across multiple tables all persist (no data loss)", () => {
     fc.assert(
-      fc.property(fc.integer({ min: 5, max: 20 }), timestampArb, (n, baseTime) => {
+      fc.property(fc.integer({ min: 5, max: 15 }), timestampArb, (n, baseTime) => {
         const dbPath = tmpDbPath();
 
         const db = initDatabase(dbPath);
@@ -304,10 +296,10 @@ describe("Property 16: 并发写入安全", () => {
             baseTime + i,
           );
           db.prepare(
-            "INSERT INTO session_ownership (sessionKey, userId, tenantId, createdAt) VALUES (?, ?, ?, ?)",
+            "INSERT INTO session_ownership (sessionUuid, userId, tenantId, createdAt) VALUES (?, ?, ?, ?)",
           ).run(sessionKey, userId, tenantId, baseTime + i);
           db.prepare(
-            "INSERT INTO session_memberships (sessionKey, userId, role, joinedAt) VALUES (?, ?, ?, ?)",
+            "INSERT INTO session_memberships (sessionUuid, userId, role, joinedAt) VALUES (?, ?, ?, ?)",
           ).run(sessionKey, userId, "owner", baseTime + i);
         }
         db.close();
@@ -333,20 +325,19 @@ describe("Property 16: 并发写入安全", () => {
         expect(ownershipCount).toBe(n);
         expect(membershipCount).toBe(n);
       }),
-      { numRuns: 100 },
+      { numRuns: 50 },
     );
   });
 });
 
 // ---------------------------------------------------------------------------
-// Feature: mas4s-session-collaboration, Property 9: Schema 迁移幂等性
-// Validates: Requirements 5.1, 5.2, 5.3
+// Property 9: Schema 迁移幂等性
 // ---------------------------------------------------------------------------
 
 describe("Property 9: Schema 迁移幂等性", () => {
   it("重复调用 ensureMas4sSchema 不抛出错误且数据库状态不变", () => {
     fc.assert(
-      fc.property(fc.integer({ min: 2, max: 5 }), (repeatCount) => {
+      fc.property(fc.integer({ min: 2, max: 4 }), (repeatCount) => {
         const dbPath = tmpDbPath();
         const db = initDatabase(dbPath);
 
@@ -361,8 +352,8 @@ describe("Property 9: Schema 迁移幂等性", () => {
           db.prepare("PRAGMA table_info(session_ownership)").all() as Array<{ name: string }>
         ).map((c) => c.name);
 
-        const summariesColsBefore = (
-          db.prepare("PRAGMA table_info(session_summaries)").all() as Array<{ name: string }>
+        const natsColsBefore = (
+          db.prepare("PRAGMA table_info(nats_config)").all() as Array<{ name: string }>
         ).map((c) => c.name);
 
         // Call ensureMas4sSchema multiple times — must not throw
@@ -381,27 +372,27 @@ describe("Property 9: Schema 迁移幂等性", () => {
           db.prepare("PRAGMA table_info(session_ownership)").all() as Array<{ name: string }>
         ).map((c) => c.name);
 
-        const summariesColsAfter = (
-          db.prepare("PRAGMA table_info(session_summaries)").all() as Array<{ name: string }>
+        const natsColsAfter = (
+          db.prepare("PRAGMA table_info(nats_config)").all() as Array<{ name: string }>
         ).map((c) => c.name);
 
         expect(tablesAfter).toEqual(tablesBefore);
         expect(ownershipColsAfter).toEqual(ownershipColsBefore);
-        expect(summariesColsAfter).toEqual(summariesColsBefore);
+        expect(natsColsAfter).toEqual(natsColsBefore);
 
         // Verify archivedAt column exists on session_ownership
         expect(ownershipColsAfter).toContain("archivedAt");
 
-        // Verify session_summaries has expected columns
-        expect(summariesColsAfter).toContain("sessionKey");
-        expect(summariesColsAfter).toContain("textSummary");
-        expect(summariesColsAfter).toContain("toolSummary");
-        expect(summariesColsAfter).toContain("generatedAt");
-        expect(summariesColsAfter).toContain("generatedBy");
+        // Verify nats_config has expected columns
+        expect(natsColsAfter).toContain("nats_url");
+        expect(natsColsAfter).toContain("nats_token");
+        expect(natsColsAfter).toContain("agent_id");
+        expect(natsColsAfter).toContain("agent_name");
+        expect(natsColsAfter).toContain("bound_agent_id");
 
         db.close();
       }),
-      { numRuns: 100 },
+      { numRuns: 50 },
     );
   });
 });

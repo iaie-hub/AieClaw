@@ -279,6 +279,18 @@ export function summarizeAgentEventForWsLog(payload: unknown): Record<string, un
   return extra;
 }
 
+export function logWsRaw(direction: "in" | "out", connId: string, rawText: string): void {
+  if (!shouldLogSubsystemToConsole("gateway/ws")) {
+    return;
+  }
+  const dirArrow = direction === "in" ? "←" : "→";
+  const dirColor = direction === "in" ? chalk.greenBright : chalk.cyanBright;
+  const redacted = redactSensitiveText(rawText, WS_LOG_REDACT_OPTIONS);
+  wsLog.info(
+    `${dirColor(dirArrow)} ${chalk.bold("message")} conn=${chalk.gray(shortId(connId))} payload=${redacted}`,
+  );
+}
+
 export function logWs(direction: "in" | "out", kind: string, meta?: Record<string, unknown>) {
   if (!shouldLogSubsystemToConsole("gateway/ws")) {
     return;

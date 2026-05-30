@@ -1,7 +1,7 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import type { AgentInfo } from "../store/app-store.js";
 import { getClient } from "../gateway/client.js";
+import type { AgentInfo } from "../store/app-store.js";
 
 interface ConfirmDetail {
   label: string;

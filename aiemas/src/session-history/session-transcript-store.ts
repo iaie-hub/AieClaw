@@ -797,7 +797,7 @@ export class SessionTranscriptStore {
       // sessionKey, check if the message content matches the fingerprint.
       // If so, convert role to "agent" and extract sourceAgentId.
       let finalRole: StoredMessage["role"] = role;
-      let sourceAgentId: string | null = null;
+      let sourceAgentId: string | null = (msg["sourceAgentId"] as string | null) ?? null;
 
       if (finalRole === "user") {
         const queue = this.pendingAgentMarks.get(sessionKey);

@@ -1,13 +1,16 @@
 import type { GatewayEventFrame } from "../lib/gateway.js";
 import { normalizeMessage } from "../lib/message-normalizer.js";
 import { AppStore } from "../store/app-store.js";
+import { SummaryStore } from "../store/summary-store.js";
 import type { ApprovalRequest, ApprovalResolved } from "../types/approval-types.js";
 import type { ChatMessage } from "../types/chat-types.js";
 import type { MasSession } from "../types/session-types.js";
 import { parseSenderPrefix } from "../utils/message-format.js";
 import { extractUuidFromKey, extractAgentNameFromKey } from "../utils/session-utils.js";
-import { addEventHandler } from "./client.js";
+import { addEventHandler, getClient } from "./client.js";
 import { dispatchCollabMessage } from "./collab-api.js";
+import { getSummary } from "./session-archive.js";
+import { fetchSessionLabel } from "./session-manager.js";
 
 const TOOL_OUTPUT_CHAR_LIMIT = 120_000;
 
@@ -180,8 +183,6 @@ export function registerEventHandlers(): void {
         if (changedReason === "patch" || changedReason === "new" || changedReason === "reset") {
           void (async () => {
             try {
-              const { getClient } = await import("./client.js");
-              const { fetchSessionLabel } = await import("./session-manager.js");
               const entry = await fetchSessionLabel(getClient(), changedKey);
               if (entry) {
                 store.patchSessionLabelFromDb(changedKey, {
@@ -231,9 +232,6 @@ export function registerEventHandlers(): void {
         // 需求4.12：拉取最新持久化摘要写入 SummaryStore，触发 SummaryDialog 刷新
         void (async () => {
           try {
-            const { getClient } = await import("./client.js");
-            const { getSummary } = await import("./session-archive.js");
-            const { SummaryStore } = await import("../store/summary-store.js");
             const result = await getSummary(getClient(), summarySessionKey);
             if (result) {
               SummaryStore.instance.set(summarySessionKey, result);
@@ -494,7 +492,7 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
     };
     console.info(
       `[mas4s:event-handler] stream=agent received. runId=${runId}, sessionUuid=${sessionUuid}, agentId=${agentId}, role=${chatMsg.role}, senderLabel=${chatMsg.senderLabel}, content length=${chatMsg.content.length}, content=`,
-      chatMsg.content
+      chatMsg.content,
     );
     debugLog(
       `[mas4s:event-handler] Updating/Appending A2A agent input message (role=${chatMsg.role})`,
@@ -546,13 +544,16 @@ function handleAgentEvent(store: AppStore, payload: unknown): void {
       content.push({ type: "thinking", thinking: thinkingText });
     }
     content.push({ type: "text", text: data.text });
+    const dataRecord = data as Record<string, unknown>;
+    const assistantSenderLabel =
+      typeof dataRecord.senderLabel === "string" ? dataRecord.senderLabel : null;
     const streamMsg: ChatMessage = {
       role: "assistant",
       content,
       timestamp: Date.now(),
       id: runId,
       sessionKey, // 需求 9.1
-      senderLabel: null,
+      senderLabel: assistantSenderLabel,
     };
 
     // 路由到 messagesByAgent

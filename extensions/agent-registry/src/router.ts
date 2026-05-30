@@ -11,7 +11,10 @@
  * Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.10
  */
 
-import { emitAgentEvent } from "openclaw/plugin-sdk/agent-harness-runtime";
+import {
+  emitAgentEvent,
+  emitSessionTranscriptUpdate,
+} from "openclaw/plugin-sdk/agent-harness-runtime";
 import { emitCollabEvent } from "openclaw/plugin-sdk/collab-runtime";
 import { deserializeEnvelope } from "./envelope.js";
 import { createLogger, fmtEnvelope } from "./logger.js";
@@ -52,6 +55,21 @@ function segmentAfter(prefix: string, topic: string): string {
   return topic.slice(prefix.length);
 }
 
+/**
+ * Derive the SessionTracker key for a unicast message using source + session.
+ *
+ * When the envelope carries a session field, the key includes both source and
+ * session to isolate parallel conversations from the same agent. When session
+ * is absent (legacy or external agents), falls back to source-only for backward
+ * compatibility.
+ */
+function deriveUnicastSessionKey(source: string, session: string | null): string {
+  if (session) {
+    return `unicast:${source}:${session}`;
+  }
+  return `unicast:${source}`;
+}
+
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
@@ -85,9 +103,11 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
       msg_id: envelope.message_id,
       request_id: envelope.request_id,
       reply_to: envelope.reply_to,
+      payload: envelope.payload,
     });
     log.debug(`unicast envelope detail`, fmtEnvelope(envelope));
-    const session = getOrCreateSession(envelope.source, boundAgentId);
+    const key = deriveUnicastSessionKey(envelope.source, envelope.session);
+    const session = getOrCreateSession(key, boundAgentId, envelope);
     await session.dispatch(envelope);
   }
 
@@ -103,6 +123,7 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
       msg_id: envelope.message_id,
       request_id: envelope.request_id,
       reply_to: envelope.reply_to,
+      payload: envelope.payload,
     });
     log.debug(`multicast envelope detail`, fmtEnvelope(envelope));
     let session;
@@ -132,6 +153,7 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
       msg_id: envelope.message_id,
       request_id: envelope.request_id,
       reply_to: envelope.reply_to,
+      payload: envelope.payload,
     });
     log.debug(`broadcast envelope detail`, fmtEnvelope(envelope));
 
@@ -167,6 +189,7 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
       msg_id: envelope.message_id,
       request_id: envelope.request_id,
       reply_to: envelope.reply_to,
+      payload: envelope.payload,
     });
     log.debug(`collaboration envelope detail`, fmtEnvelope(envelope));
     const session = getOrCreateSession(topicId, boundAgentId);
@@ -223,13 +246,46 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
           payload: envelope.payload,
         });
         if (envelope.session) {
+          // 实时流改造：将响应文本组装为标准的 "assistant" 和 "lifecycle" 闭环事件
+          // 使用唯一的 message_id 作为 runId，在主会话与参与者会话底部实现增量实时追加
+          const text =
+            typeof envelope.payload["text"] === "string"
+              ? envelope.payload["text"]
+              : JSON.stringify(envelope.payload);
+
+          // 触发 "assistant" 流输入事件
           emitAgentEvent({
-            runId: envelope.request_id,
+            runId: envelope.message_id,
             sessionKey: envelope.session,
-            stream: "agent",
+            stream: "assistant",
             data: {
+              text,
+              delta: text,
+              senderLabel: envelope.source,
+            },
+          });
+
+          // 触发 "lifecycle" 正常结束事件完成闭环
+          emitAgentEvent({
+            runId: envelope.message_id,
+            sessionKey: envelope.session,
+            stream: "lifecycle",
+            data: {
+              phase: "end",
+            },
+          });
+
+          // 持久化到 transcript，使用 content array 格式与 emitChatFinal 对齐，
+          // 确保 preserveOptimisticTailMessages 签名匹配去重
+          emitSessionTranscriptUpdate({
+            sessionFile: envelope.session,
+            sessionKey: envelope.session,
+            messageId: envelope.message_id,
+            message: {
               role: "assistant",
-              text: typeof envelope.payload["text"] === "string" ? envelope.payload["text"] : JSON.stringify(envelope.payload),
+              content: [{ type: "text", text }],
+              timestamp: Date.now(),
+              sourceAgentId: envelope.source,
               senderLabel: envelope.source,
             },
           });
@@ -238,6 +294,9 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
             request_id: envelope.request_id,
             msg_id: envelope.message_id,
           });
+        }
+        if (matchesPrefix("a2a.cowork.", topic)) {
+          emitCollabEvent({ topic, message: envelope });
         }
         return;
       }
@@ -254,19 +313,55 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
             topic,
             source: envelope.source,
             msg_id: envelope.message_id,
+            payload: envelope.payload,
           });
+          if (matchesPrefix("a2a.cowork.", topic)) {
+            emitCollabEvent({ topic, message: envelope });
+          }
           return;
         }
 
         if (activeOutboundSessions && activeOutboundSessions.has(envelope.session)) {
-          // Session matches one of our active outbound sessions — same-session loopback, discard
-          log.info(`[LOOPBACK] discarding self-message (same outbound session)`, {
-            topic,
-            source: envelope.source,
-            session: envelope.session,
-            msg_id: envelope.message_id,
-          });
-          return;
+          // 如果这是显式发给自己的单播消息（跨会话自我通信），则放行
+          if (matchesPrefix("a2a.agent.unicast.", topic)) {
+            log.info(`allowing unicast self-message (cross-session self-communication)`, {
+              topic,
+              source: envelope.source,
+              session: envelope.session,
+              msg_id: envelope.message_id,
+              payload: envelope.payload,
+            });
+          } else {
+            // 对于群组/协作等其他主题，依然拦截，防止回显死循环
+            log.info(`[LOOPBACK] discarding self-message (same outbound session)`, {
+              topic,
+              source: envelope.source,
+              session: envelope.session,
+              msg_id: envelope.message_id,
+              payload: envelope.payload,
+            });
+            if (matchesPrefix("a2a.cowork.", topic)) {
+              emitCollabEvent({ topic, message: envelope });
+            }
+            if (envelope.session) {
+              const text =
+                typeof envelope.payload["text"] === "string"
+                  ? envelope.payload["text"]
+                  : JSON.stringify(envelope.payload);
+              emitSessionTranscriptUpdate({
+                sessionFile: envelope.session,
+                sessionKey: envelope.session,
+                messageId: envelope.message_id,
+                message: {
+                  role: "assistant",
+                  content: [{ type: "text", text }],
+                  timestamp: Date.now(),
+                  sourceAgentId: envelope.source,
+                },
+              });
+            }
+            return;
+          }
         }
 
         // Different session of the same agent — allow processing (cross-session communication)
@@ -275,6 +370,7 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
           source: envelope.source,
           session: envelope.session,
           msg_id: envelope.message_id,
+          payload: envelope.payload,
         });
       }
 

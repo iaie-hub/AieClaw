@@ -86,7 +86,7 @@ function tryParseJson(cleanText: string): { decision?: string } | null {
  */
 function isAffirmative(response: string): boolean {
   const cleanText = cleanResponseContent(response);
-  
+
   // Try JSON parser first
   const json = tryParseJson(cleanText);
   if (json && json.decision !== undefined) {
@@ -266,7 +266,10 @@ export function createCollaborationArbiter(
     }
 
     if (!isAffirmative(response)) {
-      log.info(`Bound_Agent declined cowork`, { cowork_id: coworkId, response: response.slice(0, 80) });
+      log.info(`Bound_Agent declined cowork`, {
+        cowork_id: coworkId,
+        response: response.slice(0, 80),
+      });
       console.info(`[agent-registry] arbiter: Bound_Agent declined cowork_id="${coworkId}"`);
       return;
     }

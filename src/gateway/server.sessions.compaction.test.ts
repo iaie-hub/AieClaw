@@ -5,6 +5,7 @@ import { expect, test, vi } from "vitest";
 import { withEnvAsync } from "../test-utils/env.js";
 import {
   embeddedRunMock,
+  onceMessage,
   piSdkMock,
   rpcReq,
   startConnectedServerWithClient,
@@ -244,11 +245,47 @@ test("sessions.compact without maxLines runs embedded manual compaction for chec
       main: sessionStoreEntry("sess-main", {
         thinkingLevel: "medium",
         reasoningLevel: "stream",
+        contextBudgetStatus: {
+          schemaVersion: 1,
+          source: "pre-prompt-estimate",
+          updatedAt: Date.now() - 5_000,
+          provider: "anthropic",
+          model: "claude-opus-4-6",
+          route: "fits",
+          shouldCompact: false,
+          estimatedPromptTokens: 120,
+          contextTokenBudget: 200,
+          promptBudgetBeforeReserve: 180,
+          reserveTokens: 20,
+          effectiveReserveTokens: 20,
+          remainingPromptBudgetTokens: 60,
+          overflowTokens: 0,
+          toolResultReducibleChars: 0,
+          messageCount: 2,
+          unwindowedMessageCount: 2,
+        },
       }),
     },
   });
 
   const { ws } = await openClient();
+  await rpcReq(ws, "sessions.subscribe", {});
+  const startEventPromise = onceMessage(
+    ws,
+    (message) =>
+      message.type === "event" &&
+      message.event === "session.operation" &&
+      (message.payload as { operation?: unknown; phase?: unknown })?.operation === "compact" &&
+      (message.payload as { operation?: unknown; phase?: unknown })?.phase === "start",
+  );
+  const endEventPromise = onceMessage(
+    ws,
+    (message) =>
+      message.type === "event" &&
+      message.event === "session.operation" &&
+      (message.payload as { operation?: unknown; phase?: unknown })?.operation === "compact" &&
+      (message.payload as { operation?: unknown; phase?: unknown })?.phase === "end",
+  );
   const compacted = await rpcReq<{
     ok: true;
     key: string;
@@ -261,6 +298,34 @@ test("sessions.compact without maxLines runs embedded manual compaction for chec
   expect(compacted.ok).toBe(true);
   expect(compacted.payload?.key).toBe("agent:main:main");
   expect(compacted.payload?.compacted).toBe(true);
+  const startEvent = await startEventPromise;
+  const endEvent = await endEventPromise;
+  const startPayload = startEvent.payload as {
+    operationId?: string;
+    sessionKey?: string;
+    ts?: number;
+  };
+  const endPayload = endEvent.payload as {
+    operationId?: string;
+    sessionKey?: string;
+    completed?: boolean;
+    ts?: number;
+  };
+  expect(startPayload).toMatchObject({
+    operation: "compact",
+    phase: "start",
+    sessionKey: "agent:main:main",
+  });
+  expect(endPayload).toMatchObject({
+    operation: "compact",
+    phase: "end",
+    sessionKey: "agent:main:main",
+    completed: true,
+  });
+  expect(startPayload.operationId).toBeTruthy();
+  expect(endPayload.operationId).toBe(startPayload.operationId);
+  expect(typeof startPayload.ts).toBe("number");
+  expect(typeof endPayload.ts).toBe("number");
   expect(embeddedRunMock.compactEmbeddedPiSession).toHaveBeenCalledTimes(1);
   const compactionCall = embeddedRunMock.compactEmbeddedPiSession.mock.calls.at(0)?.[0] as
     | {
@@ -311,9 +376,15 @@ test("sessions.compact without maxLines runs embedded manual compaction for chec
 
   const store = JSON.parse(await fs.readFile(storePath, "utf-8")) as Record<
     string,
-    { compactionCount?: number; totalTokens?: number; totalTokensFresh?: boolean }
+    {
+      compactionCount?: number;
+      contextBudgetStatus?: unknown;
+      totalTokens?: number;
+      totalTokensFresh?: boolean;
+    }
   >;
   expect(store["agent:main:main"]?.compactionCount).toBe(1);
+  expect(store["agent:main:main"]?.contextBudgetStatus).toBeUndefined();
   expect(store["agent:main:main"]?.totalTokens).toBe(80);
   expect(store["agent:main:main"]?.totalTokensFresh).toBe(true);
 

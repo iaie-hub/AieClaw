@@ -16,10 +16,10 @@
  * the channel starts and cleared on teardown.
  */
 
-import type { CreateCoworkParams, CreateCoworkResult } from "./cowork-initiator.js";
 import type { DiscoverAgentsParams, DiscoverAgentsResult } from "./agent-discovery.js";
-import type { SendMessageParams, SendMessageResult } from "./unicast-sender.js";
+import type { CreateCoworkParams, CreateCoworkResult } from "./cowork-initiator.js";
 import type { SendCoworkMessageParams, SendCoworkMessageResult } from "./cowork-sender.js";
+import type { SendMessageParams, SendMessageResult } from "./unicast-sender.js";
 
 // ---------------------------------------------------------------------------
 // Runtime bridge — set by channel.ts startAccount, read by tool execute()
@@ -74,7 +74,7 @@ export const discoverAgentsToolFactory = (ctx: { sessionKey?: string }) => ({
   label: "Discover Agents",
   description:
     "Discover other agents registered in the Agent Registry. " +
-    "Returns a list of online agents with their IDs, names, descriptions, status, and skills. " +
+    "Returns a list of online agents with their IDs, names, descriptions, status, IPs, and skills. " +
     "Use this to find agents before sending them messages or initiating collaboration.",
   parameters: {
     type: "object",
@@ -83,7 +83,7 @@ export const discoverAgentsToolFactory = (ctx: { sessionKey?: string }) => ({
         type: "array",
         items: { type: "string" },
         description:
-          "Filter by skill tags (AND logic — agent must have ALL listed tags). Example: [\"vm\", \"network\"]",
+          'Filter by skill tags (AND logic — agent must have ALL listed tags). Example: ["vm", "network"]',
       },
       filter_status: {
         type: "string",
@@ -93,19 +93,17 @@ export const discoverAgentsToolFactory = (ctx: { sessionKey?: string }) => ({
     },
     required: [],
   },
-  async execute(
-    _toolCallId: string,
-    params: unknown,
-  ) {
+  async execute(_toolCallId: string, params: unknown) {
     const p = (params && typeof params === "object" ? params : {}) as Record<string, unknown>;
     const rt = getRuntime();
 
     const filterSkills = Array.isArray(p["filter_skills"])
       ? (p["filter_skills"] as string[]).map(String)
       : undefined;
-    const filterStatus = typeof p["filter_status"] === "string"
-      ? (p["filter_status"] as "online" | "idle" | "busy" | "offline")
-      : undefined;
+    const filterStatus =
+      typeof p["filter_status"] === "string"
+        ? (p["filter_status"] as "online" | "idle" | "busy" | "offline")
+        : undefined;
 
     const result = await rt.discoverAgents({ filterSkills, filterStatus });
 
@@ -120,6 +118,7 @@ export const discoverAgentsToolFactory = (ctx: { sessionKey?: string }) => ({
         name: a.name,
         description: a.description,
         status: a.status,
+        ip: a.ip,
         skills: a.skills,
       })),
     });
@@ -143,7 +142,7 @@ export const sendMessageToolFactory = (ctx: { sessionKey?: string; runId?: strin
     properties: {
       target_agent_id: {
         type: "string",
-        description: "The registered agent_id of the target agent (e.g. \"agent-002\").",
+        description: 'The registered agent_id of the target agent (e.g. "agent-002").',
       },
       text: {
         type: "string",
@@ -151,15 +150,12 @@ export const sendMessageToolFactory = (ctx: { sessionKey?: string; runId?: strin
       },
       action: {
         type: "string",
-        description: "Optional action label for the message envelope. Defaults to \"message\".",
+        description: 'Optional action label for the message envelope. Defaults to "message".',
       },
     },
     required: ["target_agent_id", "text"],
   },
-  async execute(
-    _toolCallId: string,
-    params: unknown,
-  ) {
+  async execute(_toolCallId: string, params: unknown) {
     const p = (params && typeof params === "object" ? params : {}) as Record<string, unknown>;
     const rt = getRuntime();
 
@@ -226,10 +222,7 @@ export const createCoworkToolFactory = (ctx: { sessionKey?: string }) => ({
     },
     required: ["name"],
   },
-  async execute(
-    _toolCallId: string,
-    params: unknown,
-  ) {
+  async execute(_toolCallId: string, params: unknown) {
     const p = (params && typeof params === "object" ? params : {}) as Record<string, unknown>;
     const rt = getRuntime();
 
@@ -288,15 +281,12 @@ export const sendCoworkMessageToolFactory = (ctx: { sessionKey?: string }) => ({
       },
       action: {
         type: "string",
-        description: "Optional action label for the message envelope. Defaults to \"message\".",
+        description: 'Optional action label for the message envelope. Defaults to "message".',
       },
     },
     required: ["cowork_id", "message"],
   },
-  async execute(
-    _toolCallId: string,
-    params: unknown,
-  ) {
+  async execute(_toolCallId: string, params: unknown) {
     const p = (params && typeof params === "object" ? params : {}) as Record<string, unknown>;
     const rt = getRuntime();
 

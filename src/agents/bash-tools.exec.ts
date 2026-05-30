@@ -1560,6 +1560,7 @@ export function createExecTool(
           command: params.command,
           workdir,
           env,
+          pathPrepend: defaultPathPrepend,
           requestedEnv: params.env,
           pty: params.pty === true && !sandbox,
           timeoutSec: params.timeout,
@@ -1593,6 +1594,9 @@ export function createExecTool(
         if (gatewayResult.pendingResult) {
           return gatewayResult.pendingResult;
         }
+        if (gatewayResult.deniedResult) {
+          return gatewayResult.deniedResult;
+        }
         execCommandOverride = gatewayResult.execCommandOverride;
         if (gatewayResult.allowWithoutEnforcedCommand) {
           execCommandOverride = undefined;
@@ -1615,6 +1619,7 @@ export function createExecTool(
         execCommand: execCommandOverride,
         workdir,
         env,
+        pathPrepend: defaultPathPrepend,
         sandbox,
         containerWorkdir,
         usePty,
@@ -1627,6 +1632,7 @@ export function createExecTool(
         sessionKey: notifySessionKey,
         mainKey: defaults?.mainKey,
         sessionScope: defaults?.sessionScope,
+        eventRouting: defaults?.eventRouting,
         notifyDeliveryContext,
         timeoutSec: effectiveTimeout,
         onUpdate,
@@ -1737,7 +1743,8 @@ export function createExecTool(
 
 export const execTool = createExecTool();
 
-export const __testing = {
+export const testing = {
   parseOpenClawChannelsLoginShellCommand,
   validateScriptFileForShellBleed,
 };
+export { testing as __testing };

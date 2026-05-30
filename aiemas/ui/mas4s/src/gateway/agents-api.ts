@@ -212,3 +212,38 @@ export async function saveTopology(
 ): Promise<{ ok: true }> {
   return client.request("aiemas.agents.topology.save", { rootAgentId, topology });
 }
+
+/** 安全下载工作区内指定文件，如 AGENTS.md。如果文件不存在则返回空字符串。 */
+export async function fetchAgentFileContentSafe(
+  client: GatewayBrowserClient,
+  workspace: string,
+  fileName: string,
+): Promise<string> {
+  const nodePath = workspace.endsWith("/") ? `${workspace}${fileName}` : `${workspace}/${fileName}`;
+  try {
+    const res = await downloadFile(client, nodePath);
+    if (res && res.data) {
+      // Decode base64 to UTF-8 string
+      try {
+        // Standard Web API atob works on base64 in browser
+        return decodeURIComponent(
+          atob(res.data)
+            .split("")
+            .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+            .join(""),
+        );
+      } catch {
+        return atob(res.data);
+      }
+    }
+    return "";
+  } catch (error: unknown) {
+    if (error && typeof error === "object") {
+      const err = error as { code?: string; message?: string };
+      if (err.code === "NOT_FOUND" || err.message?.includes("NOT_FOUND")) {
+        return "";
+      }
+    }
+    return "";
+  }
+}

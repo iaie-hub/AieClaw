@@ -140,7 +140,7 @@ describe("createInboundHandler — invalid envelope bytes", () => {
 // ---------------------------------------------------------------------------
 
 describe("createInboundHandler — unicast topic", () => {
-  it("calls getOrCreateSession with (source, boundAgentId) and dispatches the message", async () => {
+  it("calls getOrCreateSession with derived key (source+session) and dispatches the message", async () => {
     const router = createMessageRouter(options);
     const handler = router.createInboundHandler("a2a.agent.unicast.agent-1");
 
@@ -148,7 +148,12 @@ describe("createInboundHandler — unicast topic", () => {
     handler(bytes);
     await flushAsync();
 
-    expect(options.getOrCreateSession).toHaveBeenCalledWith("sender-agent", "bound-agent");
+    // Without a session field, key is "unicast:{source}"
+    expect(options.getOrCreateSession).toHaveBeenCalledWith(
+      "unicast:sender-agent",
+      "bound-agent",
+      expect.objectContaining({ source: "sender-agent" }),
+    );
     expect(mockSession.dispatch).toHaveBeenCalledOnce();
   });
 
@@ -160,7 +165,32 @@ describe("createInboundHandler — unicast topic", () => {
     handler(bytes);
     await flushAsync();
 
-    expect(options.getOrCreateSession).toHaveBeenCalledWith("originating-agent-xyz", "bound-agent");
+    expect(options.getOrCreateSession).toHaveBeenCalledWith(
+      "unicast:originating-agent-xyz",
+      "bound-agent",
+      expect.objectContaining({ source: "originating-agent-xyz" }),
+    );
+  });
+
+  it("includes envelope.session in the key when session field is present", async () => {
+    const router = createMessageRouter(options);
+    const handler = router.createInboundHandler("a2a.agent.unicast.agent-1");
+
+    const bytes = makeEnvelopeBytes({
+      source: "sender-agent",
+      session: "agent:sender-agent:group:uuid-123",
+    });
+    handler(bytes);
+    await flushAsync();
+
+    expect(options.getOrCreateSession).toHaveBeenCalledWith(
+      "unicast:sender-agent:agent:sender-agent:group:uuid-123",
+      "bound-agent",
+      expect.objectContaining({
+        source: "sender-agent",
+        session: "agent:sender-agent:group:uuid-123",
+      }),
+    );
   });
 });
 

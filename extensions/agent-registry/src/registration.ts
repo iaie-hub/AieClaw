@@ -43,7 +43,8 @@ function getMacSuffix(): string {
         if (info.internal) continue;
         if (!info.address) continue;
         if (info.address === "127.0.0.1" || info.address === "::1") continue;
-        if (!info.mac || info.mac === "00:00:00:00:00:00" || info.mac === "00-00-00-00-00-00") continue;
+        if (!info.mac || info.mac === "00:00:00:00:00:00" || info.mac === "00-00-00-00-00-00")
+          continue;
 
         // Clean the MAC address (remove colons, hyphens, and convert to lowercase)
         const cleaned = info.mac.replace(/[: -]/g, "").toLowerCase();
@@ -57,6 +58,54 @@ function getMacSuffix(): string {
   }
   // Fallback if no valid physical MAC address with an IP is found
   return "defaultmac";
+}
+
+/**
+ * Retrieve the real MAC address (with colons) of the first physical network interface.
+ * Returns "00:00:00:00:00:00" if no valid interface is found.
+ */
+function getRealMac(): string {
+  try {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      const list = interfaces[name];
+      if (!list) continue;
+      for (const info of list) {
+        if (info.internal) continue;
+        if (!info.address) continue;
+        if (info.address === "127.0.0.1" || info.address === "::1") continue;
+        if (!info.mac || info.mac === "00:00:00:00:00:00" || info.mac === "00-00-00-00-00-00")
+          continue;
+        return info.mac.toLowerCase();
+      }
+    }
+  } catch (err) {
+    log.warn("Failed to retrieve network interfaces for real MAC:", err);
+  }
+  return "00:00:00:00:00:00";
+}
+
+/**
+ * Retrieve the local IPv4 address of the first physical network interface.
+ * Returns "0.0.0.0" if no valid interface is found.
+ */
+function getLocalIp(): string {
+  try {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      const list = interfaces[name];
+      if (!list) continue;
+      for (const info of list) {
+        if (info.internal) continue;
+        if (info.family !== "IPv4") continue;
+        if (info.address === "127.0.0.1") continue;
+        return info.address;
+      }
+    }
+  } catch (err) {
+    log.warn("Failed to retrieve local IP address:", err);
+  }
+  return "0.0.0.0";
 }
 
 // ---------------------------------------------------------------------------
@@ -168,7 +217,8 @@ export function createRegistrationManager(
       defaultOutputModes: ["text/plain"],
       // Registry extension fields
       agent_id: agentId,
-      mac: "00:00:00:00:00:00", // Requirement 2.5 — never expose host MAC
+      mac: getRealMac(), // Real host MAC address
+      ip: getLocalIp(), // Host local IPv4 address
       transport: "mq", // Requirement 2.4
       status: "online",
     };

@@ -7,6 +7,7 @@ export type NavItem =
   | "cron"
   | "users"
   | "discussions"
+  | "clawhub"
   | "settings";
 
 export interface UIStateCallback {
