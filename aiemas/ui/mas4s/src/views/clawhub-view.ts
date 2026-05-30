@@ -1,6 +1,7 @@
 import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import { downloadFile, importAgent } from "../gateway/agents-api.js";
+import { downloadFile, importAgent, fetchAgents } from "../gateway/agents-api.js";
+import { importSkill } from "../gateway/skills-api.js";
 import {
   fetchRegistryAgents,
   fetchHubAgents,
@@ -18,6 +19,7 @@ import type {
   HubSkill,
   HubSkillsListResponse,
 } from "../gateway/clawhub-api.js";
+import type { AgentEntry } from "../types/agents-types.js";
 import { getClient } from "../gateway/client.js";
 import "./clawhub-agent-card.js";
 import "./clawhub-agenthub-card.js";
@@ -27,6 +29,7 @@ import "./clawhub-skillhub-card.js";
 import "./clawhub-skillhub-detail.js";
 import "../components/confirm-dialog.js";
 import "../components/agent/clawhub-agent-import-dialog.js";
+import "../components/skill/clawhub-skill-import-dialog.js";
 import "../components/toast-message.js";
 
 type TabKind = "agents" | "agenthub" | "skillhub";
@@ -40,7 +43,8 @@ type DialogState =
       visibility: "public" | "private";
       skillName: string;
     }
-  | { kind: "import-hub"; hubAgentId: string; hubAgentName: string };
+  | { kind: "import-hub"; hubAgentId: string; hubAgentName: string }
+  | { kind: "import-hub-skill"; hubSkillId: string; hubSkillName: string };
 
 type ViewState =
   | { kind: "loading" }
@@ -88,6 +92,9 @@ export class ClawHubView extends LitElement {
   // ── Toast state ──
   @state() private _toastMsg = "";
   @state() private _toastError = false;
+
+  // ── Local Agents cache for skill import ──
+  @state() private _localAgents: AgentEntry[] = [];
 
   static styles = css`
     :host {
@@ -330,6 +337,7 @@ export class ClawHubView extends LitElement {
       this._onDownloadHubSkill as unknown as EventListener,
     );
     this.addEventListener("import-hub-agent", this._onImportHubAgent as unknown as EventListener);
+    this.addEventListener("import-hub-skill", this._onImportHubSkill as unknown as EventListener);
     void this._init();
   }
 
@@ -346,6 +354,10 @@ export class ClawHubView extends LitElement {
     this.removeEventListener(
       "import-hub-agent",
       this._onImportHubAgent as unknown as EventListener,
+    );
+    this.removeEventListener(
+      "import-hub-skill",
+      this._onImportHubSkill as unknown as EventListener,
     );
   }
 
@@ -554,6 +566,60 @@ export class ClawHubView extends LitElement {
       this._showToast("智能体导入成功！");
     } catch (err: unknown) {
       console.error("Failed to import agent from Hub", err);
+      const msg = err instanceof Error ? err.message : "导入失败";
+      this._showToast(msg, true);
+    }
+  }
+
+  private async _onImportHubSkill(e: CustomEvent<{ skillId: string; name: string }>) {
+    try {
+      const client = getClient();
+      await client.waitConnected();
+      const agentsRes = await fetchAgents(client);
+      this._localAgents = agentsRes.agents || [];
+    } catch (err) {
+      console.error("Failed to load local agents for skill import", err);
+      this._localAgents = [];
+    }
+
+    this._dialog = {
+      kind: "import-hub-skill",
+      hubSkillId: e.detail.skillId,
+      hubSkillName: e.detail.name,
+    };
+  }
+
+  private async _onConfirmImportHubSkill(e: CustomEvent<{ slug: string; workspace?: string }>) {
+    if (this._dialog.kind !== "import-hub-skill") return;
+    const { hubSkillId, hubSkillName } = this._dialog;
+    this._dialog = { kind: "none" };
+
+    this._showToast("正在从 SkillHub 导入技能...");
+    try {
+      const client = getClient();
+      await client.waitConnected();
+
+      // Step 1: Let the gateway download zip to local temp folder
+      const res = await downloadHubSkill(client, hubSkillId, hubSkillName);
+      if (!res.ok || !res.downloadPath) {
+        throw new Error("下载远程技能包失败");
+      }
+
+      // Step 2: Direct local import using downloadPath (no WS base64 overhead)
+      const importRes = await importSkill(
+        client,
+        res.downloadPath,
+        e.detail.slug,
+        e.detail.workspace,
+      );
+
+      if (!importRes || importRes.ok === false) {
+        throw new Error("导入物理路径解压失败");
+      }
+
+      this._showToast("技能导入成功！");
+    } catch (err: unknown) {
+      console.error("Failed to import skill from Hub", err);
       const msg = err instanceof Error ? err.message : "导入失败";
       this._showToast(msg, true);
     }
@@ -791,6 +857,20 @@ export class ClawHubView extends LitElement {
             this._dialog = { kind: "none" };
           }}
         ></clawhub-agent-import-dialog>
+      `;
+    }
+    if (this._dialog.kind === "import-hub-skill") {
+      const { hubSkillId, hubSkillName } = this._dialog;
+      return html`
+        <clawhub-skill-import-dialog
+          hubSkillId=${hubSkillId}
+          hubSkillName=${hubSkillName}
+          .agents=${this._localAgents}
+          @confirm=${this._onConfirmImportHubSkill}
+          @cancel=${() => {
+            this._dialog = { kind: "none" };
+          }}
+        ></clawhub-skill-import-dialog>
       `;
     }
     return "";

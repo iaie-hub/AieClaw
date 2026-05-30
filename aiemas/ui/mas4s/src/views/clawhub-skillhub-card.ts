@@ -2,6 +2,7 @@ import { LitElement, html, css } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { markdownMath } from "../lib/markdown-directive.js";
 import downloadIcon from "../../asset/download.svg";
+import importIcon from "../../asset/import.svg";
 
 
 /**
@@ -240,6 +241,17 @@ export class ClawHubSkillHubCard extends LitElement {
     }
   }
 
+  private async _handleImport(e: Event) {
+    e.stopPropagation(); // prevent clicking card
+    this.dispatchEvent(
+      new CustomEvent("import-hub-skill", {
+        detail: { skillId: this.skillId, name: this.name },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
   private async _handleDownload(e: Event) {
     e.stopPropagation(); // prevent clicking card
     this.dispatchEvent(
@@ -269,7 +281,7 @@ export class ClawHubSkillHubCard extends LitElement {
       <div class="header">
         <div class="info">
           <h3 class="name" title=${this.name}>${this.name}</h3>
-          <p class="uploader" title=${this.uploaderName}>Uploaded by: ${this.uploaderName}</p>
+          <p class="uploader" title=${this.uploaderName}>上传者: ${this.uploaderName}</p>
         </div>
         <div
           class="visibility ${this.visibility} ${this.canManage ? "can-manage" : ""}"
@@ -289,12 +301,12 @@ export class ClawHubSkillHubCard extends LitElement {
                   clip-rule="evenodd"
                 />
               </svg>`}
-          ${this.visibility === "public" ? "Public" : "Private"}
+          ${this.visibility === "public" ? "公开" : "私有"}
         </div>
       </div>
 
-      <div class="description" title=${this.description || "No description provided."}>
-        ${markdownMath(this.description || "No description provided.")}
+      <div class="description" title=${this.description || "暂无描述。"}>
+        ${markdownMath(this.description || "暂无描述。")}
       </div>
 
       <div class="card-footer">
@@ -303,14 +315,24 @@ export class ClawHubSkillHubCard extends LitElement {
           <span class="meta-divider">•</span>
           <span>${this._formatDate(this.createdAt)}</span>
         </div>
-        <button
-          class="icon-btn"
-          title="下载Skill"
-          aria-label="下载Skill ${this.name}"
-          @click=${this._handleDownload}
-        >
-          <img src="${downloadIcon}" width="14" height="14" alt="download" />
-        </button>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button
+            class="icon-btn"
+            title="导入到工作区"
+            aria-label="导入技能 ${this.name}"
+            @click=${this._handleImport}
+          >
+            <img src="${importIcon}" width="14" height="14" alt="import" />
+          </button>
+          <button
+            class="icon-btn"
+            title="下载Skill"
+            aria-label="下载Skill ${this.name}"
+            @click=${this._handleDownload}
+          >
+            <img src="${downloadIcon}" width="14" height="14" alt="download" />
+          </button>
+        </div>
       </div>
     `;
   }

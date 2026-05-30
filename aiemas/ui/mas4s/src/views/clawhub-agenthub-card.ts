@@ -295,7 +295,7 @@ export class ClawHubAgentHubCard extends LitElement {
       <div class="header">
         <div class="info">
           <h3 class="name" title=${this.name}>${this.name}</h3>
-          <p class="uploader" title=${this.uploaderName}>Uploaded by: ${this.uploaderName}</p>
+          <p class="uploader" title=${this.uploaderName}>上传者: ${this.uploaderName}</p>
         </div>
         <div
           class="visibility ${this.visibility} ${this.canManage ? "can-manage" : ""}"
@@ -315,12 +315,12 @@ export class ClawHubAgentHubCard extends LitElement {
                   clip-rule="evenodd"
                 />
               </svg>`}
-          ${this.visibility === "public" ? "Public" : "Private"}
+          ${this.visibility === "public" ? "公开" : "私有"}
         </div>
       </div>
 
-      <div class="description" title=${this.description || "No description provided."}>
-        ${markdownMath(this.description || "No description provided.")}
+      <div class="description" title=${this.description || "暂无描述。"}>
+        ${markdownMath(this.description || "暂无描述。")}
       </div>
 
       <div class="card-footer">
@@ -332,7 +332,7 @@ export class ClawHubAgentHubCard extends LitElement {
         <div style="display: flex; gap: 8px; align-items: center;">
           <button
             class="icon-btn"
-            title="导入到本地工作区"
+            title="导入到工作区"
             aria-label="导入智能体 ${this.name}"
             @click=${this._handleImport}
           >

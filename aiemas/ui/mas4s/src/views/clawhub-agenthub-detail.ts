@@ -2,6 +2,8 @@ import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { HubAgent } from "../gateway/clawhub-api.js";
 import { markdownMath } from "../lib/markdown-directive.js";
+import importIcon from "../../asset/import.svg";
+import downloadIcon from "../../asset/download.svg";
 
 @customElement("clawhub-agenthub-detail")
 export class ClawHubAgentHubDetail extends LitElement {
@@ -189,7 +191,7 @@ export class ClawHubAgentHubDetail extends LitElement {
       box-shadow: 0 2px 4px rgba(79, 70, 229, 0.1);
     }
 
-    .btn-download svg {
+    .btn-download img {
       width: 16px;
       height: 16px;
     }
@@ -221,7 +223,7 @@ export class ClawHubAgentHubDetail extends LitElement {
       box-shadow: 0 2px 4px rgba(16, 185, 129, 0.1);
     }
 
-    .btn-import svg {
+    .btn-import img {
       width: 16px;
       height: 16px;
     }
@@ -511,50 +513,33 @@ export class ClawHubAgentHubDetail extends LitElement {
                         clip-rule="evenodd"
                       />
                     </svg>`}
-                ${a.visibility === "public" ? "Public" : "Private"}
+                ${a.visibility === "public" ? "公开" : "私有"}
               </div>
             </div>
-            <p class="uploader">Uploaded by <span>${a.uploader_name}</span></p>
+            <p class="uploader">上传者 <span>${a.uploader_name}</span></p>
           </div>
           <div class="actions">
             <button class="btn-import" @click=${this._onImport}>
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1" />
-                <polyline points="16 10 12 14 8 10" />
-                <line x1="12" y1="14" x2="12" y2="3" />
-              </svg>
+              <img src="${importIcon}" width="16" height="16" alt="import" style="filter: brightness(0) invert(1);" />
               导入到工作区
             </button>
             <button class="btn-download" @click=${this._onDownload}>
-              <svg viewBox="0 0 20 20" fill="currentColor">
-                <path
-                  fill-rule="evenodd"
-                  d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"
-                  clip-rule="evenodd"
-                />
-              </svg>
-              Download ZIP
+              <img src="${downloadIcon}" width="16" height="16" alt="download" style="filter: brightness(0) invert(1);" />
+              下载
             </button>
           </div>
         </div>
 
         <!-- Metadata Grid Block -->
         <section class="detail-card">
-          <h2 class="card-title">Package Information</h2>
+          <h2 class="card-title">智能体包信息</h2>
           <dl class="dl-list">
             <div class="dl-item">
-              <dt>Agent ID</dt>
+              <dt>智能体 ID</dt>
               <dd class="mono">${a.id}</dd>
             </div>
             <div class="dl-item">
-              <dt>Package Size</dt>
+              <dt>包大小</dt>
               <dd
                 class="mono"
                 style="background: #f8fafc; border-color: #f1f5f9; display: inline-block;"
@@ -563,15 +548,15 @@ export class ClawHubAgentHubDetail extends LitElement {
               </dd>
             </div>
             <div class="dl-item full-width">
-              <dt>Storage Path</dt>
+              <dt>存储物理路径</dt>
               <dd class="mono">${a.file_path}</dd>
             </div>
             <div class="dl-item">
-              <dt>Created At</dt>
+              <dt>创建时间</dt>
               <dd>${this._formatDate(a.created_at)}</dd>
             </div>
             <div class="dl-item">
-              <dt>Updated At</dt>
+              <dt>更新时间</dt>
               <dd>${this._formatDate(a.updated_at)}</dd>
             </div>
           </dl>
@@ -579,14 +564,14 @@ export class ClawHubAgentHubDetail extends LitElement {
 
         <!-- Description Block -->
         <section class="detail-card">
-          <h2 class="card-title">Description</h2>
+          <h2 class="card-title">描述</h2>
           <div class="description-container">
             <div
               class="description-content ${this._descriptionExpanded || !showExpandBtn
                 ? ""
                 : "collapsed"}"
             >
-              ${markdownMath(a.description || "No description provided.")}
+              ${markdownMath(a.description || "暂无描述。")}
             </div>
             ${!this._descriptionExpanded && showExpandBtn
               ? html`<div class="fade-overlay"></div>`

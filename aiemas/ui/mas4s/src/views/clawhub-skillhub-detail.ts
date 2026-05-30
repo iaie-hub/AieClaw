@@ -2,6 +2,8 @@ import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { HubSkill } from "../gateway/clawhub-api.js";
 import { markdownMath } from "../lib/markdown-directive.js";
+import importIcon from "../../asset/import.svg";
+import downloadIcon from "../../asset/download.svg";
 
 @customElement("clawhub-skillhub-detail")
 export class ClawHubSkillHubDetail extends LitElement {
@@ -189,7 +191,39 @@ export class ClawHubSkillHubDetail extends LitElement {
       box-shadow: 0 2px 4px rgba(79, 70, 229, 0.1);
     }
 
-    .btn-download svg {
+    .btn-download img {
+      width: 16px;
+      height: 16px;
+    }
+
+    .btn-import {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+
+    .btn-import:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+      filter: brightness(1.05);
+    }
+
+    .btn-import:active {
+      transform: translateY(0) scale(0.98);
+      box-shadow: 0 2px 4px rgba(16, 185, 129, 0.1);
+    }
+
+    .btn-import img {
       width: 16px;
       height: 16px;
     }
@@ -393,6 +427,16 @@ export class ClawHubSkillHubDetail extends LitElement {
     this.dispatchEvent(new CustomEvent("back", { bubbles: true, composed: true }));
   }
 
+  private _onImport() {
+    this.dispatchEvent(
+      new CustomEvent("import-hub-skill", {
+        detail: { skillId: this.skill.id, name: this.skill.name },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
   private _onDownload() {
     this.dispatchEvent(
       new CustomEvent("download-hub-skill", {
@@ -469,35 +513,33 @@ export class ClawHubSkillHubDetail extends LitElement {
                         clip-rule="evenodd"
                       />
                     </svg>`}
-                ${s.visibility === "public" ? "Public" : "Private"}
+                ${s.visibility === "public" ? "公开" : "私有"}
               </div>
             </div>
-            <p class="uploader">Uploaded by <span>${s.uploader_name}</span></p>
+            <p class="uploader">上传者 <span>${s.uploader_name}</span></p>
           </div>
           <div class="actions">
+            <button class="btn-import" @click=${this._onImport}>
+              <img src="${importIcon}" width="16" height="16" alt="import" style="filter: brightness(0) invert(1);" />
+              导入到工作区
+            </button>
             <button class="btn-download" @click=${this._onDownload}>
-              <svg viewBox="0 0 20 20" fill="currentColor">
-                <path
-                  fill-rule="evenodd"
-                  d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"
-                  clip-rule="evenodd"
-                />
-              </svg>
-              Download ZIP
+              <img src="${downloadIcon}" width="16" height="16" alt="download" style="filter: brightness(0) invert(1);" />
+              下载
             </button>
           </div>
         </div>
 
         <!-- Metadata Grid Block -->
         <section class="detail-card">
-          <h2 class="card-title">Package Information</h2>
+          <h2 class="card-title">技能包信息</h2>
           <dl class="dl-list">
             <div class="dl-item">
-              <dt>Skill ID</dt>
+              <dt>技能 ID</dt>
               <dd class="mono">${s.id}</dd>
             </div>
             <div class="dl-item">
-              <dt>Package Size</dt>
+              <dt>包大小</dt>
               <dd
                 class="mono"
                 style="background: #f8fafc; border-color: #f1f5f9; display: inline-block;"
@@ -506,15 +548,15 @@ export class ClawHubSkillHubDetail extends LitElement {
               </dd>
             </div>
             <div class="dl-item full-width">
-              <dt>Storage Path</dt>
+              <dt>存储物理路径</dt>
               <dd class="mono">${s.file_path}</dd>
             </div>
             <div class="dl-item">
-              <dt>Created At</dt>
+              <dt>创建时间</dt>
               <dd>${this._formatDate(s.created_at)}</dd>
             </div>
             <div class="dl-item">
-              <dt>Updated At</dt>
+              <dt>更新时间</dt>
               <dd>${this._formatDate(s.updated_at)}</dd>
             </div>
           </dl>
@@ -522,14 +564,14 @@ export class ClawHubSkillHubDetail extends LitElement {
 
         <!-- Description Block -->
         <section class="detail-card">
-          <h2 class="card-title">Description</h2>
+          <h2 class="card-title">描述</h2>
           <div class="description-container">
             <div
               class="description-content ${this._descriptionExpanded || !showExpandBtn
                 ? ""
                 : "collapsed"}"
             >
-              ${markdownMath(s.description || "No description provided.")}
+              ${markdownMath(s.description || "暂无描述。")}
             </div>
             ${!this._descriptionExpanded && showExpandBtn
               ? html`<div class="fade-overlay"></div>`
