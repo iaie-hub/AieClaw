@@ -310,9 +310,8 @@ export class SkillsManager extends LitElement {
 
     .toast {
       position: fixed;
-      bottom: 24px;
-      left: 50%;
-      transform: translateX(-50%);
+      top: 24px;
+      right: 24px;
       padding: 12px 20px;
       border-radius: 10px;
       font-size: 14px;
@@ -322,6 +321,7 @@ export class SkillsManager extends LitElement {
       animation: toastIn 0.25s ease-out;
       max-width: 400px;
       text-align: center;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
     }
 
     .toast.success {
@@ -334,11 +334,11 @@ export class SkillsManager extends LitElement {
     @keyframes toastIn {
       from {
         opacity: 0;
-        transform: translateX(-50%) translateY(10px);
+        transform: translateY(-10px);
       }
       to {
         opacity: 1;
-        transform: translateX(-50%) translateY(0);
+        transform: translateY(0);
       }
     }
   `;
@@ -525,7 +525,6 @@ export class SkillsManager extends LitElement {
     this._dialog = { kind: "none" };
     try {
       const client = getClient();
-      this._showToast("正在上传到 SkillHub，请稍候...");
       const uploadRes = await uploadSkillToHub(client, {
         skillKey: skill.skillKey,
         workspace: skill.baseDir,
