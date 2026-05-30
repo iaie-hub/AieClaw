@@ -21,6 +21,7 @@ import "../components/agent/agent-export-dialog.js";
 import "../components/agent/agent-import-dialog.js";
 import "../components/agent/agent-upload-dialog.js";
 import "./agent-topology-view.js";
+import "../components/toast-message.js";
 import { getClient } from "../gateway/client.js";
 import type { AgentEntry, WorkspaceEntry } from "../types/agents-types.js";
 
@@ -48,7 +49,6 @@ export class AgentsView extends LitElement {
   @state() private _toastError = false;
   @state() private _topologyAgent: AgentEntry | null = null;
   @state() private _searchQuery = "";
-  private _toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   static styles = css`
     :host {
@@ -209,40 +209,6 @@ export class AgentsView extends LitElement {
     .btn-secondary:hover {
       background: #e2e8f0;
     }
-
-    .toast {
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      padding: 12px 20px;
-      border-radius: 10px;
-      font-size: 14px;
-      font-weight: 500;
-      color: white;
-      z-index: 2000;
-      animation: toastIn 0.25s ease-out;
-      max-width: 400px;
-      text-align: center;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-    }
-
-    .toast.success {
-      background: #22c55e;
-    }
-    .toast.error {
-      background: #ef4444;
-    }
-
-    @keyframes toastIn {
-      from {
-        opacity: 0;
-        transform: translateY(10px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
   `;
 
   connectedCallback() {
@@ -252,9 +218,6 @@ export class AgentsView extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
-    if (this._toastTimer) {
-      clearTimeout(this._toastTimer);
-    }
   }
 
   private async _fetch() {
@@ -274,14 +237,8 @@ export class AgentsView extends LitElement {
   }
 
   private _showToast(msg: string, isError = false) {
-    if (this._toastTimer) {
-      clearTimeout(this._toastTimer);
-    }
     this._toastMsg = msg;
     this._toastError = isError;
-    this._toastTimer = setTimeout(() => {
-      this._toastMsg = "";
-    }, 3000);
   }
 
   // ── Create ────────────────────────────────────────────────────────────────
@@ -632,7 +589,13 @@ export class AgentsView extends LitElement {
       </div>
       ${this._renderDialogs()}
       ${this._toastMsg
-        ? html`<div class="toast ${this._toastError ? "error" : "success"}">${this._toastMsg}</div>`
+        ? html`<toast-message
+            .message=${this._toastMsg}
+            ?isError=${this._toastError}
+            @close=${() => {
+              this._toastMsg = "";
+            }}
+          ></toast-message>`
         : ""}
     `;
   }

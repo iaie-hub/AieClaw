@@ -14,6 +14,7 @@ import "../components/skill-card.js";
 import "../components/skill-detail-panel.js";
 import "../components/skill/skill-export-dialog.js";
 import "../components/skill/skill-upload-dialog.js";
+import "../components/toast-message.js";
 import type { WorkspaceEntry } from "../types/agents-types.js";
 import type { SkillStatusEntry } from "../types/skills-types.js";
 
@@ -42,7 +43,6 @@ export class SkillsManager extends LitElement {
   @state() private _dialog: DialogState = { kind: "none" };
   @state() private _toastMsg = "";
   @state() private _toastError = false;
-  private _toastTimer: any = null;
 
   static styles = css`
     :host {
@@ -307,40 +307,6 @@ export class SkillsManager extends LitElement {
       gap: 12px;
       align-items: center;
     }
-
-    .toast {
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      padding: 12px 20px;
-      border-radius: 10px;
-      font-size: 14px;
-      font-weight: 500;
-      color: white;
-      z-index: 2000;
-      animation: toastIn 0.25s ease-out;
-      max-width: 400px;
-      text-align: center;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-    }
-
-    .toast.success {
-      background: #22c55e;
-    }
-    .toast.error {
-      background: #ef4444;
-    }
-
-    @keyframes toastIn {
-      from {
-        opacity: 0;
-        transform: translateY(10px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
   `;
 
   connectedCallback() {
@@ -362,14 +328,8 @@ export class SkillsManager extends LitElement {
   };
 
   private _showToast(msg: string, isError = false) {
-    if (this._toastTimer) {
-      clearTimeout(this._toastTimer);
-    }
     this._toastMsg = msg;
     this._toastError = isError;
-    this._toastTimer = setTimeout(() => {
-      this._toastMsg = "";
-    }, 3000);
   }
 
   private _handleSkillSelect = (e: CustomEvent<{ skill: SkillStatusEntry }>) => {
@@ -745,7 +705,13 @@ export class SkillsManager extends LitElement {
       </div>
 
       ${this._toastMsg
-        ? html`<div class="toast ${this._toastError ? "error" : "success"}">${this._toastMsg}</div>`
+        ? html`<toast-message
+            .message=${this._toastMsg}
+            ?isError=${this._toastError}
+            @close=${() => {
+              this._toastMsg = "";
+            }}
+          ></toast-message>`
         : ""}
     `;
   }
