@@ -212,7 +212,7 @@ export class AgentsView extends LitElement {
 
     .toast {
       position: fixed;
-      top: 24px;
+      bottom: 24px;
       right: 24px;
       padding: 12px 20px;
       border-radius: 10px;
@@ -236,7 +236,7 @@ export class AgentsView extends LitElement {
     @keyframes toastIn {
       from {
         opacity: 0;
-        transform: translateY(-10px);
+        transform: translateY(10px);
       }
       to {
         opacity: 1;
