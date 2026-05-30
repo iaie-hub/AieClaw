@@ -1,6 +1,6 @@
 import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import { downloadFile } from "../gateway/agents-api.js";
+import { downloadFile, importAgent } from "../gateway/agents-api.js";
 import {
   fetchRegistryAgents,
   fetchHubAgents,
@@ -26,6 +26,8 @@ import "./clawhub-agenthub-detail.js";
 import "./clawhub-skillhub-card.js";
 import "./clawhub-skillhub-detail.js";
 import "../components/confirm-dialog.js";
+import "../components/agent/clawhub-agent-import-dialog.js";
+import "../components/toast-message.js";
 
 type TabKind = "agents" | "agenthub" | "skillhub";
 
@@ -37,7 +39,8 @@ type DialogState =
       skillId: string;
       visibility: "public" | "private";
       skillName: string;
-    };
+    }
+  | { kind: "import-hub"; hubAgentId: string; hubAgentName: string };
 
 type ViewState =
   | { kind: "loading" }
@@ -81,6 +84,10 @@ export class ClawHubView extends LitElement {
   @state() private _hubSkillPage = 1;
   @state() private _hubSkillTotalPages = 1;
   @state() private _hubSkillTotal = 0;
+
+  // ── Toast state ──
+  @state() private _toastMsg = "";
+  @state() private _toastError = false;
 
   static styles = css`
     :host {
@@ -322,6 +329,10 @@ export class ClawHubView extends LitElement {
       "download-hub-skill",
       this._onDownloadHubSkill as unknown as EventListener,
     );
+    this.addEventListener(
+      "import-hub-agent",
+      this._onImportHubAgent as unknown as EventListener,
+    );
     void this._init();
   }
 
@@ -334,6 +345,10 @@ export class ClawHubView extends LitElement {
     this.removeEventListener(
       "download-hub-skill",
       this._onDownloadHubSkill as unknown as EventListener,
+    );
+    this.removeEventListener(
+      "import-hub-agent",
+      this._onImportHubAgent as unknown as EventListener,
     );
   }
 
@@ -512,6 +527,41 @@ export class ClawHubView extends LitElement {
     }
   }
 
+  private _onImportHubAgent(e: CustomEvent<{ agentId: string; name: string }>) {
+    this._dialog = {
+      kind: "import-hub",
+      hubAgentId: e.detail.agentId,
+      hubAgentName: e.detail.name,
+    };
+  }
+
+  private async _onConfirmImportHubAgent(e: CustomEvent<{ agentId: string; workspace: string }>) {
+    if (this._dialog.kind !== "import-hub") return;
+    const { hubAgentId, hubAgentName } = this._dialog;
+    this._dialog = { kind: "none" };
+
+    this._showToast("正在从 AgentHub 导入智能体...");
+    try {
+      const client = getClient();
+      await client.waitConnected();
+
+      // Step 1: Let the gateway download zip to local temp folder
+      const res = await downloadHubAgent(client, hubAgentId, hubAgentName);
+      if (!res.ok || !res.downloadPath) {
+        throw new Error("下载远程智能体包失败");
+      }
+
+      // Step 2 & 3: Direct local import using downloadPath (no WS base64 overhead)
+      await importAgent(client, res.downloadPath, e.detail.agentId, e.detail.workspace);
+
+      this._showToast("智能体导入成功！");
+    } catch (err: unknown) {
+      console.error("Failed to import agent from Hub", err);
+      const msg = err instanceof Error ? err.message : "导入失败";
+      this._showToast(msg, true);
+    }
+  }
+
   private async _onDownloadHubSkill(e: CustomEvent<{ skillId: string; name: string }>) {
     try {
       const client = getClient();
@@ -617,6 +667,24 @@ export class ClawHubView extends LitElement {
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
+  private _showToast(msg: string, isError = false) {
+    this._toastMsg = msg;
+    this._toastError = isError;
+  }
+
+  private _renderToast() {
+    if (!this._toastMsg) return "";
+    return html`
+      <toast-message
+        .message=${this._toastMsg}
+        ?isError=${this._toastError}
+        @close=${() => {
+          this._toastMsg = "";
+        }}
+      ></toast-message>
+    `;
+  }
+
   render() {
     if (this._selectedAgent) {
       return html`
@@ -624,6 +692,7 @@ export class ClawHubView extends LitElement {
           .agent=${this._selectedAgent}
           @back=${this._onBackToList}
         ></clawhub-agent-detail>
+        ${this._renderToast()}
       `;
     }
 
@@ -635,6 +704,7 @@ export class ClawHubView extends LitElement {
           @toggle-visibility=${this._onToggleVisibility}
         ></clawhub-agenthub-detail>
         ${this._renderDialogs()}
+        ${this._renderToast()}
       `;
     }
 
@@ -646,6 +716,7 @@ export class ClawHubView extends LitElement {
           @toggle-visibility=${this._onToggleVisibility}
         ></clawhub-skillhub-detail>
         ${this._renderDialogs()}
+        ${this._renderToast()}
       `;
     }
 
@@ -678,6 +749,7 @@ export class ClawHubView extends LitElement {
       </div>
       <div class="content-area">${this._renderContent()}</div>
       ${this._renderDialogs()}
+      ${this._renderToast()}
     `;
   }
 
@@ -712,6 +784,19 @@ export class ClawHubView extends LitElement {
             this._dialog = { kind: "none" };
           }}
         ></confirm-dialog>
+      `;
+    }
+    if (this._dialog.kind === "import-hub") {
+      const { hubAgentId, hubAgentName } = this._dialog;
+      return html`
+        <clawhub-agent-import-dialog
+          hubAgentId=${hubAgentId}
+          hubAgentName=${hubAgentName}
+          @confirm=${this._onConfirmImportHubAgent}
+          @cancel=${() => {
+            this._dialog = { kind: "none" };
+          }}
+        ></clawhub-agent-import-dialog>
       `;
     }
     return "";

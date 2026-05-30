@@ -194,6 +194,38 @@ export class ClawHubAgentHubDetail extends LitElement {
       height: 16px;
     }
 
+    .btn-import {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+
+    .btn-import:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+      filter: brightness(1.05);
+    }
+
+    .btn-import:active {
+      transform: translateY(0) scale(0.98);
+      box-shadow: 0 2px 4px rgba(16, 185, 129, 0.1);
+    }
+
+    .btn-import svg {
+      width: 16px;
+      height: 16px;
+    }
+
     /* ── Detail Card ── */
     .detail-card {
       background: white;
@@ -403,6 +435,16 @@ export class ClawHubAgentHubDetail extends LitElement {
     );
   }
 
+  private _onImport() {
+    this.dispatchEvent(
+      new CustomEvent("import-hub-agent", {
+        detail: { agentId: this.agent.id, name: this.agent.name },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
   private _handleVisibilityToggle(e: Event) {
     if (!this.agent.can_manage) return;
     e.stopPropagation();
@@ -475,6 +517,14 @@ export class ClawHubAgentHubDetail extends LitElement {
             <p class="uploader">Uploaded by <span>${a.uploader_name}</span></p>
           </div>
           <div class="actions">
+            <button class="btn-import" @click=${this._onImport}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1" />
+                <polyline points="16 10 12 14 8 10" />
+                <line x1="12" y1="14" x2="12" y2="3" />
+              </svg>
+              导入到工作区
+            </button>
             <button class="btn-download" @click=${this._onDownload}>
               <svg viewBox="0 0 20 20" fill="currentColor">
                 <path
