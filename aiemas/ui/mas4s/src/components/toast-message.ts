@@ -26,7 +26,9 @@ export class ToastMessage extends LitElement {
       border-radius: 10px;
       font-size: 14px;
       font-weight: 500;
-      color: white;
+      background: white;
+      color: #1e293b;
+      border: 1px solid #e2e8f0;
       z-index: 2000;
       animation: toastIn 0.25s ease-out;
       max-width: 400px;
@@ -35,12 +37,10 @@ export class ToastMessage extends LitElement {
       word-break: break-all;
     }
 
-    .toast.success {
-      background: #22c55e;
-    }
-
     .toast.error {
       background: #ef4444;
+      color: white;
+      border-color: transparent;
     }
 
     @keyframes toastIn {
