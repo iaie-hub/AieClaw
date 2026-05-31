@@ -1,6 +1,6 @@
 import type { Mas4sGatewayPlugin, GatewayClient, SendToConnIdFn } from "./aiemas-types.js";
 import { str, sendToConnId, buildConnectedUsers } from "./aiemas-utils.js";
-import { MasAuthContext, NULL_MAS_AUTH, setMasAuth as setMasAuthContext } from "./context.js";
+import { type MasAuthContext, NULL_MAS_AUTH, setMasAuth as setMasAuthContext } from "./context.js";
 
 export interface AuthContext {
   plugin: Mas4sGatewayPlugin;

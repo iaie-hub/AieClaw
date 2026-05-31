@@ -5,7 +5,7 @@ import {
   type GatewayClient,
   type GatewayContext,
 } from "./aiemas-utils.js";
-import { MasAuthContext, NULL_MAS_AUTH } from "./context.js";
+import { type MasAuthContext, NULL_MAS_AUTH } from "./context.js";
 
 export interface ChatContext {
   plugin: Mas4sGatewayPlugin;

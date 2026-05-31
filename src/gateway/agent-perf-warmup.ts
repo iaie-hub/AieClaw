@@ -20,8 +20,8 @@
 import { listAgentIds, resolveAgentDir } from "../agents/agent-scope.js";
 import { resolveDefaultModelForAgent } from "../agents/model-selection.js";
 import { ensureOpenClawModelsJson } from "../agents/models-config.js";
-import { resolveModelAsync } from "../agents/pi-embedded-runner/model.js";
-import { discoverAuthStorage, discoverModels } from "../agents/pi-model-discovery.js";
+import { resolveModelAsync } from "../agents/embedded-agent-runner/model.js";
+import { discoverAuthStorage, discoverModels } from "../agents/agent-model-discovery.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 
 /**

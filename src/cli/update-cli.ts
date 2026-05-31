@@ -1,7 +1,7 @@
 import type { Command } from "commander";
+import { formatDocsLink } from "../../packages/terminal-core/src/links.js";
+import { theme } from "../../packages/terminal-core/src/theme.js";
 import { defaultRuntime } from "../runtime.js";
-import { formatDocsLink } from "../terminal/links.js";
-import { theme } from "../terminal/theme.js";
 import { inheritOptionFromParent } from "./command-options.js";
 import { formatHelpExamples } from "./help-format.js";
 import {
@@ -131,7 +131,7 @@ ${theme.muted("Docs:")} ${formatDocsLink("/cli/update", "docs.openclaw.ai/cli/up
           channel: opts.channel as string | undefined,
           timeout: inheritedUpdateTimeout(opts, command),
           yes: Boolean(opts.yes),
-          restart: Boolean(opts.restart),
+          restart: false,
         });
       } catch (err) {
         defaultRuntime.error(String(err));

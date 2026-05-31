@@ -8,7 +8,7 @@ export function formatBlockedLivenessError(error: unknown): string {
 }
 
 export function normalizeBlockedLivenessWaitStatus<
-  TStatus extends "ok" | "error" | "timeout" | "pending",
+  TStatus extends "ok" | "error" | "timeout" | "pending" | "blocked",
 >(params: {
   status: TStatus;
   livenessState?: unknown;

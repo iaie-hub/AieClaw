@@ -10,6 +10,7 @@ import {
 } from "../chat-model-select-state.ts";
 import { refreshVisibleToolsEffectiveForCurrentSession } from "../controllers/agents.ts";
 import { loadSessions } from "../controllers/sessions.ts";
+import { formatDateTimeMs } from "../format.ts";
 import { icons } from "../icons.ts";
 import { isMonitoredAuthProvider } from "../model-auth-helpers.ts";
 import { pathForTab } from "../navigation.ts";
@@ -205,6 +206,9 @@ function openChatSessionPicker(state: AppViewState, surface: ChatSessionSelectSu
   state.chatSessionPickerOpen = true;
   state.chatSessionPickerSurface = surface;
   state.chatSessionPickerError = null;
+  if (!state.chatSessionPickerResult && !state.chatSessionPickerAppliedQuery) {
+    void loadChatSessionPickerPage(state);
+  }
   requestHostUpdate(state);
   focusChatSessionPickerSearch(state);
 }
@@ -214,6 +218,18 @@ function closeChatSessionPicker(state: AppViewState) {
   state.chatSessionPickerOpen = false;
   state.chatSessionPickerSurface = null;
   requestHostUpdate(state);
+}
+
+export function resetChatSessionPickerState(state: AppViewState) {
+  clearChatSessionPickerSearchTimer(state);
+  invalidateChatSessionPickerSearchRequests(state);
+  state.chatSessionPickerOpen = false;
+  state.chatSessionPickerSurface = null;
+  state.chatSessionPickerQuery = "";
+  state.chatSessionPickerAppliedQuery = "";
+  state.chatSessionPickerLoading = false;
+  state.chatSessionPickerError = null;
+  state.chatSessionPickerResult = null;
 }
 
 function toggleChatSessionPicker(state: AppViewState, surface: ChatSessionSelectSurface) {
@@ -238,6 +254,20 @@ function createChatSessionPickerRequestParams(
     configuredAgentsOnly: overrides.configuredAgentsOnly,
     limit: overrides.limit,
   };
+  const activeAgentSession = parseAgentSessionKey(state.sessionKey);
+  const activeSessionRow = state.sessionsResult?.sessions.find(
+    (row) => row.key === state.sessionKey,
+  );
+  const isGlobalScopeSession =
+    activeSessionRow?.kind === "global" ||
+    activeSessionRow?.kind === "unknown" ||
+    state.sessionKey === "global" ||
+    state.sessionKey === "unknown";
+  if (activeAgentSession || !isGlobalScopeSession) {
+    params.agentId = normalizeAgentId(
+      activeAgentSession?.agentId ?? state.agentsList?.defaultId ?? "main",
+    );
+  }
   const offset =
     typeof overrides.offset === "number" && Number.isFinite(overrides.offset)
       ? Math.max(0, Math.floor(overrides.offset))
@@ -361,6 +391,9 @@ function clearChatSessionPickerSearch(state: AppViewState, options: { focus?: bo
   state.chatSessionPickerResult = null;
   state.chatSessionPickerLoading = false;
   requestHostUpdate(state);
+  if (state.chatSessionPickerOpen) {
+    void loadChatSessionPickerPage(state);
+  }
   if (options.focus ?? true) {
     focusChatSessionPickerSearch(state);
   }
@@ -394,7 +427,7 @@ function updateChatSessionPickerSearchQuery(state: AppViewState, nextQuery: stri
 }
 
 async function loadMoreChatSessionPickerResults(state: AppViewState) {
-  const result = resolveChatSessionPickerResult(state);
+  const result = state.chatSessionPickerResult;
   const offset = resolveNextChatSessionOffset(result);
   if (offset === null) {
     return;
@@ -417,10 +450,28 @@ function resolveChatSessionRow(
 }
 
 function resolveChatSessionPickerResult(state: AppViewState): SessionsListResult | null {
-  if (state.chatSessionPickerResult || state.chatSessionPickerAppliedQuery) {
+  if (
+    state.chatSessionPickerResult ||
+    state.chatSessionPickerAppliedQuery ||
+    state.chatSessionPickerOpen
+  ) {
     return state.chatSessionPickerResult;
   }
   return state.sessionsResult;
+}
+
+function resolveChatSessionPickerRows(
+  state: AppViewState,
+  result: SessionsListResult | null,
+): { row: SessionsListResult["sessions"][number]; label: string }[] {
+  const rowsByKey = new Map((result?.sessions ?? []).map((row) => [row.key, row] as const));
+  return resolveSessionOptionGroups(state, state.sessionKey, result)
+    .flatMap((group) => group.options)
+    .filter((option) => rowsByKey.has(option.key))
+    .map((option) => ({
+      row: rowsByKey.get(option.key)!,
+      label: option.label,
+    }));
 }
 
 function resolveSelectedChatSessionLabel(
@@ -445,8 +496,9 @@ function formatChatSessionPickerMeta(row: SessionsListResult["sessions"][number]
       .filter(Boolean)
       .join("/"),
   ].filter(Boolean);
-  if (typeof row.updatedAt === "number" && Number.isFinite(row.updatedAt)) {
-    parts.push(new Date(row.updatedAt).toLocaleString());
+  const updatedAt = formatDateTimeMs(row.updatedAt, undefined, "");
+  if (updatedAt) {
+    parts.push(updatedAt);
   }
   return parts.join(" · ");
 }
@@ -497,7 +549,7 @@ function renderChatSessionPickerPopover(
   pickerId: string,
 ) {
   const result = resolveChatSessionPickerResult(state);
-  const rows = result?.sessions ?? [];
+  const pickerRows = resolveChatSessionPickerRows(state, result);
   const controlsDisabled = !state.connected || !state.client;
   const normalizedQuery = normalizeOptionalString(state.chatSessionPickerQuery) ?? "";
   const searchPending = normalizedQuery !== state.chatSessionPickerAppliedQuery;
@@ -505,7 +557,7 @@ function renderChatSessionPickerPopover(
   const hasQuery =
     state.chatSessionPickerQuery.trim() !== "" || state.chatSessionPickerAppliedQuery.trim() !== "";
   const loadMoreOffset = resolveNextChatSessionOffset(result);
-  const shownCount = rows.length;
+  const shownCount = pickerRows.length;
   const totalCount = result?.totalCount;
   const countLabel =
     typeof totalCount === "number" && Number.isFinite(totalCount)
@@ -544,7 +596,11 @@ function renderChatSessionPickerPopover(
                 void applyChatSessionPickerSearch(state);
               }
             }}
-            @blur=${() => void applyChatSessionPickerSearch(state)}
+            @blur=${() => {
+              if (normalizeOptionalString(state.chatSessionPickerQuery)) {
+                void applyChatSessionPickerSearch(state);
+              }
+            }}
           />
         </label>
         <button
@@ -578,17 +634,17 @@ function renderChatSessionPickerPopover(
           </div>`
         : ""}
       <div class="chat-session-picker__list" role="listbox">
-        ${state.chatSessionPickerLoading && rows.length === 0
+        ${state.chatSessionPickerLoading && pickerRows.length === 0
           ? html`<div class="chat-session-picker__status">${t("common.loading")}</div>`
           : ""}
-        ${!state.chatSessionPickerLoading && rows.length === 0
+        ${!state.chatSessionPickerLoading && pickerRows.length === 0
           ? html`<div class="chat-session-picker__status">${t("sessionsView.noSessions")}</div>`
           : ""}
         ${repeat(
-          rows,
-          (row) => row.key,
-          (row) => {
-            const label = resolveSessionDisplayName(row.key, row);
+          pickerRows,
+          (entry) => entry.row.key,
+          (entry) => {
+            const { row, label } = entry;
             const meta = formatChatSessionPickerMeta(row);
             const selected = row.key === state.sessionKey;
             return html`

@@ -1,3 +1,12 @@
+import { GATEWAY_CLIENT_IDS } from "../../../packages/gateway-protocol/src/client-info.js";
+import {
+  ErrorCodes,
+  errorShape,
+  formatValidationErrors,
+  validateExecApprovalGetParams,
+  validateExecApprovalRequestParams,
+  validateExecApprovalResolveParams,
+} from "../../../packages/gateway-protocol/src/index.js";
 import { resolveExecCommandHighlighting } from "../../config/exec-command-highlighting.js";
 import { resolveCommandAnalysisSummaryForDisplay } from "../../infra/command-analysis/explain.js";
 import {
@@ -22,21 +31,13 @@ import {
 import { resolveSystemRunApprovalRequestContext } from "../../infra/system-run-approval-context.js";
 import { normalizeOptionalString } from "../../shared/string-coerce.js";
 import type { ExecApprovalManager } from "../exec-approval-manager.js";
-import { GATEWAY_CLIENT_IDS } from "../protocol/client-info.js";
-import {
-  ErrorCodes,
-  errorShape,
-  formatValidationErrors,
-  validateExecApprovalGetParams,
-  validateExecApprovalRequestParams,
-  validateExecApprovalResolveParams,
-} from "../protocol/index.js";
 import {
   handleApprovalWaitDecision,
   handlePendingApprovalRequest,
   handleApprovalResolve,
   isApprovalDecision,
   isApprovalRecordVisibleToClient,
+  listVisiblePendingApprovalRequests,
   respondPendingApprovalLookupError,
   resolvePendingApprovalRecord,
 } from "./approval-shared.js";
@@ -136,19 +137,7 @@ export function createExecApprovalHandlers(
       );
     },
     "exec.approval.list": async ({ respond, client }) => {
-      respond(
-        true,
-        manager
-          .listPendingRecords()
-          .filter((record) => isApprovalRecordVisibleToClient({ record, client }))
-          .map((record) => ({
-            id: record.id,
-            request: record.request,
-            createdAtMs: record.createdAtMs,
-            expiresAtMs: record.expiresAtMs,
-          })),
-        undefined,
-      );
+      respond(true, listVisiblePendingApprovalRequests({ manager, client }), undefined);
     },
     "exec.approval.request": async ({ params, respond, context, client }) => {
       if (!validateExecApprovalRequestParams(params)) {
@@ -187,6 +176,8 @@ export function createExecApprovalHandlers(
         turnSourceTo?: string;
         turnSourceAccountId?: string;
         turnSourceThreadId?: string | number;
+        requireDeliveryRoute?: boolean;
+        suppressDelivery?: boolean;
         timeoutMs?: number;
         twoPhase?: boolean;
       };
@@ -368,6 +359,8 @@ export function createExecApprovalHandlers(
         requestEvent,
         twoPhase,
         approvalKind: "exec",
+        requireDeliveryRoute: p.requireDeliveryRoute,
+        suppressDelivery: p.suppressDelivery,
         deliverRequest: () => {
           const deliveryTasks: Array<Promise<boolean>> = [];
           if (opts?.forwarder) {

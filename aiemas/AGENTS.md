@@ -34,3 +34,9 @@
   - 只读查询类（如 `aiemas.fs.list`）→ `new Set(["admin", "member", "viewer"])`
   - 写操作类（如 `aiemas.agents.preDelete`、`aiemas.agents.export`、`aiemas.files.download`、`aiemas.file.upload`）→ `new Set(["admin", "member"])`
   - 创建/破坏性操作类（如 `aiemas.agents.import`）→ `new Set(["admin"])`
+
+## 6. 冲突解决原则：
+
+- 1. 修复前务必先分析冲突原因，谨慎删除代码
+- 2. 优先使用main中的代码
+- 3. 如果是aiemas或mas4s中修改，务必保留

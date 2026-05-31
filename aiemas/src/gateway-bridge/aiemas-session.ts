@@ -6,7 +6,7 @@ import { constructKeyFromUuid } from "../utils/session-utils.js";
 import type { Mas4sGatewayPlugin, SendToConnIdFn } from "./aiemas-types.js";
 import { str, sendToConnId, buildConnectedUsers, type GatewayClient } from "./aiemas-utils.js";
 import { GatewayAuthBridge } from "./bridge.js";
-import { MasAuthContext, NULL_MAS_AUTH } from "./context.js";
+import { type MasAuthContext, NULL_MAS_AUTH } from "./context.js";
 import { extractDescendantAgentIds } from "./topology-utils.js";
 
 export interface SessionContext {

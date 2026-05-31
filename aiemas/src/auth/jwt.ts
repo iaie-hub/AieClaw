@@ -5,7 +5,7 @@ import {
   TOKEN_INVALID,
   JWT_SECRET_TOO_SHORT,
 } from "../errors.js";
-import { GlobalRole } from "../models.js";
+import { type GlobalRole } from "../models.js";
 
 // ── Key initialisation ────────────────────────────────────────────────────────
 
