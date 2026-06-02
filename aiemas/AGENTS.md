@@ -35,7 +35,10 @@
   - 写操作类（如 `aiemas.agents.preDelete`、`aiemas.agents.export`、`aiemas.files.download`、`aiemas.file.upload`）→ `new Set(["admin", "member"])`
   - 创建/破坏性操作类（如 `aiemas.agents.import`）→ `new Set(["admin"])`
 
-## 6. 冲突解决原则：
+## 6. 代码修改原则
+- **标记为aiemas**: 将aiemas目录外的修改标记为aiemas，避免后续冲突时被删除
+
+## 7. 冲突解决原则：
 
 - 1. 修复前务必先分析冲突原因，谨慎删除代码
 - 2. 优先使用main中的代码

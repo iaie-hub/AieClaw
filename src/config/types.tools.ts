@@ -83,6 +83,13 @@ export type MediaUnderstandingModelConfig = MediaProviderRequestConfig & {
 export type MediaUnderstandingConfig = MediaProviderRequestConfig & {
   /** Enable media understanding when models are configured. */
   enabled?: boolean;
+  /**
+   * [aiemas] Force image attachments to be offloaded to local media store instead of
+   * being sent inline to the primary model provider. When true, images are
+   * never uploaded as input_image blocks; the agent uses the image tool with
+   * local media:// references instead. Default: false.
+   */
+  forceOffload?: boolean;
   /** Optional scope gating for understanding. */
   scope?: MediaUnderstandingScopeConfig;
   /** Default max bytes to send. */

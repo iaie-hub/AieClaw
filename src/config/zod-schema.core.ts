@@ -982,6 +982,7 @@ const MediaUnderstandingModelSchema = z
 const ToolsMediaUnderstandingSchema = z
   .object({
     enabled: z.boolean().optional(),
+    forceOffload: z.boolean().optional(), // [aiemas] force image offload to local media store
     scope: MediaUnderstandingScopeSchema,
     maxBytes: z.number().int().positive().optional(),
     maxChars: z.number().int().positive().optional(),

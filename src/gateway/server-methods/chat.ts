@@ -2930,7 +2930,12 @@ export const chatHandlers: GatewayRequestHandlers = {
               explicitOriginTargetsPlugin;
             // Bound plugin sessions own the real recipient model, so keep image
             // attachments even when the parent OpenClaw session model is text-only.
-            const supportsImages = supportsSessionModelImages || explicitOriginSupportsInlineImages;
+            // [aiemas] When forceOffload is enabled, always route images through local media
+            // store and the image tool — never upload them to the model provider.
+            const forceImageOffload = cfg.tools?.media?.image?.forceOffload === true; // [aiemas]
+            const supportsImages = forceImageOffload // [aiemas]
+              ? false // [aiemas]
+              : supportsSessionModelImages || explicitOriginSupportsInlineImages; // [aiemas]
             const routeImageOffloadsAsMediaPaths = !supportsImages;
             const parsed = await parseMessageWithAttachments(
               inboundMessage,
