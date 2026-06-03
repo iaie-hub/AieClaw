@@ -22,6 +22,11 @@ export class SessionsView extends LitElement {
   @state() private _sessionsError = "";
   @state() private _historyError = "";
 
+  // ── Filter State ───────────────────────────────────────────────────────────
+  @state() private _filterActiveMinutes = 120;
+  @state() private _filterLimit = 200;
+  @state() private _filterShowArchived = false;
+
   static styles = css`
     :host {
       display: flex;
@@ -59,13 +64,17 @@ export class SessionsView extends LitElement {
     try {
       const client = getClient();
       await client.waitConnected();
-      const result = await client.request("sessions.list", {
+      const params: Record<string, unknown> = {
         includeGlobal: true,
-        includeUnknown: false,
+        includeUnknown: true,
         configuredAgentsOnly: false,
-        activeMinutes: 120,
-        limit: 200,
-      });
+        limit: this._filterLimit,
+      };
+      // When showArchived is off, apply activeMinutes filter
+      if (!this._filterShowArchived && this._filterActiveMinutes > 0) {
+        params.activeMinutes = this._filterActiveMinutes;
+      }
+      const result = await client.request("sessions.list", params);
       const sessions = (result as { sessions?: SessionListItem[] })?.sessions ?? (result as SessionListItem[]);
       this._sessions = sortSessionsByUpdatedAt(
         Array.isArray(sessions) ? sessions : [],
@@ -139,6 +148,44 @@ export class SessionsView extends LitElement {
     void this._fetchSessions();
   };
 
+  private _onFilterChange = (
+    e: CustomEvent<{
+      activeMinutes: number;
+      limit: number;
+      showArchived: boolean;
+    }>,
+  ) => {
+    const f = e.detail;
+    this._filterActiveMinutes = f.activeMinutes;
+    this._filterLimit = f.limit;
+    this._filterShowArchived = f.showArchived;
+    void this._fetchSessions();
+  };
+
+  private _onSessionDelete = async (e: CustomEvent<{ key: string }>) => {
+    const { key } = e.detail;
+    try {
+      const client = getClient();
+      await client.request("sessions.delete", { key, deleteTranscript: true });
+      // Remove from local list
+      this._sessions = this._sessions.filter((s) => s.key !== key);
+      // Clear selection if deleted session was selected
+      if (this._selectedSessionKey === key) {
+        this._selectedSessionKey = "";
+        this._messages = [];
+      }
+    } catch (err) {
+      console.error("[sessions-view] sessions.delete failed:", err);
+    }
+  };
+
+  private _onSessionRefresh = (e: CustomEvent<{ key: string }>) => {
+    const { key } = e.detail;
+    if (key === this._selectedSessionKey) {
+      void this._fetchHistory(key);
+    }
+  };
+
   // ── Computed ───────────────────────────────────────────────────────────────
 
   private get _selectedSession(): SessionListItem | undefined {
@@ -155,8 +202,14 @@ export class SessionsView extends LitElement {
         .selectedSessionKey=${this._selectedSessionKey}
         .loading=${this._loadingSessions}
         .error=${this._sessionsError}
+        .filterActiveMinutes=${this._filterActiveMinutes}
+        .filterLimit=${this._filterLimit}
+        .filterShowArchived=${this._filterShowArchived}
         @session-select=${this._onSessionSelect}
         @retry-fetch=${this._onRetryFetch}
+        @filter-change=${this._onFilterChange}
+        @session-delete=${this._onSessionDelete}
+        @session-refresh=${this._onSessionRefresh}
       ></sessions-list-panel>
       <div class="content-panel-wrapper">
         <session-content-panel

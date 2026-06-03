@@ -13,6 +13,9 @@ export class SessionsListPanel extends LitElement {
   @property({ type: String }) selectedSessionKey = "";
   @property({ type: Boolean }) loading = false;
   @property({ type: String }) error = "";
+  @property({ type: Number }) filterActiveMinutes = 120;
+  @property({ type: Number }) filterLimit = 200;
+  @property({ type: Boolean }) filterShowArchived = false;
 
   static styles = css`
     :host {
@@ -55,6 +58,83 @@ export class SessionsListPanel extends LitElement {
       font-size: 15px;
       color: #1e293b;
       letter-spacing: -0.01em;
+    }
+
+    /* ── Filter Bar ── */
+    .filter-bar {
+      padding: 6px 10px;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 5px;
+      border-bottom: 1px solid rgba(226, 232, 240, 0.5);
+      flex-shrink: 0;
+      background: rgba(248, 250, 252, 0.6);
+    }
+
+    .filter-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      height: 24px;
+      padding: 0 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+      border: 1px solid #e2e8f0;
+      background: white;
+      color: #64748b;
+      transition: all 0.15s ease;
+      cursor: default;
+    }
+
+    .filter-chip input {
+      width: 40px;
+      border: none;
+      background: transparent;
+      font-size: 11px;
+      font-weight: 600;
+      color: #334155;
+      text-align: center;
+      outline: none;
+      padding: 0;
+      font-family: inherit;
+    }
+
+    .filter-chip input:disabled {
+      opacity: 0.4;
+    }
+
+    .filter-chip--toggle {
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .filter-chip--toggle:hover {
+      border-color: #cbd5e1;
+      background: #f8fafc;
+    }
+
+    .filter-chip--toggle.active {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      color: #2563eb;
+    }
+
+    .filter-chip--toggle.active:hover {
+      background: #dbeafe;
+    }
+
+    .chip-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.6;
+    }
+
+    .filter-chip--toggle.active .chip-dot {
+      opacity: 1;
     }
 
     /* ── Session List ── */
@@ -129,11 +209,51 @@ export class SessionsListPanel extends LitElement {
 
     .item-time {
       font-size: 11px;
-      color: #94a3b8;
+      color: #3b82f6;
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
       flex-shrink: 0;
-      font-family: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
+    }
+
+    /* ── Hover Actions ── */
+    .item-actions {
+      display: none;
+      align-items: center;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+
+    .session-item:hover .item-actions {
+      display: flex;
+    }
+
+    .session-item:hover .item-time {
+      display: none;
+    }
+
+    .action-btn {
+      width: 22px;
+      height: 22px;
+      border: none;
+      background: transparent;
+      border-radius: 5px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #94a3b8;
+      transition: all 0.15s ease;
+      padding: 0;
+    }
+
+    .action-btn:hover {
+      background: rgba(226, 232, 240, 0.6);
+      color: #475569;
+    }
+
+    .action-btn.delete:hover {
+      background: rgba(239, 68, 68, 0.08);
+      color: #ef4444;
     }
 
     .item-bottom {
@@ -143,37 +263,14 @@ export class SessionsListPanel extends LitElement {
       gap: 6px;
     }
 
-    /* ── Status Badge ── */
-    .status-badge {
-      display: inline-flex;
-      align-items: center;
-      font-size: 10px;
-      font-weight: 600;
-      padding: 2px 7px;
-      border-radius: 6px;
-      letter-spacing: 0.02em;
-      line-height: 1.3;
-    }
-
-    .status-badge.running {
-      background: rgba(59, 130, 246, 0.1);
-      color: #2563eb;
-    }
-
-    .status-badge.done {
-      background: rgba(16, 185, 129, 0.1);
-      color: #059669;
-    }
-
-    .status-badge.failed,
-    .status-badge.killed {
-      background: rgba(239, 68, 68, 0.08);
-      color: #dc2626;
-    }
-
-    .status-badge.timeout {
-      background: rgba(245, 158, 11, 0.1);
-      color: #d97706;
+    /* ── Subtitle ── */
+    .item-subtitle {
+      font-size: 11px;
+      color: #94a3b8;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
     }
 
     /* ── Loading State ── */
@@ -292,6 +389,28 @@ export class SessionsListPanel extends LitElement {
     );
   }
 
+  private _onSessionDelete(key: string, e: Event) {
+    e.stopPropagation();
+    this.dispatchEvent(
+      new CustomEvent("session-delete", {
+        detail: { key },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  private _onSessionRefresh(key: string, e: Event) {
+    e.stopPropagation();
+    this.dispatchEvent(
+      new CustomEvent("session-refresh", {
+        detail: { key },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
   private _onRetry() {
     this.dispatchEvent(
       new CustomEvent("retry-fetch", {
@@ -301,38 +420,54 @@ export class SessionsListPanel extends LitElement {
     );
   }
 
+  private _dispatchFilterChange() {
+    this.dispatchEvent(
+      new CustomEvent("filter-change", {
+        detail: {
+          activeMinutes: this.filterActiveMinutes,
+          limit: this.filterLimit,
+          showArchived: this.filterShowArchived,
+        },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  private _onActiveMinutesInput(e: Event) {
+    const val = parseInt((e.target as HTMLInputElement).value, 10);
+    this.filterActiveMinutes = Number.isFinite(val) && val >= 0 ? val : 0;
+    this._dispatchFilterChange();
+  }
+
+  private _onLimitInput(e: Event) {
+    const val = parseInt((e.target as HTMLInputElement).value, 10);
+    this.filterLimit = Number.isFinite(val) && val > 0 ? val : 200;
+    this._dispatchFilterChange();
+  }
+
+  private _toggleArchived() {
+    this.filterShowArchived = !this.filterShowArchived;
+    this._dispatchFilterChange();
+  }
+
   // ── 工具函数 ──────────────────────────────────────────────────────────────
 
-  private _formatRelativeTime(ts: number): string {
+  private _formatShortDate(ts: number): string {
     if (!ts) return "";
-    const now = Date.now();
-    const diff = now - ts;
-
-    const seconds = Math.floor(diff / 1000);
-    if (seconds < 60) return "刚刚";
-
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}分钟前`;
-
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}小时前`;
-
-    const days = Math.floor(hours / 24);
-    if (days < 30) return `${days}天前`;
-
-    const months = Math.floor(days / 30);
-    if (months < 12) return `${months}个月前`;
-
-    return `${Math.floor(months / 12)}年前`;
+    const d = new Date(ts);
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${month}-${day}`;
   }
 
   // ── 渲染 ──────────────────────────────────────────────────────────────────
 
   private _renderSessionItem(session: SessionListItem) {
     const isActive = session.key === this.selectedSessionKey;
-    const displayName = session.label || session.key;
-    const timeStr = this._formatRelativeTime(session.updatedAt);
-    const status = session.status || "running";
+    const title = session.label || session.key;
+    const subtitle = session.displayName || "";
+    const timeStr = this._formatShortDate(session.updatedAt);
 
     return html`
       <div
@@ -346,15 +481,39 @@ export class SessionsListPanel extends LitElement {
             this._onSessionClick(session.key);
           }
         }}
-        title=${displayName}
+        title=${title}
       >
         <div class="item-top">
-          <span class="item-model">${displayName}</span>
+          <span class="item-model">${title}</span>
           <span class="item-time">${timeStr}</span>
+          <div class="item-actions">
+            <button
+              class="action-btn"
+              title="刷新"
+              @click=${(e: Event) => this._onSessionRefresh(session.key, e)}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+              </svg>
+            </button>
+            <button
+              class="action-btn delete"
+              title="删除"
+              @click=${(e: Event) => this._onSessionDelete(session.key, e)}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+          </div>
         </div>
-        <div class="item-bottom">
-          <span class="status-badge ${status}">${status}</span>
-        </div>
+        ${subtitle
+          ? html`<div class="item-bottom">
+              <span class="item-subtitle">${subtitle}</span>
+            </div>`
+          : html``}
       </div>
     `;
   }
@@ -419,6 +578,33 @@ export class SessionsListPanel extends LitElement {
     return html`
       <div class="panel-header">
         <span class="panel-title">会话列表</span>
+      </div>
+
+      <div class="filter-bar">
+        <span class="filter-chip">
+          活跃
+          <input
+            type="number"
+            .value=${String(this.filterActiveMinutes)}
+            ?disabled=${this.filterShowArchived}
+            @change=${(e: Event) => this._onActiveMinutesInput(e)}
+          />
+        </span>
+        <span class="filter-chip">
+          限制
+          <input
+            type="number"
+            .value=${String(this.filterLimit)}
+            @change=${(e: Event) => this._onLimitInput(e)}
+          />
+        </span>
+        <button
+          class="filter-chip filter-chip--toggle ${this.filterShowArchived ? "active" : ""}"
+          @click=${() => this._toggleArchived()}
+        >
+          <span class="chip-dot"></span>
+          显示已归档
+        </button>
       </div>
 
       ${this.loading

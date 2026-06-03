@@ -27,6 +27,7 @@ export interface SessionListItem {
   hasActiveRun: boolean;
   contextTokens: number;
   label?: string;
+  displayName?: string;
 }
 
 // ── Content Normalization ─────────────────────────────────────────────────────
