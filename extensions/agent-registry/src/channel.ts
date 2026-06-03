@@ -53,6 +53,7 @@ import type {
 } from "./types.js";
 import { sendMessage } from "./unicast-sender.js";
 import type { SendMessageParams } from "./unicast-sender.js";
+import { isSilentReplyPayloadText } from "openclaw/plugin-sdk/reply-chunking";
 
 function resolveWorkerUrl(currentModuleUrl: string): URL {
   const currentPath = fileURLToPath(currentModuleUrl);
@@ -258,6 +259,13 @@ function createAgentSession(params: {
                   : "";
 
               if (responseText) {
+                if (isSilentReplyPayloadText(responseText)) {
+                  console.info(
+                    `[agent-registry] Suppressed silent response (NO_REPLY) for session "${sessionKey}" to prevent NATS channel clutter.`,
+                  );
+                  return;
+                }
+
                 const sessionContext =
                   sessionContextKind === "cowork"
                     ? ({ kind: "cowork", coworkId: sessionKey, isComplete: false } as const)
