@@ -488,6 +488,7 @@ export class LoginView extends LitElement {
       localStorage.setItem("mas4s_ws_url", this._wsUrl);
       localStorage.setItem("mas4s_ws_token", this._wsToken);
       resetClient();
+      this._gwTestResult = { ok: true, msg: "连接成功" };
       // 通知父组件：连接成功，携带 initialized 状态，父组件直接跳转，无需再次 _checkSystemStatus
       this.dispatchEvent(
         new CustomEvent("gateway-connect", {

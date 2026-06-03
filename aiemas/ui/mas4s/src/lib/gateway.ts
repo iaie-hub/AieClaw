@@ -2,11 +2,21 @@
  * 自包含的 GatewayBrowserClient（mas4s 专用简化版）。
  *
  * 相比 openclaw ui/gateway.ts 的简化：
- * - 去掉 device-auth / device-identity（mas4s 是本地内部工具，不需要设备配对）
  * - 保留完整的 WebSocket 连接、重连、请求/响应、事件分发逻辑
  * - 保留 token/password 认证
  * - 正确处理 connect.challenge nonce（收到后立即发送 connect，不等 750ms 定时器）
  */
+
+import {
+  loadOrCreateDeviceIdentity,
+  signDevicePayload,
+  buildDeviceAuthPayload,
+} from "./device-identity.js";
+import {
+  loadDeviceAuthToken,
+  storeDeviceAuthToken,
+  clearDeviceAuthToken,
+} from "./device-auth.js";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────────
 
@@ -110,6 +120,7 @@ export class GatewayBrowserClient {
   private pending = new Map<string, Pending>();
   private closed = false;
   private lastSeq: number | null = null;
+  private connectNonce: string | null = null;
   private connectSent = false;
   private connectTimer: number | null = null;
   private backoffMs = 800;
@@ -201,6 +212,7 @@ export class GatewayBrowserClient {
    * timer fires sendConnect() as a fallback.
    */
   private queueConnect() {
+    this.connectNonce = null;
     this.connectSent = false;
     this._helloReceived = false;
     this.clearConnectTimer();
@@ -217,32 +229,106 @@ export class GatewayBrowserClient {
     this.connectSent = true;
     this.clearConnectTimer();
 
-    const params = {
+    const clientInfo = {
+      id: "mas4s-ui",
+      version: this.opts.clientVersion ?? "mas4s-ui",
+      platform: "web",
+      mode: "ui" as const,
+      instanceId: this.opts.instanceId,
+    };
+    const role = "operator";
+    const scopes = ["operator.admin", "operator.read", "operator.write", "operator.approvals"];
+
+    // Check secure context
+    const isSecureContext = typeof crypto !== "undefined" && !!crypto.subtle;
+    let deviceIdentity = null;
+    let device = undefined;
+
+    if (isSecureContext) {
+      try {
+        deviceIdentity = await loadOrCreateDeviceIdentity();
+        const signedAtMs = Date.now();
+        const nonce = this.connectNonce ?? "";
+        const explicitGatewayToken = this.opts.token?.trim() || undefined;
+
+        // Try loading stored device token to prioritize it, or use the explicit token
+        const storedEntry = loadDeviceAuthToken({
+          deviceId: deviceIdentity.deviceId,
+          role,
+        });
+        const activeToken = explicitGatewayToken ?? storedEntry?.token;
+
+        const payload = buildDeviceAuthPayload({
+          deviceId: deviceIdentity.deviceId,
+          clientId: clientInfo.id,
+          clientMode: clientInfo.mode,
+          role,
+          scopes,
+          signedAtMs,
+          token: activeToken ?? null,
+          nonce,
+        });
+
+        const signature = await signDevicePayload(deviceIdentity.privateKey, payload);
+        device = {
+          id: deviceIdentity.deviceId,
+          publicKey: deviceIdentity.publicKey,
+          signature,
+          signedAt: signedAtMs,
+          nonce,
+        };
+      } catch (err) {
+        console.warn("[gateway] failed to build device identity:", err);
+      }
+    }
+
+    // Determine the auth parameters. We want to load the stored deviceToken if available.
+    let activeDeviceToken = undefined;
+    if (deviceIdentity) {
+      const storedEntry = loadDeviceAuthToken({
+        deviceId: deviceIdentity.deviceId,
+        role,
+      });
+      activeDeviceToken = storedEntry?.token;
+    }
+
+    const params: any = {
       minProtocol: 4,
       maxProtocol: 4,
-      client: {
-        id: "mas4s-ui",
-        version: this.opts.clientVersion ?? "mas4s-ui",
-        platform: "web",
-        mode: "ui",
-        instanceId: this.opts.instanceId,
-      },
-      role: "operator",
-      scopes: ["operator.admin", "operator.read", "operator.write", "operator.approvals"],
+      client: clientInfo,
+      role,
+      scopes,
+      device,
       caps: ["tool-events"],
       auth:
-        this.opts.token || this.opts.password
-          ? { token: this.opts.token, password: this.opts.password }
+        this.opts.token || this.opts.password || activeDeviceToken
+          ? {
+              token: this.opts.token,
+              password: this.opts.password,
+              deviceToken: activeDeviceToken,
+            }
           : undefined,
       userAgent: navigator.userAgent,
       locale: navigator.language,
     };
 
+    const targetDeviceIdentity = deviceIdentity; // keep ref for closure
     void this.request<GatewayHelloOk>("connect", params)
       .then((hello) => {
         this.backoffMs = 800;
         this.reconnectAttempts = 0;
         this._helloReceived = true;
+
+        // Store returned deviceToken if present
+        if (hello?.auth?.deviceToken && targetDeviceIdentity) {
+          storeDeviceAuthToken({
+            deviceId: targetDeviceIdentity.deviceId,
+            role: hello.auth.role ?? role,
+            token: hello.auth.deviceToken,
+            scopes: hello.auth.scopes ?? scopes,
+          });
+        }
+
         const resolvers = this._readyResolvers.splice(0);
         for (const r of resolvers) {
           r();
@@ -250,15 +336,26 @@ export class GatewayBrowserClient {
         this.opts.onHello?.(hello);
       })
       .catch((err: unknown) => {
+        let errorCode = "";
         if (err instanceof GatewayRequestError) {
           this.pendingConnectError = {
             code: err.gatewayCode,
             message: err.message,
             details: err.details,
           };
+          errorCode = err.gatewayCode;
         } else {
           this.pendingConnectError = undefined;
         }
+
+        // If auth failed because of device token mismatch, clear it
+        if (errorCode === "AUTH_DEVICE_TOKEN_MISMATCH" && targetDeviceIdentity) {
+          clearDeviceAuthToken({
+            deviceId: targetDeviceIdentity.deviceId,
+            role,
+          });
+        }
+
         this.ws?.close(CONNECT_FAILED_CLOSE_CODE, "connect failed");
       });
   }
@@ -284,6 +381,7 @@ export class GatewayBrowserClient {
         const payload = evt.payload as { nonce?: unknown } | undefined;
         const nonce = payload && typeof payload.nonce === "string" ? payload.nonce : null;
         if (nonce) {
+          this.connectNonce = nonce;
           void this.sendConnect();
         }
         return;
