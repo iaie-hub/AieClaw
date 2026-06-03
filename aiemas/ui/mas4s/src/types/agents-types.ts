@@ -7,7 +7,7 @@ export interface AgentEntry {
   workspace: string;
   model: {
     primary: string;
-    fallbacks: string[];
+    fallbacks?: string[];
   };
 }
 

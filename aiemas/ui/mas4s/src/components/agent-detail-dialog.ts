@@ -207,7 +207,7 @@ export class AgentDetailDialog extends LitElement {
         </div>
         <div class="info-bar">
           <div>主模型: <span>${a.model.primary}</span></div>
-          ${a.model.fallbacks.length > 0
+          ${a.model.fallbacks && a.model.fallbacks.length > 0
             ? html`<div>回退模型: <span>${a.model.fallbacks.join(", ")}</span></div>`
             : nothing}
           <div>工作区: <span>${a.workspace}</span></div>

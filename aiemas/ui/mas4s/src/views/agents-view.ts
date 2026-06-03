@@ -567,7 +567,7 @@ export class AgentsView extends LitElement {
                     const nameMatch = (a.name || a.id).toLowerCase().includes(q);
                     const modelMatch =
                       a.model.primary.toLowerCase().includes(q) ||
-                      a.model.fallbacks.some((f) => f.toLowerCase().includes(q));
+                      (a.model.fallbacks || []).some((f) => f.toLowerCase().includes(q));
                     return nameMatch || modelMatch;
                   })
                   .map(
