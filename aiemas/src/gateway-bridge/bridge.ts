@@ -132,6 +132,11 @@ export class GatewayAuthBridge {
       return sessions;
     }
 
+    // Admin override: admins can see all sessions (consistent with checkSessionAccess)
+    if (masAuth.masRole === "admin") {
+      return sessions;
+    }
+
     const memberUuids = new Set(sessionManager.listSessionsForUser(this.db, masAuth.userId));
     const seenUuids = new Set<string>();
     const result: unknown[] = [];

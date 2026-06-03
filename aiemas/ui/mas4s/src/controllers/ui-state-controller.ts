@@ -1,6 +1,7 @@
 export type DialogKind = "none" | "invite";
 export type NavItem =
   | "workspace"
+  | "sessions"
   | "usage"
   | "agents"
   | "skills"

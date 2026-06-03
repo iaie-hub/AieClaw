@@ -4,6 +4,7 @@ import { getClient } from "../gateway/client.js";
 import type { AppStore } from "../store/app-store.js";
 import { extractAgentNameFromKey } from "../utils/session-utils.js";
 import "./clawhub-view.js";
+import "./sessions-view.js";
 import "./settings.js";
 
 export interface AppShellHandlers {
@@ -114,16 +115,18 @@ export function renderMain(
                   @nav-change=${h.onNavChange}
                 ></clawhub-view>
               `
-            : activeNav === "settings"
-              ? html`
-                  <settings-view
-                    style="flex: 1; overflow: hidden"
-                    .client=${getClient()}
-                    .role=${store.currentUser?.role ?? "viewer"}
-                    .localAgents=${store.agents}
-                  ></settings-view>
-                `
-              : html`
+            : activeNav === "sessions"
+              ? html`<sessions-view style="flex: 1; overflow: hidden"></sessions-view>`
+              : activeNav === "settings"
+                ? html`
+                    <settings-view
+                      style="flex: 1; overflow: hidden"
+                      .client=${getClient()}
+                      .role=${store.currentUser?.role ?? "viewer"}
+                      .localAgents=${store.agents}
+                    ></settings-view>
+                  `
+                : html`
                   <main-workspace
                     .activeNav=${activeNav}
                     .session=${store.activeSession ?? null}
