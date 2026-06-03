@@ -60,6 +60,22 @@ export class SessionsListPanel extends LitElement {
       letter-spacing: -0.01em;
     }
 
+    .session-count {
+      margin-left: auto;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 6px;
+      border-radius: 10px;
+      background: #e2e8f0;
+      color: #64748b;
+      font-size: 11px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+
     /* ── Filter Bar ── */
     .filter-bar {
       padding: 6px 10px;
@@ -578,6 +594,7 @@ export class SessionsListPanel extends LitElement {
     return html`
       <div class="panel-header">
         <span class="panel-title">会话列表</span>
+        <span class="session-count">${this.sessions.length}</span>
       </div>
 
       <div class="filter-bar">
