@@ -1,9 +1,10 @@
 import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { getClient } from "../gateway/client.js";
+import type { ChatMessage } from "../types/chat-types.js";
 import type { SessionListItem } from "../types/session-types.js";
 import { sortSessionsByUpdatedAt, mapHistoryToChatMessages } from "../types/session-types.js";
-import type { ChatMessage } from "../types/chat-types.js";
+import { extractAgentNameFromKey } from "../utils/session-utils.js";
 import "../components/sessions-list-panel.js";
 import "../components/session-content-panel.js";
 
@@ -75,10 +76,9 @@ export class SessionsView extends LitElement {
         params.activeMinutes = this._filterActiveMinutes;
       }
       const result = await client.request("sessions.list", params);
-      const sessions = (result as { sessions?: SessionListItem[] })?.sessions ?? (result as SessionListItem[]);
-      this._sessions = sortSessionsByUpdatedAt(
-        Array.isArray(sessions) ? sessions : [],
-      );
+      const sessions =
+        (result as { sessions?: SessionListItem[] })?.sessions ?? (result as SessionListItem[]);
+      this._sessions = sortSessionsByUpdatedAt(Array.isArray(sessions) ? sessions : []);
     } catch (err: unknown) {
       console.error("[sessions-view] sessions.list failed:", err);
       this._sessionsError = err instanceof Error ? err.message : "获取会话列表失败";
@@ -94,18 +94,19 @@ export class SessionsView extends LitElement {
     try {
       const client = getClient();
       await client.waitConnected();
+      const parsedAgentId = sessionKey.startsWith("agent:")
+        ? extractAgentNameFromKey(sessionKey)
+        : undefined;
       const result = await client.request("chat.history", {
         sessionKey,
-        agentId: "main",
+        ...(parsedAgentId ? { agentId: parsedAgentId } : {}),
         limit: 100,
         maxChars: 4000,
       });
       // Race condition: if user switched sessions while loading, discard
       if (this._selectedSessionKey !== sessionKey) return;
       const rawMessages = (result as { messages?: unknown[] })?.messages ?? (result as unknown[]);
-      this._messages = mapHistoryToChatMessages(
-        Array.isArray(rawMessages) ? rawMessages : [],
-      );
+      this._messages = mapHistoryToChatMessages(Array.isArray(rawMessages) ? rawMessages : []);
     } catch (err: unknown) {
       // Race condition check
       if (this._selectedSessionKey !== sessionKey) return;
